@@ -16,31 +16,47 @@ export function LoginForm() {
 
   if (!ready) {
     return (
-      <div className="text-sm text-zinc-400">Loading...</div>
+      <div className="text-sm" style={{ color: '#9c9080' }}>Loading…</div>
     );
   }
 
   return (
-    <div className="w-full max-w-sm space-y-6">
-      <div className="space-y-2 text-center">
-        <h1 className="text-2xl font-semibold tracking-tight">Welcome</h1>
-        <p className="text-sm text-zinc-500">
-          Sign in to access the mindfulness knowledge platform
+    <div className="w-full max-w-sm space-y-6 text-center">
+      {/* Brand */}
+      <div className="space-y-1">
+        <div
+          className="inline-block text-xs font-medium px-3 py-1 rounded-full mb-3"
+          style={{ background: '#e8e0d5', color: '#5a6b52' }}
+        >
+          Paradox of Acceptance
+        </div>
+        <h1 className="text-2xl font-semibold tracking-tight" style={{ color: '#3d4f38' }}>
+          Convergence
+        </h1>
+        <p className="text-sm" style={{ color: '#7d8c6e' }}>
+          Ask anything about mindfulness.
         </p>
       </div>
 
       <button
         onClick={login}
-        className="w-full rounded-full bg-[#7d8c6e] px-5 py-3 text-sm font-medium text-white transition-colors hover:bg-[#6b7960]"
+        className="w-full rounded-full px-5 py-3 text-sm font-medium text-white transition-colors"
+        style={{ background: '#7d8c6e' }}
+        onMouseOver={(e) => (e.currentTarget.style.background = '#6b7960')}
+        onMouseOut={(e) => (e.currentTarget.style.background = '#7d8c6e')}
       >
         Continue with Email
       </button>
 
       {authenticated && user && (
-        <p className="text-center text-xs text-zinc-400">
+        <p className="text-xs" style={{ color: '#9c9080' }}>
           Signed in as {user.email?.address}
         </p>
       )}
+
+      <p className="text-xs" style={{ color: '#b0a898' }}>
+        Answers sourced from the Waking Up corpus
+      </p>
     </div>
   );
 }

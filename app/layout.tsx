@@ -14,8 +14,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Convergence",
-  description: "Mindfulness knowledge platform",
+  title: "Convergence — Ask anything about mindfulness",
+  description:
+    "RAG-powered Q&A over the Waking Up transcript corpus. Get sourced answers from 760+ hours of Sam Harris teachings. By Paradox of Acceptance.",
 };
 
 export default function RootLayout({

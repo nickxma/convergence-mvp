@@ -4,7 +4,7 @@ import { Pinecone } from '@pinecone-database/pinecone';
 
 const EMBED_MODEL = 'text-embedding-3-small';
 const CHAT_MODEL = 'gpt-4o-mini';
-const TOP_K = 6;
+const TOP_K = 10; // fetch extra to allow dedup headroom
 
 const SYSTEM_PROMPT = `You are a knowledgeable guide to the teachings of Sam Harris and the Waking Up community.
 Answer questions using only the provided transcript excerpts. Be direct and clear.
@@ -51,8 +51,10 @@ export async function POST(req: NextRequest) {
     includeMetadata: true,
   });
 
+  // Deduplicate by text content (duplicate source files can produce identical chunks)
+  const seenTexts = new Set<string>();
   const chunks = results.matches
-    .filter((m) => m.score && m.score > 0.3)
+    .filter((m) => m.score && m.score > 0.4)
     .map((m) => {
       const meta = m.metadata as Record<string, string> | undefined;
       return {
@@ -61,7 +63,13 @@ export async function POST(req: NextRequest) {
         source: meta?.source_file ?? '',
         score: m.score ?? 0,
       };
-    });
+    })
+    .filter((c) => {
+      if (seenTexts.has(c.text)) return false;
+      seenTexts.add(c.text);
+      return true;
+    })
+    .slice(0, 6);
 
   if (chunks.length === 0) {
     return NextResponse.json({
