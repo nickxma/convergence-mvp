@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, FormEvent, KeyboardEvent } from 'react';
+import { usePrivy } from '@privy-io/react-auth';
 
 interface Source {
   text: string;
@@ -91,6 +92,9 @@ function ThinkingDots() {
 }
 
 export function QAInterface() {
+  const { user } = usePrivy();
+  const walletAddress = user?.wallet?.address ?? null;
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -122,7 +126,7 @@ export function QAInterface() {
       const res = await fetch('/api/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question, history }),
+        body: JSON.stringify({ question, history, walletAddress }),
       });
 
       if (!res.ok) {

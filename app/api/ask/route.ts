@@ -20,6 +20,8 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   const question: string = body?.question?.trim();
   const history: HistoryMessage[] = Array.isArray(body?.history) ? body.history : [];
+  // Wallet address passed for future personalization (query history, preferences, etc.)
+  const walletAddress: string | null = typeof body?.walletAddress === 'string' ? body.walletAddress : null;
 
   if (!question) {
     return NextResponse.json({ error: 'question is required' }, { status: 400 });
