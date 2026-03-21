@@ -211,8 +211,49 @@ export default function ContributorProfilePage({
 
   if (!profile) {
     return (
-      <div className="flex flex-1 items-center justify-center" style={{ background: '#faf8f3' }}>
-        <div className="text-sm" style={{ color: '#9c9080' }}>Loading…</div>
+      <div className="flex flex-col min-h-full overflow-x-hidden" style={{ background: '#faf8f3' }}>
+        <header
+          className="flex items-center gap-3 px-5 py-3 border-b"
+          style={{ borderColor: '#e0d8cc', background: '#faf8f3' }}
+        >
+          <div className="h-3 w-8 rounded animate-pulse" style={{ background: '#e8e0d5' }} />
+        </header>
+        <main className="flex-1 px-5 py-8 max-w-lg mx-auto w-full">
+          {/* Profile header skeleton */}
+          <section className="flex items-start gap-4">
+            <div className="w-14 h-14 rounded-full flex-shrink-0 animate-pulse" style={{ background: '#e8e0d5' }} />
+            <div className="flex-1 min-w-0 space-y-2 pt-1">
+              <div className="h-4 w-32 rounded animate-pulse" style={{ background: '#e8e0d5' }} />
+              <div className="h-3 w-24 rounded animate-pulse" style={{ background: '#f0ece3' }} />
+              <div className="h-5 w-20 rounded-full animate-pulse" style={{ background: '#f0ece3' }} />
+            </div>
+          </section>
+          {/* Post rows skeleton */}
+          <section className="mt-8">
+            <div className="h-4 w-24 rounded animate-pulse mb-3" style={{ background: '#e8e0d5' }} />
+            <div className="space-y-2">
+              {[0, 1, 2].map((i) => (
+                <div
+                  key={i}
+                  className="rounded-xl px-4 py-3"
+                  style={{ background: '#f5f1e8', border: '1px solid #e0d8cc' }}
+                >
+                  <div className="h-3.5 rounded animate-pulse mb-2" style={{ background: '#e8e0d5', width: `${65 + i * 10}%` }} />
+                  <div className="h-3 rounded animate-pulse mb-1" style={{ background: '#ede9e0', width: '100%' }} />
+                  <div className="h-3 rounded animate-pulse" style={{ background: '#ede9e0', width: '80%' }} />
+                </div>
+              ))}
+            </div>
+          </section>
+        </main>
+        <footer
+          className="flex items-center justify-center px-5 py-2.5 border-t"
+          style={{ borderColor: '#e0d8cc', background: '#faf8f3' }}
+        >
+          <span className="text-xs" style={{ color: '#b0a898' }}>
+            Convergence · Paradox of Acceptance
+          </span>
+        </footer>
       </div>
     );
   }

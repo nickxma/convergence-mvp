@@ -3,20 +3,21 @@
 import { useState, useEffect } from 'react';
 import {
   type GovernanceData,
-  MOCK_GOVERNANCE_DATA,
   truncateWallet,
   fetchGovernanceData,
 } from '@/lib/community';
 import { WalletAvatar } from '@/components/wallet-avatar';
+import { ErrorBoundary } from '@/components/error-boundary';
 
 export default function GovernancePage() {
   const [data, setData] = useState<GovernanceData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(false);
 
   useEffect(() => {
     fetchGovernanceData()
       .then(setData)
-      .catch(() => setData(MOCK_GOVERNANCE_DATA))
+      .catch(() => setFetchError(true))
       .finally(() => setLoading(false));
   }, []);
 
@@ -64,11 +65,15 @@ export default function GovernancePage() {
           >
             Community stats
           </h2>
-          {loading ? (
-            <StatsCardsSkeleton />
-          ) : (
-            <StatsCards stats={data!.stats} />
-          )}
+          <ErrorBoundary fallback={<StatsUnavailable />}>
+            {loading ? (
+              <StatsCardsSkeleton />
+            ) : fetchError ? (
+              <StatsUnavailable />
+            ) : (
+              <StatsCards stats={data!.stats} />
+            )}
+          </ErrorBoundary>
         </section>
 
         {/* Two-column leaderboards */}
@@ -83,6 +88,8 @@ export default function GovernancePage() {
             </h2>
             {loading ? (
               <LeaderboardSkeleton rows={10} />
+            ) : fetchError ? (
+              <EmptyState message="No community activity yet." />
             ) : (
               <PostLeaderboard posts={data!.topPosts} />
             )}
@@ -98,6 +105,8 @@ export default function GovernancePage() {
             </h2>
             {loading ? (
               <LeaderboardSkeleton rows={10} />
+            ) : fetchError ? (
+              <EmptyState message="No community activity yet." />
             ) : (
               <ContributorLeaderboard contributors={data!.topContributors} />
             )}
@@ -114,6 +123,8 @@ export default function GovernancePage() {
           </h2>
           {loading ? (
             <LeaderboardSkeleton rows={5} />
+          ) : fetchError ? (
+            <EmptyState message="No community activity yet." />
           ) : data!.trendingThisWeek.length === 0 ? (
             <EmptyState message="No votes this week yet." />
           ) : (
@@ -130,6 +141,21 @@ export default function GovernancePage() {
           Convergence · Paradox of Acceptance
         </span>
       </footer>
+    </div>
+  );
+}
+
+// ── Stats unavailable ─────────────────────────────────────────────────────────
+
+function StatsUnavailable() {
+  return (
+    <div
+      className="rounded-2xl px-4 py-5 flex items-center justify-center"
+      style={{ border: '1px solid #e0d8cc', background: '#fff' }}
+    >
+      <p className="text-xs" style={{ color: '#b0a898' }}>
+        Stats temporarily unavailable.
+      </p>
     </div>
   );
 }

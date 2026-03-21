@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/lib/use-auth';
 import {
   type Post,
-  MOCK_POSTS,
   truncateWallet,
   formatRelativeTime,
   fetchPosts,
@@ -16,6 +15,7 @@ import { VoteButton } from '@/components/vote-button';
 import { CreatePostModal } from '@/components/create-post-modal';
 import { OnboardingModal, hasSeenOnboarding } from '@/components/onboarding-modal';
 import { SearchBar } from '@/components/search-bar';
+import { ErrorBoundary } from '@/components/error-boundary';
 
 const PAGE_SIZE = 20;
 
@@ -23,8 +23,10 @@ export default function CommunityPage() {
   const { ready, authenticated, user, getAccessToken } = useAuth();
   const walletAddress = user?.wallet?.address ?? null;
 
-  const [posts, setPosts] = useState<Post[]>(MOCK_POSTS);
-  const [loading, setLoading] = useState(false);
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<'network' | 'server' | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [hasPass, setHasPass] = useState<boolean | null>(null);
@@ -34,10 +36,11 @@ export default function CommunityPage() {
   const [pendingVotePostId, setPendingVotePostId] = useState<string | null>(null);
   const [voteToastError, setVoteToastError] = useState<string | null>(null);
 
-  // Load real posts from API (falls back to mock if unavailable)
+  // Load real posts from API
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setFetchError(null);
     fetchPosts(1, PAGE_SIZE)
       .then((res) => {
         if (!cancelled) {
@@ -46,14 +49,16 @@ export default function CommunityPage() {
           setHasMore(res.hasMore);
         }
       })
-      .catch(() => {
-        // API not ready — keep mock data
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setFetchError(err instanceof TypeError ? 'network' : 'server');
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [retryCount]);
 
   // Check token gate when wallet is available; trigger onboarding for new pass holders
   useEffect(() => {
@@ -291,46 +296,87 @@ export default function CommunityPage() {
           </div>
         )}
 
-        {posts.length === 0 && !loading ? (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div
-              className="w-12 h-12 rounded-full flex items-center justify-center mb-4"
-              style={{ background: '#e8e0d5' }}
-            >
-              <svg className="w-6 h-6" style={{ color: '#7d8c6e' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 0 1 .865-.501 48.172 48.172 0 0 0 3.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" />
-              </svg>
-            </div>
-            <p className="text-sm font-medium mb-1" style={{ color: '#5c5248' }}>No posts yet</p>
-            <p className="text-xs mb-5 max-w-xs leading-relaxed" style={{ color: '#9c9080' }}>
-              {hasPass
-                ? 'Be the first to share something with the community.'
-                : 'No posts yet. Only Acceptance Pass holders can create posts.'}
-            </p>
-            {hasPass && (
+        <ErrorBoundary
+          fallback={(retry) => (
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+              <p className="text-sm font-medium mb-1" style={{ color: '#5c5248' }}>
+                Could not load community posts.
+              </p>
               <button
-                onClick={() => setShowCreateModal(true)}
-                className="text-sm px-5 py-2.5 rounded-full font-medium"
-                style={{ background: '#7d8c6e', color: '#fff' }}
+                onClick={retry}
+                className="mt-3 text-xs px-4 py-2 rounded-full border transition-colors"
+                style={{ borderColor: '#e0d8cc', color: '#7d8c6e' }}
               >
-                Create the first post
+                Try again
               </button>
-            )}
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {posts.map((post) => (
-              <PostCard
-                key={post.id}
-                post={post}
-                hasPass={hasPass}
-                authenticated={authenticated}
-                onVote={handleVote}
-                pendingVote={pendingVotePostId === post.id}
-              />
-            ))}
-          </div>
-        )}
+            </div>
+          )}
+        >
+          {loading && posts.length === 0 ? (
+            <div className="space-y-3">
+              {[0, 1, 2].map((i) => <PostCardSkeleton key={i} />)}
+            </div>
+          ) : fetchError && posts.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+              <p className="text-sm font-medium mb-1" style={{ color: '#5c5248' }}>
+                {fetchError === 'network'
+                  ? 'You appear to be offline.'
+                  : 'Could not load community posts.'}
+              </p>
+              <p className="text-xs mb-4" style={{ color: '#9c9080' }}>
+                {fetchError === 'network'
+                  ? 'Check your connection and try again.'
+                  : 'Try again.'}
+              </p>
+              <button
+                onClick={() => setRetryCount((c) => c + 1)}
+                className="text-xs px-4 py-2 rounded-full border transition-colors"
+                style={{ borderColor: '#e0d8cc', color: '#7d8c6e' }}
+              >
+                Try again
+              </button>
+            </div>
+          ) : posts.length === 0 && !loading ? (
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+              <div
+                className="w-12 h-12 rounded-full flex items-center justify-center mb-4"
+                style={{ background: '#e8e0d5' }}
+              >
+                <svg className="w-6 h-6" style={{ color: '#7d8c6e' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 0 1 .865-.501 48.172 48.172 0 0 0 3.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" />
+                </svg>
+              </div>
+              <p className="text-sm font-medium mb-1" style={{ color: '#5c5248' }}>No posts yet</p>
+              <p className="text-xs mb-5 max-w-xs leading-relaxed" style={{ color: '#9c9080' }}>
+                {hasPass
+                  ? 'Be the first to start a discussion.'
+                  : 'No posts yet. Be the first to start a discussion.'}
+              </p>
+              {hasPass && (
+                <button
+                  onClick={() => setShowCreateModal(true)}
+                  className="text-sm px-5 py-2.5 rounded-full font-medium"
+                  style={{ background: '#7d8c6e', color: '#fff' }}
+                >
+                  Create the first post
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {posts.map((post) => (
+                <PostCard
+                  key={post.id}
+                  post={post}
+                  hasPass={hasPass}
+                  authenticated={authenticated}
+                  onVote={handleVote}
+                  pendingVote={pendingVotePostId === post.id}
+                />
+              ))}
+            </div>
+          )}
+        </ErrorBoundary>
 
         {/* Load more */}
         {hasMore && (
@@ -385,6 +431,35 @@ export default function CommunityPage() {
           Convergence · Paradox of Acceptance
         </span>
       </footer>
+    </div>
+  );
+}
+
+function PostCardSkeleton() {
+  return (
+    <div
+      className="block rounded-2xl px-4 py-4"
+      style={{ background: '#fff', border: '1px solid #e0d8cc' }}
+    >
+      <div className="flex gap-3">
+        {/* Vote column skeleton */}
+        <div className="flex-shrink-0 flex flex-col items-center gap-1 pt-0.5">
+          <div className="w-5 h-5 rounded animate-pulse" style={{ background: '#e8e0d5' }} />
+          <div className="w-6 h-3.5 rounded animate-pulse" style={{ background: '#f0ece3' }} />
+          <div className="w-5 h-5 rounded animate-pulse" style={{ background: '#e8e0d5' }} />
+        </div>
+        {/* Content skeleton */}
+        <div className="flex-1 min-w-0 space-y-2">
+          <div className="h-4 rounded animate-pulse" style={{ background: '#e8e0d5', width: '70%' }} />
+          <div className="h-3 rounded animate-pulse" style={{ background: '#f0ece3', width: '100%' }} />
+          <div className="h-3 rounded animate-pulse" style={{ background: '#f0ece3', width: '85%' }} />
+          <div className="flex gap-3 pt-1">
+            <div className="h-2.5 w-16 rounded animate-pulse" style={{ background: '#f0ece3' }} />
+            <div className="h-2.5 w-10 rounded animate-pulse" style={{ background: '#f0ece3' }} />
+            <div className="h-2.5 w-14 rounded animate-pulse" style={{ background: '#f0ece3' }} />
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
