@@ -21,7 +21,7 @@ export default function GovernancePage() {
   }, []);
 
   return (
-    <div className="flex flex-col min-h-full" style={{ background: '#faf8f3' }}>
+    <div className="flex flex-col min-h-full overflow-x-hidden" style={{ background: '#faf8f3' }}>
       {/* Header */}
       <header
         className="flex items-center gap-3 px-5 py-3 border-b sticky top-0 z-10"
@@ -144,14 +144,14 @@ function StatsCards({ stats }: { stats: GovernanceData['stats'] }) {
   ];
 
   return (
-    <div className="grid grid-cols-3 gap-3">
+    <div className="grid grid-cols-3 gap-2 sm:gap-3">
       {cards.map(({ label, value }) => (
         <div
           key={label}
-          className="rounded-2xl px-4 py-4 flex flex-col gap-1"
+          className="rounded-2xl px-3 py-3 sm:px-4 sm:py-4 flex flex-col gap-1"
           style={{ background: '#fff', border: '1px solid #e0d8cc' }}
         >
-          <span className="text-2xl font-semibold tabular-nums" style={{ color: '#3d4f38' }}>
+          <span className="text-xl sm:text-2xl font-semibold tabular-nums" style={{ color: '#3d4f38' }}>
             {value}
           </span>
           <span className="text-xs" style={{ color: '#9c9080' }}>
@@ -165,7 +165,7 @@ function StatsCards({ stats }: { stats: GovernanceData['stats'] }) {
 
 function StatsCardsSkeleton() {
   return (
-    <div className="grid grid-cols-3 gap-3">
+    <div className="grid grid-cols-3 gap-2 sm:gap-3">
       {[0, 1, 2].map((i) => (
         <div
           key={i}

@@ -112,7 +112,7 @@ export function SearchBar() {
         {!expanded ? (
           <button
             onClick={handleIconClick}
-            className="flex items-center justify-center w-7 h-7 rounded-full transition-colors"
+            className="flex items-center justify-center min-h-[44px] min-w-[44px] rounded-full transition-colors"
             style={{ color: '#7d8c6e' }}
             aria-label="Search"
           >
@@ -122,7 +122,7 @@ export function SearchBar() {
           <div className="flex items-center gap-1.5">
             <div
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs"
-              style={{ border: '1px solid #b8ccb0', background: '#fff', minWidth: 180 }}
+              style={{ border: '1px solid #b8ccb0', background: '#fff', minWidth: 140 }}
             >
               <SearchIcon className="flex-shrink-0 text-gray-400" style={{ color: '#b0a898' }} />
               <input
@@ -169,7 +169,7 @@ export function SearchBar() {
             background: '#fff',
             border: '1px solid #e0d8cc',
             minWidth: 280,
-            maxWidth: 360,
+            maxWidth: 'min(360px, calc(100vw - 1.5rem))',
           }}
         >
           {results.length === 0 ? (

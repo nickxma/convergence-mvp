@@ -243,7 +243,7 @@ export default function PostPage({
   }
 
   return (
-    <div className="flex flex-col min-h-full" style={{ background: '#faf8f3' }}>
+    <div className="flex flex-col min-h-full overflow-x-hidden" style={{ background: '#faf8f3' }}>
       {/* Header */}
       <header
         className="flex items-center justify-between px-5 py-3 border-b sticky top-0 z-10"
@@ -321,11 +321,11 @@ export default function PostPage({
               >
                 {post.body}
               </p>
-              <div className="flex items-center gap-3 text-xs" style={{ color: '#b0a898' }}>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs" style={{ color: '#b0a898' }}>
                 <span>{truncateWallet(post.authorWallet)}</span>
-                <span>·</span>
+                <span aria-hidden>·</span>
                 <span>{formatRelativeTime(post.createdAt)}</span>
-                <span>·</span>
+                <span aria-hidden>·</span>
                 <span>{post.replyCount} {post.replyCount === 1 ? 'reply' : 'replies'}</span>
               </div>
             </div>
@@ -428,7 +428,7 @@ export default function PostPage({
                 <button
                   type="submit"
                   disabled={!replyBody.trim() || submittingReply}
-                  className="text-xs px-4 py-2 rounded-full font-medium transition-opacity disabled:opacity-40"
+                  className="text-xs px-4 min-h-[44px] rounded-full font-medium transition-opacity disabled:opacity-40"
                   style={{ background: '#7d8c6e', color: '#fff' }}
                 >
                   {submittingReply ? 'Posting…' : 'Reply'}
@@ -498,9 +498,9 @@ function ReplyCard({
           >
             {reply.body}
           </p>
-          <div className="flex items-center gap-2 text-xs" style={{ color: '#b0a898' }}>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs" style={{ color: '#b0a898' }}>
             <span>{truncateWallet(reply.authorWallet)}</span>
-            <span>·</span>
+            <span aria-hidden>·</span>
             <span>{formatRelativeTime(reply.createdAt)}</span>
           </div>
         </div>
