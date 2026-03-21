@@ -11,9 +11,15 @@ Answer questions using only the provided transcript excerpts. Be direct and clea
 If the excerpts don't contain enough information to answer, say so honestly.
 Do not invent teachings or attribute views not present in the source material.`;
 
+interface HistoryMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   const question: string = body?.question?.trim();
+  const history: HistoryMessage[] = Array.isArray(body?.history) ? body.history : [];
 
   if (!question) {
     return NextResponse.json({ error: 'question is required' }, { status: 400 });
@@ -70,10 +76,16 @@ export async function POST(req: NextRequest) {
     .join('\n\n');
 
   // 4. Generate answer
+  const priorMessages = history.slice(-6).map((m) => ({
+    role: m.role as 'user' | 'assistant',
+    content: m.content,
+  }));
+
   const chat = await oai.chat.completions.create({
     model: CHAT_MODEL,
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },
+      ...priorMessages,
       {
         role: 'user',
         content: `Transcript excerpts:\n\n${context}\n\nQuestion: ${question}`,
