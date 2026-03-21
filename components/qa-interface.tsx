@@ -2,19 +2,21 @@
 
 import { useState, useRef, useEffect, FormEvent, KeyboardEvent } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
+import {
+  type Message,
+  type Conversation,
+  saveConversation,
+  newConversationId,
+  titleFromQuestion,
+} from '@/lib/conversations';
+
+export type { Message };
 
 interface Source {
   text: string;
   speaker: string;
   source: string;
   score: number;
-}
-
-interface Message {
-  role: 'user' | 'assistant';
-  content: string;
-  sources?: Source[];
-  error?: boolean;
 }
 
 function SourceList({ sources }: { sources: Source[] }) {
@@ -74,32 +76,61 @@ function SourceList({ sources }: { sources: Source[] }) {
   );
 }
 
-function ThinkingDots() {
+function ResponseSkeleton() {
   return (
-    <div className="flex items-center gap-1 py-1">
-      {[0, 1, 2].map((i) => (
-        <span
-          key={i}
-          className="inline-block w-1.5 h-1.5 rounded-full"
-          style={{
-            background: '#7d8c6e',
-            animation: `pulse 1.2s ease-in-out ${i * 0.2}s infinite`,
-          }}
+    <div
+      className="rounded-2xl rounded-tl-sm px-4 py-3 max-w-xl"
+      style={{ background: '#f0ece3' }}
+      aria-label="Loading response"
+    >
+      <div className="space-y-2">
+        <div
+          className="h-3 rounded-full"
+          style={{ width: '85%', background: '#ddd5c8', animation: 'shimmer 1.4s ease-in-out infinite' }}
         />
-      ))}
+        <div
+          className="h-3 rounded-full"
+          style={{ width: '70%', background: '#ddd5c8', animation: 'shimmer 1.4s ease-in-out 0.15s infinite' }}
+        />
+        <div
+          className="h-3 rounded-full"
+          style={{ width: '55%', background: '#ddd5c8', animation: 'shimmer 1.4s ease-in-out 0.3s infinite' }}
+        />
+      </div>
     </div>
   );
 }
 
-export function QAInterface() {
+interface QAInterfaceProps {
+  initialConversation?: Conversation | null;
+  onConversationUpdate?: (conversation: Conversation) => void;
+}
+
+export function QAInterface({ initialConversation, onConversationUpdate }: QAInterfaceProps) {
   const { user } = usePrivy();
   const walletAddress = user?.wallet?.address ?? null;
+  const userId = user?.id ?? null;
 
-  const [messages, setMessages] = useState<Message[]>([]);
+  const MAX_CHARS = 500;
+  const [messages, setMessages] = useState<Message[]>(initialConversation?.messages ?? []);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [conversationId, setConversationId] = useState<string>(
+    initialConversation?.id ?? newConversationId()
+  );
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // When a different conversation is loaded from the sidebar, reset state
+  useEffect(() => {
+    if (initialConversation) {
+      setMessages(initialConversation.messages);
+      setConversationId(initialConversation.id);
+    } else {
+      setMessages([]);
+      setConversationId(newConversationId());
+    }
+  }, [initialConversation?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -113,12 +144,28 @@ export function QAInterface() {
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
   }, [input]);
 
+  function persistConversation(msgs: Message[], cid: string) {
+    if (!userId) return;
+    const firstQuestion = msgs.find((m) => m.role === 'user')?.content ?? 'Untitled';
+    const conversation: Conversation = {
+      id: cid,
+      userId,
+      title: titleFromQuestion(firstQuestion),
+      messages: msgs,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    saveConversation(userId, conversation);
+    onConversationUpdate?.(conversation);
+  }
+
   async function submit() {
     const question = input.trim();
     if (!question || loading) return;
 
     setInput('');
-    setMessages((prev) => [...prev, { role: 'user', content: question }]);
+    const newMessages: Message[] = [...messages, { role: 'user', content: question }];
+    setMessages(newMessages);
     setLoading(true);
 
     try {
@@ -130,29 +177,32 @@ export function QAInterface() {
       });
 
       if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: 'Unknown error' }));
-        setMessages((prev) => [
-          ...prev,
-          { role: 'assistant', content: err.error ?? 'Something went wrong.', error: true },
-        ]);
+        await res.json().catch(() => null);
+        const errorMessages: Message[] = [
+          ...newMessages,
+          { role: 'assistant', content: 'Something went wrong — try again.', error: true },
+        ];
+        setMessages(errorMessages);
         return;
       }
 
       const data = await res.json();
-      setMessages((prev) => [
-        ...prev,
+      const finalMessages: Message[] = [
+        ...newMessages,
         {
           role: 'assistant',
           content: data.answer ?? '',
           sources: data.sources ?? [],
         },
-      ]);
+      ];
+      setMessages(finalMessages);
+      persistConversation(finalMessages, conversationId);
     } catch {
       setMessages((prev) => [
         ...prev,
         {
           role: 'assistant',
-          content: 'Unable to reach the server. Please try again.',
+          content: 'Something went wrong — try again.',
           error: true,
         },
       ]);
@@ -202,11 +252,32 @@ export function QAInterface() {
                 </svg>
               </div>
               <p className="font-medium text-sm" style={{ color: '#5c5248' }}>
-                Ask anything about mindfulness
+                Ask a question to explore Sam Harris&apos;s teachings
               </p>
-              <p className="text-xs mt-1" style={{ color: '#9c9080' }}>
+              <p className="text-xs mt-1 mb-5" style={{ color: '#9c9080' }}>
                 Sourced from the Waking Up corpus
               </p>
+              <div className="flex flex-wrap justify-center gap-2 max-w-md">
+                {[
+                  'What is the nature of consciousness?',
+                  'How do I start a meditation practice?',
+                  'What does Sam say about free will?',
+                  'How can mindfulness reduce suffering?',
+                ].map((prompt) => (
+                  <button
+                    key={prompt}
+                    onClick={() => setInput(prompt)}
+                    className="rounded-full px-3 py-1.5 text-xs transition-colors"
+                    style={{
+                      background: '#f0ece3',
+                      color: '#5c5248',
+                      border: '1px solid #ddd5c8',
+                    }}
+                  >
+                    {prompt}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
@@ -250,12 +321,7 @@ export function QAInterface() {
 
           {loading && (
             <div className="flex justify-start">
-              <div
-                className="rounded-2xl rounded-tl-sm px-4 py-3"
-                style={{ background: '#f0ece3' }}
-              >
-                <ThinkingDots />
-              </div>
+              <ResponseSkeleton />
             </div>
           )}
 
@@ -280,11 +346,12 @@ export function QAInterface() {
             <textarea
               ref={textareaRef}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => setInput(e.target.value.slice(0, MAX_CHARS))}
               onKeyDown={handleKeyDown}
               placeholder="Ask a question…"
               rows={1}
               disabled={loading}
+              maxLength={MAX_CHARS}
               className="flex-1 resize-none bg-transparent text-sm leading-relaxed outline-none placeholder-zinc-400 disabled:opacity-50"
               style={{ color: '#2c2c2c', minHeight: '24px' }}
             />
@@ -305,16 +372,26 @@ export function QAInterface() {
               </svg>
             </button>
           </div>
-          <p className="text-center text-xs mt-2" style={{ color: '#b0a898' }}>
-            Press Enter to send · Shift+Enter for new line
-          </p>
+          <div className="flex justify-between items-center mt-2 px-1">
+            <p className="text-xs" style={{ color: '#b0a898' }}>
+              Press Enter to send · Shift+Enter for new line
+            </p>
+            {input.length > 0 && (
+              <p
+                className="text-xs tabular-nums"
+                style={{ color: input.length >= MAX_CHARS ? '#c0392b' : '#b0a898' }}
+              >
+                {input.length} / {MAX_CHARS}
+              </p>
+            )}
+          </div>
         </form>
       </div>
 
       <style>{`
-        @keyframes pulse {
-          0%, 100% { opacity: 0.3; transform: scale(0.8); }
-          50% { opacity: 1; transform: scale(1); }
+        @keyframes shimmer {
+          0%, 100% { opacity: 0.4; }
+          50% { opacity: 1; }
         }
       `}</style>
     </div>
