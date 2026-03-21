@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { usePrivy } from '@privy-io/react-auth';
+import { useAuth } from '@/lib/use-auth';
 import {
   type Post,
   MOCK_POSTS,
@@ -19,7 +19,7 @@ import { OnboardingModal, hasSeenOnboarding } from '@/components/onboarding-moda
 const PAGE_SIZE = 20;
 
 export default function CommunityPage() {
-  const { ready, authenticated, user, getAccessToken } = usePrivy();
+  const { ready, authenticated, user, getAccessToken } = useAuth();
   const walletAddress = user?.wallet?.address ?? null;
 
   const [posts, setPosts] = useState<Post[]>(MOCK_POSTS);
@@ -30,6 +30,8 @@ export default function CommunityPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [authToken, setAuthToken] = useState<string | null>(null);
+  const [pendingVotePostId, setPendingVotePostId] = useState<string | null>(null);
+  const [voteToastError, setVoteToastError] = useState<string | null>(null);
 
   // Load real posts from API (falls back to mock if unavailable)
   useEffect(() => {
@@ -93,7 +95,12 @@ export default function CommunityPage() {
   }, [page]);
 
   function handleVote(postId: string, direction: 'up' | 'down') {
-    if (!authToken) return;
+    if (!authToken || pendingVotePostId) return;
+
+    const prevPost = posts.find((p) => p.id === postId);
+    if (!prevPost) return;
+    const savedVotes = prevPost.votes;
+    const savedUserVote = prevPost.userVote;
 
     // Optimistic update
     setPosts((prev) =>
@@ -115,19 +122,22 @@ export default function CommunityPage() {
         return { ...p, votes: p.votes + delta, userVote: nextVote };
       }),
     );
+    setPendingVotePostId(postId);
 
-    voteOnPost(postId, direction, authToken).catch((err) => {
-      // Revert on error
-      if (!(err instanceof TokenGateError)) {
+    voteOnPost(postId, direction, authToken)
+      .catch((err) => {
+        // Revert to pre-optimistic state
         setPosts((prev) =>
           prev.map((p) =>
-            p.id === postId
-              ? { ...p, votes: p.votes, userVote: p.userVote }
-              : p,
+            p.id === postId ? { ...p, votes: savedVotes, userVote: savedUserVote } : p,
           ),
         );
-      }
-    });
+        if (!(err instanceof TokenGateError)) {
+          setVoteToastError('Vote failed. Please try again.');
+          setTimeout(() => setVoteToastError(null), 3500);
+        }
+      })
+      .finally(() => setPendingVotePostId(null));
   }
 
   function handlePostCreated(newPost: { id: string; title: string; body: string }) {
@@ -233,20 +243,20 @@ export default function CommunityPage() {
       {/* Token gate banner for non-holders */}
       {authenticated && hasPass === false && (
         <div
-          className="px-5 py-3 border-b text-xs flex items-center gap-3"
+          className="px-5 py-3 border-b text-xs flex flex-wrap items-center gap-x-3 gap-y-1.5"
           style={{ background: '#fef9ec', borderColor: '#f0d88a', color: '#7a6220' }}
         >
           <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 6v.75m0 3v.75m0 3v.75m0 3V18m-9-5.25h5.25M7.5 15h3M3.375 5.25c-.621 0-1.125.504-1.125 1.125v3.026a2.999 2.999 0 0 1 0 5.198v3.026c0 .621.504 1.125 1.125 1.125h17.25c.621 0 1.125-.504 1.125-1.125v-3.026a3 3 0 0 1 0-5.198V6.375c0-.621-.504-1.125-1.125-1.125H3.375Z" />
           </svg>
-          <span>
+          <span className="flex-1 min-w-0">
             You&apos;re in <strong>read-only mode</strong> — you need an Acceptance Pass to post and vote.
           </span>
           <a
             href="https://opensea.io/collection/acceptance-pass"
             target="_blank"
             rel="noopener noreferrer"
-            className="ml-auto flex-shrink-0 font-medium underline underline-offset-2"
+            className="flex-shrink-0 font-medium underline underline-offset-2"
             style={{ color: '#7d8c6e' }}
           >
             Get a Pass →
@@ -312,6 +322,7 @@ export default function CommunityPage() {
                 hasPass={hasPass}
                 authenticated={authenticated}
                 onVote={handleVote}
+                pendingVote={pendingVotePostId === post.id}
               />
             ))}
           </div>
@@ -351,6 +362,16 @@ export default function CommunityPage() {
         />
       )}
 
+      {/* Vote error toast */}
+      {voteToastError && (
+        <div
+          className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl text-xs font-medium shadow-lg"
+          style={{ background: '#3d1a17', color: '#fde8e6', pointerEvents: 'none' }}
+        >
+          {voteToastError}
+        </div>
+      )}
+
       {/* Footer */}
       <footer
         className="flex items-center justify-center px-5 py-2.5 border-t"
@@ -369,11 +390,13 @@ function PostCard({
   hasPass,
   authenticated,
   onVote,
+  pendingVote,
 }: {
   post: Post;
   hasPass: boolean | null;
   authenticated: boolean;
   onVote: (postId: string, direction: 'up' | 'down') => void;
+  pendingVote: boolean;
 }) {
   const canVote = authenticated && hasPass === true;
 
@@ -401,6 +424,7 @@ function PostCard({
             userVote={post.userVote}
             onVote={(dir) => onVote(post.id, dir)}
             disabled={!canVote}
+            pending={pendingVote}
             size="sm"
           />
         </div>
