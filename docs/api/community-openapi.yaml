@@ -1,0 +1,1262 @@
+openapi: 3.1.0
+info:
+  title: Knowledge Commons — Community API
+  version: 1.0.0
+  license:
+    name: Proprietary
+  description: |
+    REST API for the token-governed Knowledge Commons community platform.
+
+    ## Authentication
+
+    Most write operations require a **Privy JWT** (Privy-issued access token) passed
+    as a Bearer token, **plus** ownership of an Acceptance Pass ERC-1155 NFT on Base
+    chain (chain 8453). Read-only endpoints are public.
+
+    Admin endpoints require `Authorization: Bearer <ADMIN_WALLET>` where
+    `ADMIN_WALLET` is the configured admin wallet address (case-insensitive hex match).
+
+    The embed-posts cron endpoint is protected by `Authorization: Bearer <CRON_SECRET>`.
+
+    ## Token Gating
+
+    Before performing any write action the API calls `isMember(address)` on the
+    Acceptance Pass contract. Users without a valid pass receive `403 NOT_PASS_HOLDER`.
+
+    ## Rate Limits
+
+    | Operation  | Limit      |
+    |------------|------------|
+    | POST /posts | 10 / hour per wallet |
+    | POST /replies | 30 / hour per wallet |
+    | POST /vote | 50 / hour per wallet |
+
+    When a rate limit is hit the API returns `429` with a `Retry-After` header (seconds).
+
+servers:
+  - url: /api
+    description: Next.js API routes (same origin)
+
+tags:
+  - name: Posts
+    description: Community discussion posts
+  - name: Replies
+    description: Replies to community posts
+  - name: Votes
+    description: Voting on posts and replies
+  - name: Flags
+    description: Content moderation — flagging posts
+  - name: Token
+    description: Acceptance Pass token verification
+  - name: Governance
+    description: Governance and analytics data
+  - name: Metrics
+    description: Community health metrics
+  - name: Admin
+    description: Admin-only moderation endpoints
+  - name: Embed
+    description: Background embedding job (internal / cron)
+
+# ── Security schemes ──────────────────────────────────────────────────────────
+
+components:
+  securitySchemes:
+    PrivyJWT:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Privy-issued access token obtained after wallet authentication.
+        The wallet embedded in the token must also hold an Acceptance Pass
+        (ERC-1155 on Base chain) for write operations.
+
+    AdminWallet:
+      type: http
+      scheme: bearer
+      description: |
+        Simple wallet-as-secret admin token. The bearer value must equal the
+        `ADMIN_WALLET` environment variable (case-insensitive hex comparison).
+
+    CronSecret:
+      type: http
+      scheme: bearer
+      description: |
+        CRON_SECRET environment variable value. Vercel Cron automatically
+        injects this header when the env var is configured.
+
+  # ── Shared schemas ───────────────────────────────────────────────────────────
+
+  schemas:
+
+    Post:
+      type: object
+      description: A community discussion post
+      required: [id, author_wallet, title, body, votes, hidden, created_at]
+      properties:
+        id:
+          type: integer
+          description: Unique post identifier
+          example: 42
+        author_wallet:
+          type: string
+          description: Ethereum wallet address of the post author
+          example: "0x742d35Cc6634C0532925a3b8D4C9C9bFd31b8b7a"
+        title:
+          type: string
+          minLength: 1
+          maxLength: 300
+          description: Post title
+          example: "How does mindfulness relate to no-self?"
+        body:
+          type: string
+          minLength: 1
+          maxLength: 10000
+          description: Post body text
+          example: "I've been practicing for 6 months…"
+        votes:
+          type: integer
+          description: Net vote score (upvotes minus downvotes)
+          example: 47
+        hidden:
+          type: boolean
+          description: >
+            True when the post has been auto-hidden after reaching the flag
+            threshold (5 flags). Hidden posts are excluded from the feed but
+            still accessible via the permalink.
+          example: false
+        created_at:
+          type: string
+          format: date-time
+          description: ISO 8601 creation timestamp
+          example: "2026-03-15T12:34:56.000Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: ISO 8601 last-update timestamp
+          example: "2026-03-15T14:00:00.000Z"
+
+    Reply:
+      type: object
+      description: A reply to a community post
+      required: [id, post_id, author_wallet, body, votes, created_at]
+      properties:
+        id:
+          type: integer
+          description: Unique reply identifier
+          example: 101
+        post_id:
+          type: integer
+          description: ID of the parent post
+          example: 42
+        author_wallet:
+          type: string
+          example: "0x742d35Cc6634C0532925a3b8D4C9C9bFd31b8b7a"
+        body:
+          type: string
+          minLength: 1
+          maxLength: 5000
+          example: "Great question! In Sam's framework…"
+        votes:
+          type: integer
+          example: 12
+        created_at:
+          type: string
+          format: date-time
+          example: "2026-03-15T13:00:00.000Z"
+
+    Flag:
+      type: object
+      required: [reporter_wallet, reason, created_at]
+      properties:
+        reporter_wallet:
+          type: string
+          example: "0xabcdef1234567890abcdef1234567890abcdef12"
+        reason:
+          type: string
+          example: "Spam / off-topic content"
+        created_at:
+          type: string
+          format: date-time
+          example: "2026-03-16T08:00:00.000Z"
+
+    FlaggedPost:
+      allOf:
+        - $ref: '#/components/schemas/Post'
+        - type: object
+          required: [flagCount, flags]
+          properties:
+            flagCount:
+              type: integer
+              description: Total number of flags on this post
+              example: 3
+            flags:
+              type: array
+              items:
+                $ref: '#/components/schemas/Flag'
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Machine-readable error code
+              example: "NOT_PASS_HOLDER"
+            message:
+              type: string
+              description: Human-readable error description
+              example: "An Acceptance Pass is required to post."
+
+    TopPost:
+      type: object
+      required: [id, authorWallet, title, votes]
+      properties:
+        id:
+          type: string
+          example: "42"
+        authorWallet:
+          type: string
+          example: "0x742d35Cc6634C0532925a3b8D4C9C9bFd31b8b7a"
+        title:
+          type: string
+          example: "How does mindfulness relate to no-self?"
+        votes:
+          type: integer
+          example: 47
+
+    TrendingPost:
+      allOf:
+        - $ref: '#/components/schemas/TopPost'
+        - type: object
+          required: [weeklyVotes]
+          properties:
+            weeklyVotes:
+              type: integer
+              description: Votes received within the last 7 days
+              example: 18
+
+    EmbedJobResult:
+      type: object
+      required: [embedded]
+      properties:
+        embedded:
+          type: integer
+          description: Number of posts successfully embedded in this run
+          example: 17
+        total:
+          type: integer
+          description: Total qualifying posts (vote score ≥ 5) found in the database
+          example: 17
+        message:
+          type: string
+          description: Informational message (present when no posts qualify)
+          example: "No posts with vote_score >= 5."
+
+    Contributor:
+      type: object
+      required: [authorWallet, totalVotes, postCount]
+      properties:
+        authorWallet:
+          type: string
+          example: "0x742d35Cc6634C0532925a3b8D4C9C9bFd31b8b7a"
+        totalVotes:
+          type: integer
+          description: Cumulative net votes across all posts by this author
+          example: 120
+        postCount:
+          type: integer
+          description: Total posts by this author
+          example: 5
+
+# ── Paths ─────────────────────────────────────────────────────────────────────
+
+paths:
+
+  # ── /community/posts ────────────────────────────────────────────────────────
+
+  /community/posts:
+
+    get:
+      operationId: listPosts
+      summary: List community posts (paginated feed)
+      description: |
+        Returns a paginated list of non-hidden posts sorted by vote score
+        (descending), then by creation date (descending).
+
+        No authentication required.
+      tags: [Posts]
+      security: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+          description: Page number (1-based)
+      responses:
+        "200":
+          description: Paginated post feed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [posts, page, pageSize, total]
+                properties:
+                  posts:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Post'
+                  page:
+                    type: integer
+                    example: 1
+                  pageSize:
+                    type: integer
+                    example: 20
+                  total:
+                    type: integer
+                    description: Total number of non-hidden posts
+                    example: 84
+        "400":
+          description: Invalid query parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "502":
+          description: Database error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    post:
+      operationId: createPost
+      summary: Create a community post
+      description: |
+        Creates a new community post. Requires:
+        1. A valid **Privy JWT** (Bearer token)
+        2. The authenticated wallet must hold an **Acceptance Pass** (ERC-1155 on Base)
+        3. Rate limit: max **10 posts per hour** per wallet
+        4. Duplicate content (same title + body within 1 hour) is rejected
+
+        **Token gating**: the `isMember(address)` view function is called on the
+        Acceptance Pass contract to verify membership before inserting.
+      tags: [Posts]
+      security:
+        - PrivyJWT: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, body]
+              properties:
+                title:
+                  type: string
+                  minLength: 1
+                  maxLength: 300
+                  description: Post title
+                  example: "How does mindfulness relate to no-self?"
+                body:
+                  type: string
+                  minLength: 1
+                  maxLength: 10000
+                  description: Post body text (markdown supported)
+                  example: "I've been practicing for 6 months and keep running into this question…"
+      responses:
+        "201":
+          description: Post created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [post]
+                properties:
+                  post:
+                    $ref: '#/components/schemas/Post'
+        "400":
+          description: Validation error (missing/invalid fields, duplicate content)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_title:
+                  value: { error: { code: "INVALID_TITLE", message: "title is required and must be ≤ 300 characters." } }
+                invalid_body:
+                  value: { error: { code: "INVALID_BODY", message: "body is required and must be ≤ 10 000 characters." } }
+                duplicate:
+                  value: { error: { code: "DUPLICATE_CONTENT", message: "Identical post already submitted recently." } }
+        "401":
+          description: Missing or invalid Privy JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: { code: "UNAUTHORIZED", message: "Valid Privy auth token required." }
+        "403":
+          description: Caller does not hold an Acceptance Pass
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: { code: "NOT_PASS_HOLDER", message: "An Acceptance Pass is required to post." }
+        "429":
+          description: Rate limit exceeded
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Seconds until the rate limit window resets
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: { code: "RATE_LIMIT_EXCEEDED", message: "Max 10 posts per hour. Please wait." }
+        "502":
+          description: Database error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "503":
+          description: Token gate service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: { code: "TOKEN_GATE_ERROR", message: "Could not verify pass ownership. Try again." }
+
+  # ── /community/posts/{id} ───────────────────────────────────────────────────
+
+  /community/posts/{id}:
+
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+        description: Unique post ID
+
+    get:
+      operationId: getPost
+      summary: Get a single post with its replies
+      description: |
+        Returns the full post object along with all of its replies (ordered
+        chronologically ascending).
+
+        No authentication required. Hidden posts are still accessible via this
+        permalink; they are only excluded from the feed.
+      tags: [Posts]
+      security: []
+      responses:
+        "200":
+          description: Post with replies
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [post, replies]
+                properties:
+                  post:
+                    $ref: '#/components/schemas/Post'
+                  replies:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Reply'
+        "400":
+          description: Invalid post ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: { code: "INVALID_ID", message: "Post ID must be a positive integer." }
+        "404":
+          description: Post not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: { code: "NOT_FOUND", message: "Post not found." }
+        "502":
+          description: Database error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      operationId: deletePost
+      summary: Hard-delete a post (admin only)
+      description: |
+        Permanently deletes the post and all cascading replies and flags via
+        database FK on-delete-cascade.
+
+        Requires **admin authentication**: `Authorization: Bearer <ADMIN_WALLET>`.
+      tags: [Posts, Admin]
+      security:
+        - AdminWallet: []
+      responses:
+        "204":
+          description: Post deleted successfully (no content)
+        "400":
+          description: Invalid post ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "403":
+          description: Admin access required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: { code: "FORBIDDEN", message: "Admin access required." }
+        "404":
+          description: Post not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "502":
+          description: Database error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ── /community/posts/{id}/replies ───────────────────────────────────────────
+
+  /community/posts/{id}/replies:
+
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+        description: Parent post ID
+
+    post:
+      operationId: createReply
+      summary: Add a reply to a post
+      description: |
+        Creates a reply under the specified post. Requires:
+        1. A valid **Privy JWT** (Bearer token)
+        2. The authenticated wallet must hold an **Acceptance Pass**
+        3. Rate limit: max **30 replies per hour** per wallet
+        4. Duplicate reply content (same body within 1 hour) is rejected
+      tags: [Replies]
+      security:
+        - PrivyJWT: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body]
+              properties:
+                body:
+                  type: string
+                  minLength: 1
+                  maxLength: 5000
+                  description: Reply text (markdown supported)
+                  example: "Great question! In Sam's framework this refers to…"
+      responses:
+        "201":
+          description: Reply created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [reply]
+                properties:
+                  reply:
+                    $ref: '#/components/schemas/Reply'
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_id:
+                  value: { error: { code: "INVALID_ID", message: "Post ID must be a positive integer." } }
+                invalid_body:
+                  value: { error: { code: "INVALID_BODY", message: "body is required and must be ≤ 5 000 characters." } }
+                duplicate:
+                  value: { error: { code: "DUPLICATE_CONTENT", message: "Identical reply already submitted recently." } }
+        "401":
+          description: Missing or invalid Privy JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "403":
+          description: Caller does not hold an Acceptance Pass
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "404":
+          description: Parent post not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "429":
+          description: Rate limit exceeded
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: { code: "RATE_LIMIT_EXCEEDED", message: "Max 30 replies per hour. Please wait." }
+        "502":
+          description: Database error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "503":
+          description: Token gate service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ── /community/posts/{id}/vote ──────────────────────────────────────────────
+
+  /community/posts/{id}/vote:
+
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+        description: Post ID (used as targetId when targetType is "post")
+
+    post:
+      operationId: castVote
+      summary: Vote on a post or reply
+      description: |
+        Records an upvote (+1) or downvote (-1) on a post or one of its replies.
+        Requires:
+        1. A valid **Privy JWT** (Bearer token)
+        2. The authenticated wallet must hold an **Acceptance Pass**
+        3. Rate limit: max **50 votes per hour** per wallet
+
+        **Idempotency**: re-submitting the same direction for the same target is
+        a no-op (returns `status: "unchanged"`).
+
+        **Direction toggle**: submitting the opposite direction atomically updates
+        the stored vote and adjusts the vote score by ±2 (returns `status: "changed"`).
+
+        Vote scores are updated atomically via a stored procedure to avoid race conditions.
+
+        **Token gating**: 1 Acceptance Pass = 1 vote per target.
+      tags: [Votes]
+      security:
+        - PrivyJWT: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [direction]
+              properties:
+                direction:
+                  type: integer
+                  enum: [1, -1]
+                  description: Vote direction — 1 for upvote, -1 for downvote
+                  example: 1
+                targetType:
+                  type: string
+                  enum: [post, reply]
+                  default: post
+                  description: |
+                    Whether to vote on the post itself or on one of its replies.
+                    Defaults to `"post"` (uses the path `{id}` as target).
+                targetId:
+                  type: integer
+                  minimum: 1
+                  description: |
+                    Required when `targetType` is `"reply"`. The ID of the reply
+                    to vote on. Ignored when `targetType` is `"post"`.
+                  example: 101
+      responses:
+        "200":
+          description: Vote unchanged (same direction already recorded, idempotent)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, direction]
+                properties:
+                  status:
+                    type: string
+                    enum: [unchanged]
+                  direction:
+                    type: integer
+                    enum: [1, -1]
+        "201":
+          description: Vote recorded (new vote) or changed (direction toggled)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, direction]
+                properties:
+                  status:
+                    type: string
+                    enum: [recorded, changed]
+                  direction:
+                    type: integer
+                    enum: [1, -1]
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_direction:
+                  value: { error: { code: "INVALID_DIRECTION", message: "direction must be 1 (up) or -1 (down)." } }
+                invalid_target_type:
+                  value: { error: { code: "INVALID_TARGET_TYPE", message: "targetType must be 'post' or 'reply'." } }
+                invalid_target_id:
+                  value: { error: { code: "INVALID_TARGET_ID", message: "targetId must be a positive integer." } }
+        "401":
+          description: Missing or invalid Privy JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "403":
+          description: Caller does not hold an Acceptance Pass
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "429":
+          description: Rate limit exceeded
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "502":
+          description: Database error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "503":
+          description: Token gate service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ── /community/posts/{id}/flag ──────────────────────────────────────────────
+
+  /community/posts/{id}/flag:
+
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+        description: Post ID to flag
+
+    post:
+      operationId: flagPost
+      summary: Flag a post for moderation review
+      description: |
+        Flags a post for moderator review. Requires:
+        1. A valid **Privy JWT** (Bearer token)
+        2. The authenticated wallet must hold an **Acceptance Pass**
+
+        **One flag per wallet per post** (unique constraint — re-flagging returns
+        `status: "already_flagged"` with HTTP 200).
+
+        **Auto-hide**: when a post reaches **5 flags** it is automatically hidden
+        from the feed (`hidden = true`). The permalink remains accessible.
+      tags: [Flags]
+      security:
+        - PrivyJWT: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                  minLength: 1
+                  maxLength: 1000
+                  description: Reason for flagging the post
+                  example: "Spam / off-topic content"
+      responses:
+        "200":
+          description: Post was already flagged by this wallet (idempotent)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    enum: [already_flagged]
+        "201":
+          description: Flag recorded successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, autoHidden]
+                properties:
+                  status:
+                    type: string
+                    enum: [flagged]
+                  autoHidden:
+                    type: boolean
+                    description: True if this flag triggered the auto-hide threshold
+                    example: false
+                  flagCount:
+                    type: integer
+                    description: Total flags on this post after recording
+                    example: 3
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_id:
+                  value: { error: { code: "INVALID_ID", message: "Post ID must be a positive integer." } }
+                invalid_reason:
+                  value: { error: { code: "INVALID_REASON", message: "reason is required and must be ≤ 1000 characters." } }
+        "401":
+          description: Missing or invalid Privy JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "403":
+          description: Caller does not hold an Acceptance Pass
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "404":
+          description: Post not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "502":
+          description: Database error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "503":
+          description: Token gate service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ── /community/token-check ──────────────────────────────────────────────────
+
+  /community/token-check:
+
+    get:
+      operationId: checkTokenGate
+      summary: Check if a wallet holds an Acceptance Pass
+      description: |
+        Checks whether the given wallet address holds at least one Acceptance Pass
+        (ERC-1155 NFT on Base chain). Uses the `isMember(address)` view function
+        (more gas-efficient than `balanceOf`).
+
+        No authentication required — the wallet address is passed as a query param.
+        Returns `{ hasPass: false }` gracefully when the contract is not configured.
+      tags: [Token]
+      security: []
+      parameters:
+        - name: wallet
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Ethereum wallet address to check
+          example: "0x742d35Cc6634C0532925a3b8D4C9C9bFd31b8b7a"
+      responses:
+        "200":
+          description: Pass-holder status
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [hasPass]
+                properties:
+                  hasPass:
+                    type: boolean
+                    description: True if the wallet holds an Acceptance Pass
+                    example: true
+        "400":
+          description: Missing wallet parameter
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error:
+                    type: string
+                    example: "wallet parameter is required"
+
+  # ── /community/governance ───────────────────────────────────────────────────
+
+  /community/governance:
+
+    get:
+      operationId: getGovernanceData
+      summary: Get aggregated governance and analytics data
+      description: |
+        Returns community-wide governance statistics including:
+        - Overall stats (total posts, replies, unique voters)
+        - Top 10 posts by all-time vote score
+        - Top 10 contributors by cumulative vote score
+        - Top 5 trending posts by votes received in the last 7 days
+
+        No authentication required.
+      tags: [Governance]
+      security: []
+      responses:
+        "200":
+          description: Governance data
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [stats, topPosts, topContributors, trendingThisWeek]
+                properties:
+                  stats:
+                    type: object
+                    required: [totalPosts, totalReplies, totalVoters]
+                    properties:
+                      totalPosts:
+                        type: integer
+                        example: 84
+                      totalReplies:
+                        type: integer
+                        example: 312
+                      totalVoters:
+                        type: integer
+                        description: Count of unique wallet addresses that have voted
+                        example: 56
+                  topPosts:
+                    type: array
+                    maxItems: 10
+                    items:
+                      $ref: '#/components/schemas/TopPost'
+                  topContributors:
+                    type: array
+                    maxItems: 10
+                    items:
+                      $ref: '#/components/schemas/Contributor'
+                  trendingThisWeek:
+                    type: array
+                    maxItems: 5
+                    items:
+                      $ref: '#/components/schemas/TrendingPost'
+        "400":
+          description: Invalid request parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "502":
+          description: Failed to fetch governance data
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error:
+                    type: string
+                    example: "Failed to fetch governance data"
+
+  # ── /community/metrics ──────────────────────────────────────────────────────
+
+  /community/metrics:
+
+    get:
+      operationId: getCommunityMetrics
+      summary: Get community health metrics
+      description: |
+        Returns community health statistics for a configurable time window.
+        Results are cached in memory with a **5-minute TTL** per period.
+
+        Indicates cache status via the `X-Cache` response header (`HIT` or `MISS`).
+
+        No authentication required.
+      tags: [Metrics]
+      security: []
+      parameters:
+        - name: period
+          in: query
+          schema:
+            type: string
+            enum: [7d, 30d, 90d]
+            default: 7d
+          description: Reporting period
+      responses:
+        "200":
+          description: Community health metrics
+          headers:
+            X-Cache:
+              schema:
+                type: string
+                enum: [HIT, MISS]
+              description: Whether the response was served from in-memory cache
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [allTime, period, topPosts, voterParticipationRate]
+                properties:
+                  allTime:
+                    type: object
+                    required: [totalPosts, totalReplies, totalVotes, totalVoters]
+                    properties:
+                      totalPosts:
+                        type: integer
+                        example: 84
+                      totalReplies:
+                        type: integer
+                        example: 312
+                      totalVotes:
+                        type: integer
+                        example: 1024
+                      totalVoters:
+                        type: integer
+                        description: Unique wallets that have cast at least one vote
+                        example: 56
+                  period:
+                    type: object
+                    required: [label, totalPosts, totalReplies, totalVotes, activeContributors]
+                    properties:
+                      label:
+                        type: string
+                        enum: [7d, 30d, 90d]
+                        example: "7d"
+                      totalPosts:
+                        type: integer
+                        example: 12
+                      totalReplies:
+                        type: integer
+                        example: 48
+                      totalVotes:
+                        type: integer
+                        example: 230
+                      activeContributors:
+                        type: integer
+                        description: Unique authors who posted within this period
+                        example: 9
+                  topPosts:
+                    type: array
+                    maxItems: 5
+                    items:
+                      $ref: '#/components/schemas/TopPost'
+                  voterParticipationRate:
+                    type:
+                      - number
+                      - "null"
+                    description: |
+                      Ratio of unique voters to total Acceptance Pass holders.
+                      `null` when total pass-holder count is unavailable.
+                    example: 0.42
+        "400":
+          description: Invalid period parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: { code: "INVALID_PERIOD", message: "period must be one of: 7d, 30d, 90d" }
+        "502":
+          description: Failed to fetch metrics
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error:
+                    type: string
+                    example: "Failed to fetch metrics"
+
+  # ── /community/admin/flagged ────────────────────────────────────────────────
+
+  /community/admin/flagged:
+
+    get:
+      operationId: listFlaggedPosts
+      summary: List all flagged posts (admin only)
+      description: |
+        Returns all posts that have received at least one flag, ordered by flag
+        count descending. Each post includes the full list of flag records
+        (reporter wallet + reason + timestamp).
+
+        Requires **admin authentication**: `Authorization: Bearer <ADMIN_WALLET>`.
+      tags: [Admin]
+      security:
+        - AdminWallet: []
+      responses:
+        "200":
+          description: Flagged posts
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [posts]
+                properties:
+                  posts:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/FlaggedPost'
+        "403":
+          description: Admin access required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: { code: "FORBIDDEN", message: "Admin access required." }
+        "502":
+          description: Database error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ── /community/embed-posts ──────────────────────────────────────────────────
+
+  /community/embed-posts:
+
+    get:
+      operationId: triggerEmbedPostsCron
+      summary: Trigger post-embedding job (Vercel Cron)
+      description: |
+        Background job that embeds qualifying community posts (vote score ≥ 5)
+        into Pinecone under the `community` namespace using OpenAI's
+        `text-embedding-3-small` model.
+
+        Triggered hourly by **Vercel Cron** via GET. Vercel automatically injects
+        the `Authorization: Bearer <CRON_SECRET>` header when `CRON_SECRET` is set.
+
+        **On-demand callers** should use `POST /community/embed-posts` instead.
+
+        Each vector is stored with metadata:
+        `{ source, post_id, author_wallet, vote_score, title, text }` where `text`
+        is truncated to 1000 characters.
+      tags: [Embed]
+      security:
+        - CronSecret: []
+      responses:
+        "200":
+          description: Job completed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmbedJobResult'
+        "401":
+          description: Invalid or missing cron secret
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "502":
+          description: Database or embedding service error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "503":
+          description: Required environment variables not configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    post:
+      operationId: triggerEmbedPostsOnDemand
+      summary: Trigger post-embedding job (on-demand)
+      description: |
+        On-demand trigger for the same embedding job run by Vercel Cron.
+        Use this for manual runs or testing. Same auth and behavior as GET.
+      tags: [Embed]
+      security:
+        - CronSecret: []
+      responses:
+        "200":
+          description: Job completed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmbedJobResult'
+        "401":
+          description: Invalid or missing cron secret
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "502":
+          description: Database or embedding service error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "503":
+          description: Required environment variables not configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
