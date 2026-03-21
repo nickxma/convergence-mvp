@@ -231,6 +231,34 @@ export class TokenGateError extends Error {
   }
 }
 
+// ── Search types + API client ────────────────────────────────────────────────
+
+export interface SearchResult {
+  id: string;
+  title: string;
+  excerpt: string;
+  votes: number;
+  authorWallet: string;
+}
+
+export interface SearchResponse {
+  results: SearchResult[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export async function searchPosts(
+  q: string,
+  page = 1,
+  limit = 20,
+): Promise<SearchResponse> {
+  const params = new URLSearchParams({ q, page: String(page), limit: String(limit) });
+  const res = await fetch(`/api/community/posts/search?${params}`);
+  if (!res.ok) throw new Error(`searchPosts failed: ${res.status}`);
+  return res.json();
+}
+
 // ── Governance types ─────────────────────────────────────────────────────────
 
 export interface GovernancePost {
@@ -302,5 +330,15 @@ export const MOCK_GOVERNANCE_DATA: GovernanceData = {
 export async function fetchGovernanceData(): Promise<GovernanceData> {
   const res = await fetch('/api/community/governance');
   if (!res.ok) throw new Error(`fetchGovernanceData failed: ${res.status}`);
+  return res.json();
+}
+
+// ── Metrics API client ───────────────────────────────────────────────────────
+
+export type MetricsPeriod = '7d' | '30d' | '90d';
+
+export async function fetchCommunityMetrics(period: MetricsPeriod = '7d') {
+  const res = await fetch(`/api/community/metrics?period=${period}`);
+  if (!res.ok) throw new Error(`fetchCommunityMetrics failed: ${res.status}`);
   return res.json();
 }

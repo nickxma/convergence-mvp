@@ -15,6 +15,7 @@ import {
 import { VoteButton } from '@/components/vote-button';
 import { CreatePostModal } from '@/components/create-post-modal';
 import { OnboardingModal, hasSeenOnboarding } from '@/components/onboarding-modal';
+import { SearchBar } from '@/components/search-bar';
 
 const PAGE_SIZE = 20;
 
@@ -196,6 +197,9 @@ export default function CommunityPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Search */}
+          <SearchBar />
+
           {/* Token gate status badge */}
           {walletAddress && hasPass !== null && (
             <span
