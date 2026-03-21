@@ -17,6 +17,7 @@ interface HistoryMessage {
 }
 
 export async function POST(req: NextRequest) {
+  try {
   const body = await req.json().catch(() => null);
   const question: string = body?.question?.trim();
   const history: HistoryMessage[] = Array.isArray(body?.history) ? body.history : [];
@@ -116,4 +117,9 @@ export async function POST(req: NextRequest) {
       score: Math.round(c.score * 100) / 100,
     })),
   });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[/api/ask] error:', msg);
+    return NextResponse.json({ error: 'Internal server error', detail: msg }, { status: 500 });
+  }
 }
