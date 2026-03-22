@@ -46,6 +46,7 @@ function errorResponse(
 }
 
 const RATE_LIMIT_PER_USER = 20; // requests per hour
+const GUEST_LIMIT = 3; // free questions per IP per 24h
 
 export async function POST(req: NextRequest) {
   const requestStart = Date.now();
@@ -86,6 +87,26 @@ export async function POST(req: NextRequest) {
 
   if (!question) {
     return errorResponse(400, 'MISSING_QUESTION', 'question is required and must be a non-empty string.');
+  }
+
+  // ── Guest rate limit ──────────────────────────────────────────────────────
+  let guestQueriesRemaining: number | null = null;
+  if (!userId) {
+    const ipHash = createHash('sha256').update(ip).digest('hex');
+    const { data: newCount, error: guestError } = await supabase.rpc('increment_guest_usage', { p_ip_hash: ipHash });
+    if (guestError) {
+      console.warn(`[/api/ask] guest_usage_error ip=${ip} err=${guestError.message}`);
+      // Fail open — allow the request if usage tracking fails
+    } else {
+      const count = newCount as number;
+      if (count > GUEST_LIMIT) {
+        return NextResponse.json(
+          { error: 'guest_limit_reached', message: 'Connect your wallet for unlimited questions' },
+          { status: 402 },
+        );
+      }
+      guestQueriesRemaining = GUEST_LIMIT - count;
+    }
   }
 
   // ── Env / config check ────────────────────────────────────────────────────
@@ -274,9 +295,18 @@ export async function POST(req: NextRequest) {
     }
 
     const updatedHistory = appendTurn(effectiveHistory, question, answer);
+    const sessionTitle = updatedHistory.find((m) => m.role === 'user')?.content.slice(0, 120) ?? question.slice(0, 120);
     supabase
       .from('conversation_sessions')
-      .upsert({ id: conversationId, history: updatedHistory, expires_at: new Date(Date.now() + SESSION_TTL_MS).toISOString() }, { onConflict: 'id' })
+      .upsert({
+        id: conversationId,
+        history: updatedHistory,
+        expires_at: new Date(Date.now() + SESSION_TTL_MS).toISOString(),
+        updated_at: new Date().toISOString(),
+        message_count: updatedHistory.length,
+        ...(userId ? { user_id: userId } : {}),
+        ...(isExistingConversation ? {} : { title: sessionTitle }),
+      }, { onConflict: 'id' })
       .then(({ error }) => { if (error) console.warn(`[/api/ask] supabase_session_error conv=${conversationId} err=${error.message}`); });
 
     return NextResponse.json({
@@ -286,6 +316,7 @@ export async function POST(req: NextRequest) {
       followUps,
       sources: sourcesPayload,
       rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() },
+      ...(guestQueriesRemaining !== null ? { guestQueriesRemaining } : {}),
     });
   }
 
@@ -372,10 +403,19 @@ export async function POST(req: NextRequest) {
 
         // Persist conversation session (fire and forget)
         const updatedHistory = appendTurn(effectiveHistory, question, fullAnswer);
+        const sessionTitle = updatedHistory.find((m) => m.role === 'user')?.content.slice(0, 120) ?? question.slice(0, 120);
         supabase
           .from('conversation_sessions')
           .upsert(
-            { id: conversationId, history: updatedHistory, expires_at: new Date(Date.now() + SESSION_TTL_MS).toISOString() },
+            {
+              id: conversationId,
+              history: updatedHistory,
+              expires_at: new Date(Date.now() + SESSION_TTL_MS).toISOString(),
+              updated_at: new Date().toISOString(),
+              message_count: updatedHistory.length,
+              ...(userId ? { user_id: userId } : {}),
+              ...(isExistingConversation ? {} : { title: sessionTitle }),
+            },
             { onConflict: 'id' },
           )
           .then(({ error }) => { if (error) console.warn(`[/api/ask] supabase_session_error conv=${conversationId} err=${error.message}`); });
@@ -389,6 +429,7 @@ export async function POST(req: NextRequest) {
             followUps,
             sources: sourcesPayload,
             rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() },
+            ...(guestQueriesRemaining !== null ? { guestQueriesRemaining } : {}),
           }),
         );
       } catch (err) {

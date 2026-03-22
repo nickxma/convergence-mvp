@@ -606,7 +606,7 @@ interface QAInterfaceProps {
 }
 
 export function QAInterface({ initialConversation, onConversationUpdate, onNewChat, initialQuestion }: QAInterfaceProps) {
-  const { user } = usePrivy();
+  const { user, login } = usePrivy();
   const walletAddress = user?.wallet?.address ?? null;
   const userId = user?.id ?? null;
 
@@ -626,6 +626,8 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
   const [showOnboardingPanel, setShowOnboardingPanel] = useState<boolean | null>(null);
   const [showCelebration, setShowCelebration] = useState(false);
   const [rateLimit, setRateLimit] = useState<{ remaining: number; resetAt: string } | null>(null);
+  const [guestQueriesRemaining, setGuestQueriesRemaining] = useState<number | null>(null);
+  const [guestLimitReached, setGuestLimitReached] = useState(false);
 
   // Determine first-visit state from localStorage (client-only)
   useEffect(() => {
@@ -638,6 +640,14 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
     const t = setTimeout(() => setShowCelebration(false), 6000);
     return () => clearTimeout(t);
   }, [showCelebration]);
+
+  // Clear guest limit state when user signs in
+  useEffect(() => {
+    if (userId) {
+      setGuestLimitReached(false);
+      setGuestQueriesRemaining(null);
+    }
+  }, [userId]);
 
   // Track current conversationId in a ref so the effect below can read it without
   // adding it to its dependency array (which would cause spurious resets).
@@ -660,6 +670,7 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
       setConversationId(newConversationId());
       setServerConversationId(null);
     }
+    setGuestLimitReached(false);
   }, [initialConversation?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Pre-fill input from leaderboard "Ask this" link (?q=...)
@@ -732,6 +743,11 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
             : new Date(Date.now() + 3600000).toISOString();
           setRateLimit({ remaining: 0, resetAt });
           setMessages(messages); // revert user message since no answer is coming
+        } else if (res.status === 402) {
+          // Guest question limit reached — show CTA, preserve question for resubmission
+          setMessages(newMessages); // keep user message visible
+          setGuestLimitReached(true);
+          setInput(question); // restore so user can resubmit after signing in
         } else {
           await res.json().catch(() => null);
           setMessages([...newMessages, { role: 'assistant', content: 'Something went wrong — try again.', error: true }]);
@@ -807,6 +823,9 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
                   setRateLimit({ remaining: rl.remaining, resetAt: rl.resetAt });
                 }
               }
+              if (typeof event.guestQueriesRemaining === 'number') {
+                setGuestQueriesRemaining(event.guestQueriesRemaining);
+              }
               if (wasFirstEver) {
                 localStorage.setItem('wu_onboarding_seen', '1');
                 setShowOnboardingPanel(false);
@@ -851,6 +870,9 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
         persistConversation(finalMessages, conversationId, newServerConvId ?? serverConversationId);
         if (data.rateLimit && typeof data.rateLimit.remaining === 'number' && typeof data.rateLimit.resetAt === 'string') {
           setRateLimit({ remaining: data.rateLimit.remaining, resetAt: data.rateLimit.resetAt });
+        }
+        if (typeof data.guestQueriesRemaining === 'number') {
+          setGuestQueriesRemaining(data.guestQueriesRemaining);
         }
         if (wasFirstEver) {
           localStorage.setItem('wu_onboarding_seen', '1');
@@ -909,6 +931,29 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
               <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
             </svg>
             New conversation
+          </button>
+        </div>
+      )}
+
+      {/* Guest mode banner */}
+      {!userId && (
+        <div
+          className="flex items-center justify-between px-4 py-2 border-b flex-shrink-0"
+          style={{ background: 'var(--bg-chip)', borderColor: 'var(--border)' }}
+        >
+          <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+            Guest mode —{' '}
+            {guestQueriesRemaining !== null
+              ? `${guestQueriesRemaining} question${guestQueriesRemaining !== 1 ? 's' : ''} remaining`
+              : '3 free questions'
+            }. Connect wallet to save history.
+          </span>
+          <button
+            onClick={login}
+            className="text-xs px-3 py-1 rounded-full flex-shrink-0 ml-3"
+            style={{ background: 'var(--sage)', color: '#fff' }}
+          >
+            Sign in
           </button>
         </div>
       )}
@@ -1059,6 +1104,29 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
             </div>
           ))}
 
+          {guestLimitReached && (
+            <div className="flex justify-start">
+              <div
+                className="max-w-xl w-full rounded-2xl rounded-tl-sm px-4 py-4"
+                style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)' }}
+              >
+                <p className="text-sm font-medium mb-1" style={{ color: 'var(--sage-dark)' }}>
+                  You&apos;ve used all 3 free questions
+                </p>
+                <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
+                  Connect your wallet for unlimited questions and to save your history.
+                </p>
+                <button
+                  onClick={login}
+                  className="text-xs px-4 py-2 rounded-full font-medium"
+                  style={{ background: 'var(--sage)', color: '#fff' }}
+                >
+                  Connect wallet →
+                </button>
+              </div>
+            </div>
+          )}
+
           {loading && (
             <div className="flex justify-start">
               <ResponseSkeleton />
@@ -1109,7 +1177,7 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
             />
             <button
               type="submit"
-              disabled={!input.trim() || loading || rateLimit?.remaining === 0}
+              disabled={!input.trim() || loading || rateLimit?.remaining === 0 || guestLimitReached}
               className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-opacity disabled:opacity-30"
               style={{ background: 'var(--sage)' }}
             >
