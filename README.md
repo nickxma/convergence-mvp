@@ -44,6 +44,22 @@ The script reads all `.txt` files from the iCloud transcript directory, compares
 
 After the run, new transcripts are immediately queryable via `/api/ask`.
 
+## Topic Clustering
+
+Questions are grouped into 10 thematic clusters (e.g. "Meditation practice", "Nature of self") using k-means on OpenAI embeddings. The clusters power the `/api/topics` endpoint and the browse-by-theme UI.
+
+To run a fresh clustering pass:
+
+```bash
+pnpm cluster:questions
+```
+
+The script fetches all unique questions from `qa_answers`, embeds them with `text-embedding-3-small`, runs k-means (k=10), auto-labels each cluster with GPT-4o-mini, and upserts results into `question_clusters`. Re-running is safe and idempotent — existing rows are updated in place.
+
+**Required env vars:** `OPENAI_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+
+Re-cluster after significant new question volume (suggested: weekly via cron or Supabase Edge Function). The minimum corpus size is 10 unique questions.
+
 ## Environment Variables
 
 Copy `.env.example` to `.env.local` and fill in your keys (Privy, Pinecone, OpenAI).
