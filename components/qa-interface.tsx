@@ -740,6 +740,85 @@ function ResponseSkeleton() {
   );
 }
 
+// ── Related questions panel ───────────────────────────────────────────────────
+
+interface RelatedQuestion { question: string; answer_snippet: string; similarity: number; }
+
+function RelatedCardSkeleton() {
+  return (
+    <div
+      className="rounded-xl px-4 py-3"
+      style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)' }}
+      aria-hidden="true"
+    >
+      <div
+        className="h-3 rounded-full mb-2"
+        style={{ width: '75%', background: 'var(--border-subtle)', animation: 'shimmer 1.4s ease-in-out infinite' }}
+      />
+      <div
+        className="h-2.5 rounded-full mb-1.5"
+        style={{ width: '100%', background: 'var(--border-subtle)', animation: 'shimmer 1.4s ease-in-out 0.1s infinite' }}
+      />
+      <div
+        className="h-2.5 rounded-full"
+        style={{ width: '60%', background: 'var(--border-subtle)', animation: 'shimmer 1.4s ease-in-out 0.2s infinite' }}
+      />
+    </div>
+  );
+}
+
+function RelatedQuestionsPanel({
+  loading,
+  questions,
+  onSelect,
+}: {
+  loading: boolean;
+  questions: RelatedQuestion[];
+  onSelect: (q: RelatedQuestion) => void;
+}) {
+  return (
+    <div className="px-4 py-5">
+      <h3
+        className="text-xs font-semibold uppercase tracking-wide mb-4"
+        style={{ color: 'var(--sage)' }}
+      >
+        You might also wonder
+      </h3>
+      <div className="space-y-3">
+        {loading
+          ? [0, 1, 2].map((i) => <RelatedCardSkeleton key={i} />)
+          : questions.map((q, i) => (
+              <button
+                key={i}
+                onClick={() => onSelect(q)}
+                className="w-full text-left rounded-xl px-4 py-3 transition-colors"
+                style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)' }}
+              >
+                <p
+                  className="text-sm font-medium leading-snug mb-1"
+                  style={{ color: 'var(--sage-dark)' }}
+                >
+                  {q.question}
+                </p>
+                <p
+                  className="text-xs leading-relaxed"
+                  style={{
+                    color: 'var(--text-muted)',
+                    display: '-webkit-box',
+                    WebkitLineClamp: 2,
+                    WebkitBoxOrient: 'vertical',
+                    overflow: 'hidden',
+                  }}
+                >
+                  {q.answer_snippet.split(/(?<=[.!?])\s/)[0] ?? q.answer_snippet.slice(0, 120)}
+                </p>
+              </button>
+            ))}
+      </div>
+    </div>
+  );
+}
+
 /** Format an ISO date string to local time, e.g. "3:45 PM". */
 function formatResetTime(isoString: string): string {
   try {
@@ -816,6 +895,12 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
   const similarDismissedInput = useRef<string | null>(null);
   const similarDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Related questions panel (post-answer desktop sidebar + mobile inline)
+  const [relatedQuestions, setRelatedQuestions] = useState<RelatedQuestion[]>([]);
+  const [relatedLoading, setRelatedLoading] = useState(false);
+  // Navigation history: stack of message arrays so user can go back after clicking a related Q
+  const [historyStack, setHistoryStack] = useState<Message[][]>([]);
+
   // Determine first-visit state from localStorage (client-only)
   useEffect(() => {
     setShowOnboardingPanel(!localStorage.getItem('wu_onboarding_seen'));
@@ -863,6 +948,9 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
     setSimilarQuestions([]);
     setShowSimilarPanel(false);
     similarDismissedInput.current = null;
+    setRelatedQuestions([]);
+    setRelatedLoading(false);
+    setHistoryStack([]);
   }, [initialConversation?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Pre-fill input from leaderboard "Ask this" link (?q=...)
@@ -954,15 +1042,31 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
     onConversationUpdate?.(conversation);
   }
 
-  async function submit(questionOverride?: string) {
+  function fetchRelated(question: string) {
+    setRelatedLoading(true);
+    setRelatedQuestions([]);
+    fetch('/api/qa/related', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question }),
+    })
+      .then((r) => (r.ok ? r.json() : Promise.resolve({ related: [] })))
+      .then((data: { related?: RelatedQuestion[] }) => { setRelatedQuestions(data.related ?? []); })
+      .catch(() => { setRelatedQuestions([]); })
+      .finally(() => { setRelatedLoading(false); });
+  }
+
+  async function submit(questionOverride?: string, historyOverride?: Message[]) {
     const question = (questionOverride ?? input).trim();
     if (!question || loading) return;
 
+    const baseMessages = historyOverride ?? messages;
+
     // Capture before state changes — used to trigger first-answer celebration
-    const wasFirstEver = messages.length === 0 && !localStorage.getItem('wu_onboarding_seen');
+    const wasFirstEver = baseMessages.length === 0 && !localStorage.getItem('wu_onboarding_seen');
 
     track('question_asked');
-    if (messages.length === 0) track('conversation_started');
+    if (baseMessages.length === 0) track('conversation_started');
 
     // Dismiss takeaways card when a new conversation begins
     if (takeawaysState !== null) {
@@ -979,12 +1083,14 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
     setShowSimilarPanel(false);
     setSimilarQuestions([]);
     similarDismissedInput.current = null;
-    const newMessages: Message[] = [...messages, { role: 'user', content: question }];
+    setRelatedQuestions([]);
+    setRelatedLoading(false);
+    const newMessages: Message[] = [...baseMessages, { role: 'user', content: question }];
     setMessages(newMessages);
     setLoading(true);
 
     try {
-      const history = messages.map((m) => ({ role: m.role, content: m.content }));
+      const history = baseMessages.map((m) => ({ role: m.role, content: m.content }));
       const res = await fetch('/api/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1093,6 +1199,7 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
                 setShowOnboardingPanel(false);
                 setShowCelebration(true);
               }
+              fetchRelated(question);
             } else if (typeof event.error === 'string') {
               setMessages([...newMessages, { role: 'assistant', content: event.error, error: true }]);
             }
@@ -1142,6 +1249,7 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
           setShowOnboardingPanel(false);
           setShowCelebration(true);
         }
+        fetchRelated(question);
       }
     } catch {
       setMessages((prev) => [
@@ -1193,6 +1301,28 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
     void submit();
   }
 
+  function handleRelatedClick(rq: RelatedQuestion) {
+    // Push current messages onto the history stack, then start a fresh Q&A
+    const currentMessages = messages;
+    setHistoryStack((prev) => [...prev, currentMessages]);
+    setRelatedQuestions([]);
+    setRelatedLoading(false);
+    void submit(rq.question, []);
+  }
+
+  function handleBack() {
+    setHistoryStack((prev) => {
+      const next = [...prev];
+      const previous = next.pop();
+      if (previous !== undefined) {
+        setMessages(previous);
+        setRelatedQuestions([]);
+        setRelatedLoading(false);
+      }
+      return next;
+    });
+  }
+
   async function handleClear() {
     // Capture session context before clearing
     const completedSessionId = serverConversationId;
@@ -1206,6 +1336,9 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
     setSimilarQuestions([]);
     setShowSimilarPanel(false);
     similarDismissedInput.current = null;
+    setRelatedQuestions([]);
+    setRelatedLoading(false);
+    setHistoryStack([]);
     onNewChat?.();
 
     // Trigger async takeaways generation if session had meaningful content
@@ -1274,6 +1407,7 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
   }); // intentionally no dep array — always sync latest handleClear
 
   const isEmpty = messages.length === 0 && !loading;
+  const showRelatedPanel = relatedLoading || relatedQuestions.length > 0;
 
   return (
     <div className="flex flex-col h-full" style={{ background: 'var(--bg)' }}>
@@ -1283,7 +1417,22 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
           className="flex items-center justify-between px-4 py-2 border-b flex-shrink-0"
           style={{ borderColor: 'var(--border)', background: 'var(--bg)' }}
         >
-          <ExportConversationButton messages={messages} />
+          <div className="flex items-center gap-2">
+            {historyStack.length > 0 && (
+              <button
+                onClick={handleBack}
+                className="flex items-center gap-1.5 text-xs px-3 min-h-[44px] rounded-full border transition-colors"
+                style={{ borderColor: 'var(--border)', color: 'var(--sage)' }}
+                aria-label="Back to previous question"
+              >
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
+                </svg>
+                Back
+              </button>
+            )}
+            <ExportConversationButton messages={messages} />
+          </div>
           <button
             onClick={handleClear}
             disabled={loading}
@@ -1346,6 +1495,11 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
           </button>
         </div>
       )}
+
+      {/* Two-pane layout: left = Q&A + input; right = related questions (desktop only) */}
+      <div className="flex-1 overflow-hidden flex flex-col lg:flex-row">
+        {/* Left pane */}
+        <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
 
       {/* Conversation thread */}
       <div className="flex-1 overflow-y-auto px-4 py-6">
@@ -1590,6 +1744,17 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
             </div>
           )}
 
+          {/* Mobile only: related questions inline below last answer */}
+          {!loading && showRelatedPanel && (
+            <div className="lg:hidden mt-2">
+              <RelatedQuestionsPanel
+                loading={relatedLoading}
+                questions={relatedQuestions}
+                onSelect={handleRelatedClick}
+              />
+            </div>
+          )}
+
           <div ref={bottomRef} />
         </div>
       </div>
@@ -1780,6 +1945,23 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
           </div>
         </form>
       </div>
+
+        </div>{/* end left pane */}
+
+        {/* Right pane: related questions (desktop only, collapses when empty) */}
+        {showRelatedPanel && (
+          <div
+            className="hidden lg:flex lg:flex-col border-l overflow-y-auto flex-shrink-0"
+            style={{ width: '35%', borderColor: 'var(--border)' }}
+          >
+            <RelatedQuestionsPanel
+              loading={relatedLoading}
+              questions={relatedQuestions}
+              onSelect={handleRelatedClick}
+            />
+          </div>
+        )}
+      </div>{/* end two-pane layout */}
 
       <style>{`
         @keyframes shimmer {
