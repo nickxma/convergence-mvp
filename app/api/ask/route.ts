@@ -18,6 +18,7 @@ const EMBED_MODEL = 'text-embedding-3-small';
 const CHAT_MODEL = 'gpt-4o-mini';
 const TOP_K = 10; // fetch extra to allow dedup headroom
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 const SYSTEM_PROMPT = `You are a knowledgeable mindfulness guide with deep expertise in meditation, consciousness, non-dual awareness, and contemplative traditions.
 Answer any question with your full knowledge — mindfulness, psychology, neuroscience, philosophy of mind, contemplative practice. When transcript excerpts are provided, weave their insights naturally into your answer as enrichment.
@@ -27,6 +28,13 @@ Rules:
 - Never name specific teachers, authors, or brands. Refer to "teachers in this tradition" or "contemplative traditions" instead.
 - Never refuse to answer. If excerpts are sparse, rely on your own knowledge.
 - No numbered lists or academic structure unless the user asks for it.`;
+
+interface CacheChunk {
+  text: string;
+  speaker: string;
+  source: string;
+  score: number;
+}
 
 /** Extract the best available client IP from request headers. */
 function getClientIp(req: NextRequest): string {
@@ -105,6 +113,12 @@ export async function POST(req: NextRequest) {
 
   const logCtx = `ip=${ip} userId=${userId ?? 'anon'} wallet=${walletAddress ?? 'none'} conv=${conversationId} q="${question.slice(0, 80)}"`;
 
+  // ── Cache key ─────────────────────────────────────────────────────────────
+  // Normalized: lowercase + trimmed (already trimmed above). Separate from
+  // questionHash used in analytics so each table's semantics are independent.
+  const cacheKey = createHash('sha256').update(question.toLowerCase()).digest('hex');
+  const noCacheParam = req.nextUrl.searchParams.get('noCache') === '1';
+
   // ── Load server-side history if conversationId provided but client sent no history ──
   let effectiveHistory = history;
   if (isExistingConversation && history.length === 0) {
@@ -120,6 +134,97 @@ export async function POST(req: NextRequest) {
       }
     } catch {
       // Proceed without server-side history — not fatal
+    }
+  }
+
+  // ── Cache lookup ──────────────────────────────────────────────────────────
+  // Only cache standalone (first) questions. Follow-ups depend on conversation
+  // context so we skip them to avoid returning answers from unrelated threads.
+  const isFollowUp = effectiveHistory.length > 0;
+
+  if (!noCacheParam && !isFollowUp) {
+    try {
+      const { data: cached } = await supabase
+        .from('qa_cache')
+        .select('answer, follow_ups, chunks_json')
+        .eq('hash', cacheKey)
+        .gt('created_at', new Date(Date.now() - CACHE_TTL_MS).toISOString())
+        .single();
+
+      if (cached) {
+        console.log(`[/api/ask] cache_hit ${logCtx}`);
+
+        const cachedChunks = (cached.chunks_json ?? []) as CacheChunk[];
+        const cachedAnswer = cached.answer as string;
+        const cachedFollowUps = (cached.follow_ups ?? []) as string[];
+
+        // Increment hit count (non-blocking, non-critical)
+        supabase.rpc('increment_qa_cache_hit', { p_hash: cacheKey }).then(({ error }) => {
+          if (error) console.warn(`[/api/ask] cache_hit_increment_error err=${error.message}`);
+        });
+
+        // Persist shareable answer for this cache hit
+        const answerSources = cachedChunks.slice(0, 3).map((c) => ({
+          text: c.text.slice(0, 200),
+          speaker: c.speaker,
+          source: c.source,
+          score: Math.round(c.score * 100) / 100,
+        }));
+        let answerId: string | null = null;
+        try {
+          const { data: answerRow, error: answerError } = await supabase
+            .from('qa_answers')
+            .insert({ question, answer: cachedAnswer, sources: answerSources, conversation_id: conversationId })
+            .select('id')
+            .single();
+          if (answerError) {
+            console.warn(`[/api/ask] qa_answer_write_error err=${answerError.message}`);
+          } else {
+            answerId = answerRow?.id ?? null;
+          }
+        } catch (err) {
+          console.warn(`[/api/ask] qa_answer_exception err=${err instanceof Error ? err.message : String(err)}`);
+        }
+
+        // Analytics (non-blocking)
+        const latencyMs = Date.now() - requestStart;
+        const questionHash = createHash('sha256').update(question).digest('hex');
+        supabase
+          .from('qa_analytics')
+          .insert({ question_hash: questionHash, pinecone_scores: [], latency_ms: latencyMs, model_used: CHAT_MODEL, cache_hit: true })
+          .then(({ error }) => {
+            if (error) console.warn(`[/api/ask] analytics_write_error err=${error.message}`);
+          });
+
+        // Update conversation session (non-blocking)
+        const updatedHistory = appendTurn(effectiveHistory, question, cachedAnswer);
+        supabase
+          .from('conversation_sessions')
+          .upsert({ id: conversationId, history: updatedHistory, expires_at: new Date(Date.now() + SESSION_TTL_MS).toISOString() }, { onConflict: 'id' })
+          .then(({ error }) => {
+            if (error) console.warn(`[/api/ask] supabase_session_error conv=${conversationId} err=${error.message}`);
+          });
+
+        return NextResponse.json({
+          answer: cachedAnswer,
+          answerId,
+          conversationId,
+          followUps: cachedFollowUps,
+          sources: cachedChunks.map((c) => ({
+            text: c.text.slice(0, 200),
+            speaker: c.speaker,
+            source: c.source,
+            score: Math.round(c.score * 100) / 100,
+          })),
+          cached: true,
+          rateLimit: {
+            remaining: rl.remaining,
+            resetAt: new Date(rl.resetAt).toISOString(),
+          },
+        });
+      }
+    } catch {
+      // Cache lookup failure is non-fatal — continue to live path
     }
   }
 
@@ -229,6 +334,25 @@ export async function POST(req: NextRequest) {
     return handleOpenAIError(err, 'chat', logCtx);
   }
 
+  // ── Write to cache (non-blocking, only for standalone questions) ──────────
+  if (!isFollowUp) {
+    supabase
+      .from('qa_cache')
+      .insert({
+        hash: cacheKey,
+        question,
+        answer,
+        follow_ups: followUps,
+        chunks_json: chunks,
+      })
+      .then(({ error }) => {
+        if (error && error.code !== '23505') {
+          // 23505 = unique_violation: another request raced us to write — fine
+          console.warn(`[/api/ask] cache_write_error err=${error.message}`);
+        }
+      });
+  }
+
   // ── Persist analytics (best-effort, non-blocking) ─────────────────────────
   const latencyMs = Date.now() - requestStart;
   const questionHash = createHash('sha256').update(question).digest('hex');
@@ -241,6 +365,7 @@ export async function POST(req: NextRequest) {
       pinecone_scores: pineconeScores,
       latency_ms: latencyMs,
       model_used: CHAT_MODEL,
+      cache_hit: false,
     })
     .then(({ error }) => {
       if (error) {
@@ -307,6 +432,7 @@ export async function POST(req: NextRequest) {
       source: c.source,
       score: Math.round(c.score * 100) / 100,
     })),
+    cached: false,
     rateLimit: {
       remaining: rl.remaining,
       resetAt: new Date(rl.resetAt).toISOString(),
