@@ -524,9 +524,10 @@ interface QAInterfaceProps {
   initialConversation?: Conversation | null;
   onConversationUpdate?: (conversation: Conversation) => void;
   onNewChat?: () => void;
+  initialQuestion?: string;
 }
 
-export function QAInterface({ initialConversation, onConversationUpdate, onNewChat }: QAInterfaceProps) {
+export function QAInterface({ initialConversation, onConversationUpdate, onNewChat, initialQuestion }: QAInterfaceProps) {
   const { user } = usePrivy();
   const walletAddress = user?.wallet?.address ?? null;
   const userId = user?.id ?? null;
@@ -581,6 +582,14 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
       setServerConversationId(null);
     }
   }, [initialConversation?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Pre-fill input from leaderboard "Ask this" link (?q=...)
+  useEffect(() => {
+    if (initialQuestion) {
+      setInput(initialQuestion);
+      textareaRef.current?.focus();
+    }
+  }, [initialQuestion]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });

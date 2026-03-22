@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Suspense } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
+import { useSearchParams } from 'next/navigation';
 import { QAInterface } from '@/components/qa-interface';
 import { MeditateInterface } from '@/components/meditate-interface';
 import { LandingPage } from '@/components/landing-page';
@@ -145,8 +146,10 @@ function ConversationSidebar({
   );
 }
 
-export default function Home() {
+function HomeInner() {
   const { ready, authenticated, logout, user } = usePrivy();
+  const searchParams = useSearchParams();
+  const initialQuestion = searchParams?.get('q') ?? undefined;
   const userId = user?.id ?? null;
 
   const [mode, setMode] = useState<Mode>('ask');
@@ -274,6 +277,16 @@ export default function Home() {
             {user?.email?.address}
           </span>
           <a
+            href="/leaderboard"
+            className="hidden sm:flex items-center gap-1 text-xs px-3 py-1.5 rounded-full border transition-colors flex-shrink-0"
+            style={{ borderColor: '#e0d8cc', color: '#7d8c6e' }}
+          >
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" />
+            </svg>
+            Leaderboard
+          </a>
+          <a
             href="/profile"
             className="hidden sm:flex items-center gap-1 text-xs px-3 py-1.5 rounded-full border transition-colors flex-shrink-0"
             style={{ borderColor: '#e0d8cc', color: '#7d8c6e' }}
@@ -337,6 +350,7 @@ export default function Home() {
               initialConversation={activeConversation}
               onConversationUpdate={handleConversationUpdate}
               onNewChat={handleNewChat}
+              initialQuestion={initialQuestion}
             />
           ) : (
             <MeditateInterface />
@@ -354,5 +368,13 @@ export default function Home() {
         </span>
       </footer>
     </div>
+  );
+}
+
+export default function Home() {
+  return (
+    <Suspense>
+      <HomeInner />
+    </Suspense>
   );
 }
