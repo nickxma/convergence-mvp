@@ -170,6 +170,34 @@ export function checkRateLimit(
   return { allowed: true, remaining: limit - entry.timestamps.length, resetAt };
 }
 
+/** Epoch ms at the start of the next UTC day (midnight). */
+function nextUtcMidnightMs(): number {
+  const now = new Date();
+  return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
+}
+
+/**
+ * Daily rate limit using Upstash Redis, keyed by an identifier + UTC date.
+ * Key format: rl:daily:{id}:{YYYY-MM-DD}
+ * TTL is set to expire at UTC midnight so the counter resets each day.
+ * Falls back to in-memory when Redis is not configured or on error.
+ */
+export async function checkDailyLimit(
+  id: string,
+  limit: number,
+): Promise<RateLimitResultExtended> {
+  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  const dailyKey = `daily:${id}:${today}`;
+  const resetAt = nextUtcMidnightMs();
+  const ttlMs = Math.max(1000, resetAt - Date.now());
+
+  const redisResult = await tryRedisRateLimit(dailyKey, limit, ttlMs);
+  if (redisResult !== null) {
+    return { ...redisResult, resetAt }; // use exact midnight UTC instead of Date.now() + ttlMs
+  }
+  return { ...checkRateLimit(dailyKey, limit, ttlMs), resetAt, store: 'memory' };
+}
+
 /**
  * Check if content is a duplicate submission within the dedup window.
  * Uses SHA-256 hash of the content, scoped to the wallet address.

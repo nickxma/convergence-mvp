@@ -9,10 +9,10 @@ import OpenAI, {
 } from 'openai';
 import { CohereClient } from 'cohere-ai';
 import { Pinecone } from '@pinecone-database/pinecone';
-import { checkRateLimitWithFallback, getClientIp, isInternalRequest, MINUTE_MS } from '@/lib/rate-limit';
+import { checkRateLimitWithFallback, checkDailyLimit, getClientIp, isInternalRequest, MINUTE_MS } from '@/lib/rate-limit';
 import { verifyRequest } from '@/lib/privy-auth';
 import { supabase } from '@/lib/supabase';
-import { getUserSubscription, incrementUserQaUsage, FREE_TIER_DAILY_LIMIT } from '@/lib/subscription';
+import { getUserSubscription, FREE_TIER_DAILY_LIMIT } from '@/lib/subscription';
 import { isValidConversationId, buildQueryText, appendTurn } from '@/lib/conversation-session';
 import type { HistoryMessage } from '@/lib/conversation-session';
 import { monitoredQuery } from '@/lib/db-monitor';
@@ -133,49 +133,72 @@ export async function POST(req: NextRequest) {
     return errorResponse(400, 'INVALID_QUESTION', 'question contains disallowed content.');
   }
 
+  // ── Daily rate limit state (for response headers) ─────────────────────────
+  let dailyRlHeaders: Record<string, string> = {};
+  let guestQueriesRemaining: number | null = null;
+  let userQuestionsRemaining: number | null = null;
+  let isProUser = false;
+
   // ── Guest rate limit ──────────────────────────────────────────────────────
   // Referred visitors (those with a `ref` cookie) get 5 free questions instead of 3.
-  let guestQueriesRemaining: number | null = null;
+  // Uses Upstash Redis keyed by IP hash + UTC date; fails open on Redis error.
   if (!userId) {
     const hasRefCookie = Boolean(req.cookies.get('ref')?.value?.trim());
     const effectiveGuestLimit = hasRefCookie ? REFERRED_GUEST_LIMIT : GUEST_LIMIT;
     const ipHash = createHash('sha256').update(ip).digest('hex');
-    const { data: newCount, error: guestError } = await supabase.rpc('increment_guest_usage', { p_ip_hash: ipHash });
-    if (guestError) {
-      console.warn(`[/api/ask] guest_usage_error ip=${ip} err=${guestError.message}`);
-      // Fail open — allow the request if usage tracking fails
-    } else {
-      const count = newCount as number;
-      if (count > effectiveGuestLimit) {
-        return NextResponse.json(
-          { error: 'guest_limit_reached', message: 'Connect your wallet for unlimited questions' },
-          { status: 402 },
-        );
-      }
-      guestQueriesRemaining = effectiveGuestLimit - count;
+    const guestRl = await checkDailyLimit(`guest:${ipHash}`, effectiveGuestLimit);
+    dailyRlHeaders = {
+      'X-RateLimit-Limit': String(effectiveGuestLimit),
+      'X-RateLimit-Remaining': String(Math.max(0, guestRl.remaining)),
+      'X-RateLimit-Reset': String(Math.ceil(guestRl.resetAt / 1000)),
+    };
+    if (!guestRl.allowed) {
+      console.warn(`[/api/ask] guest_daily_limit ip=${ip} store=${guestRl.store}`);
+      return NextResponse.json(
+        {
+          error: 'rate_limited',
+          limit: effectiveGuestLimit,
+          reset_at: new Date(guestRl.resetAt).toISOString(),
+          upgrade_url: '/subscribe',
+        },
+        {
+          status: 429,
+          headers: { ...dailyRlHeaders, 'Retry-After': String(Math.ceil((guestRl.resetAt - Date.now()) / 1000)) },
+        },
+      );
     }
+    guestQueriesRemaining = guestRl.remaining;
   }
 
   // ── Free-tier authenticated user daily limit ──────────────────────────────
   // Pro/team users bypass this; free users are capped at FREE_TIER_DAILY_LIMIT/day.
-  let userQuestionsRemaining: number | null = null;
-  let isProUser = false;
+  // Uses Upstash Redis keyed by userId + UTC date; fails open on Redis error.
   if (userId && !isInternalRequest(req)) {
     const sub = await getUserSubscription(userId);
     isProUser = sub.tier === 'pro' || sub.tier === 'team';
     if (!isProUser) {
-      const count = await incrementUserQaUsage(userId);
-      if (count > FREE_TIER_DAILY_LIMIT) {
+      const userRl = await checkDailyLimit(`user:${userId}`, FREE_TIER_DAILY_LIMIT);
+      dailyRlHeaders = {
+        'X-RateLimit-Limit': String(FREE_TIER_DAILY_LIMIT),
+        'X-RateLimit-Remaining': String(Math.max(0, userRl.remaining)),
+        'X-RateLimit-Reset': String(Math.ceil(userRl.resetAt / 1000)),
+      };
+      if (!userRl.allowed) {
+        console.warn(`[/api/ask] user_daily_limit userId=${userId} store=${userRl.store}`);
         return NextResponse.json(
           {
-            error: 'tier_limit_reached',
-            message: `You've used all ${FREE_TIER_DAILY_LIMIT} free questions today. Upgrade to Pro for unlimited access.`,
-            questionsLimit: FREE_TIER_DAILY_LIMIT,
+            error: 'rate_limited',
+            limit: FREE_TIER_DAILY_LIMIT,
+            reset_at: new Date(userRl.resetAt).toISOString(),
+            upgrade_url: '/subscribe',
           },
-          { status: 402 },
+          {
+            status: 429,
+            headers: { ...dailyRlHeaders, 'Retry-After': String(Math.ceil((userRl.resetAt - Date.now()) / 1000)) },
+          },
         );
       }
-      userQuestionsRemaining = FREE_TIER_DAILY_LIMIT - count;
+      userQuestionsRemaining = userRl.remaining;
     }
   }
 
@@ -278,7 +301,7 @@ export async function POST(req: NextRequest) {
           ...(rl !== null ? { rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() } } : {}),
           ...(guestQueriesRemaining !== null ? { guestQueriesRemaining } : {}),
           ...(userQuestionsRemaining !== null ? { userQuestionsRemaining } : {}),
-        });
+        }, { headers: dailyRlHeaders });
       }
     } catch {
       // Non-fatal — fall through to live path
@@ -355,7 +378,7 @@ export async function POST(req: NextRequest) {
           ...(rl !== null ? { rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() } } : {}),
           ...(guestQueriesRemaining !== null ? { guestQueriesRemaining } : {}),
           ...(userQuestionsRemaining !== null ? { userQuestionsRemaining } : {}),
-        });
+        }, { headers: dailyRlHeaders });
       }
     } catch {
       // Non-fatal — fall through to live path
@@ -601,7 +624,8 @@ export async function POST(req: NextRequest) {
       cached: false,
       ...(rl !== null ? { rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() } } : {}),
       ...(guestQueriesRemaining !== null ? { guestQueriesRemaining } : {}),
-    });
+      ...(userQuestionsRemaining !== null ? { userQuestionsRemaining } : {}),
+    }, { headers: dailyRlHeaders });
   }
 
   // ============================================================
@@ -769,6 +793,7 @@ export async function POST(req: NextRequest) {
       'Cache-Control': 'no-cache, no-transform',
       'Connection': 'keep-alive',
       'X-Accel-Buffering': 'no',
+      ...dailyRlHeaders,
     },
   });
 }
