@@ -55,6 +55,7 @@ function errorResponse(
 
 const RATE_LIMIT_PER_USER = 20; // requests per hour
 const GUEST_LIMIT = 3; // free questions per IP per 24h
+const REFERRED_GUEST_LIMIT = 5; // bumped limit for visitors arriving via referral link
 
 export async function POST(req: NextRequest) {
   const requestStart = Date.now();
@@ -120,8 +121,11 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Guest rate limit ──────────────────────────────────────────────────────
+  // Referred visitors (those with a `ref` cookie) get 5 free questions instead of 3.
   let guestQueriesRemaining: number | null = null;
   if (!userId) {
+    const hasRefCookie = Boolean(req.cookies.get('ref')?.value?.trim());
+    const effectiveGuestLimit = hasRefCookie ? REFERRED_GUEST_LIMIT : GUEST_LIMIT;
     const ipHash = createHash('sha256').update(ip).digest('hex');
     const { data: newCount, error: guestError } = await supabase.rpc('increment_guest_usage', { p_ip_hash: ipHash });
     if (guestError) {
@@ -129,13 +133,13 @@ export async function POST(req: NextRequest) {
       // Fail open — allow the request if usage tracking fails
     } else {
       const count = newCount as number;
-      if (count > GUEST_LIMIT) {
+      if (count > effectiveGuestLimit) {
         return NextResponse.json(
           { error: 'guest_limit_reached', message: 'Connect your wallet for unlimited questions' },
           { status: 402 },
         );
       }
-      guestQueriesRemaining = GUEST_LIMIT - count;
+      guestQueriesRemaining = effectiveGuestLimit - count;
     }
   }
 

@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { Suspense } from "react";
 import "./globals.css";
 import { Providers } from "@/components/providers";
+import { ReferralBanner } from "@/components/referral-banner";
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 
@@ -47,6 +49,9 @@ export default function RootLayout({
           >
             Skip to main content
           </a>
+          <Suspense>
+            <ReferralBanner />
+          </Suspense>
           <Providers>{children}</Providers>
           <Analytics />
           <SpeedInsights />

@@ -5,6 +5,13 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { loadConversations, deleteConversation, type Conversation } from '@/lib/conversations';
 
+interface ReferralStats {
+  code: string | null;
+  inviteCount: number;
+  joinedCount: number;
+  referralUrl: string | null;
+}
+
 function WalletExplainer() {
   return (
     <div
@@ -99,7 +106,7 @@ function ConversationStats({ conversations }: { conversations: Conversation[] })
 }
 
 export default function ProfilePage() {
-  const { ready, authenticated, user, logout } = usePrivy();
+  const { ready, authenticated, user, logout, getAccessToken } = usePrivy();
   const router = useRouter();
 
   const userId = user?.id ?? null;
@@ -108,6 +115,8 @@ export default function ProfilePage() {
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [copied, setCopied] = useState(false);
+  const [referralStats, setReferralStats] = useState<ReferralStats | null>(null);
+  const [refUrlCopied, setRefUrlCopied] = useState(false);
 
   useEffect(() => {
     if (ready && !authenticated) {
@@ -120,6 +129,57 @@ export default function ProfilePage() {
       setConversations(loadConversations(userId));
     }
   }, [userId]);
+
+  // Fetch referral stats + attempt to record conversion if ref cookie is present
+  useEffect(() => {
+    if (!authenticated) return;
+
+    void (async () => {
+      try {
+        const accessToken = await getAccessToken();
+        if (!accessToken) return;
+        const headers = { Authorization: `Bearer ${accessToken}` };
+
+        // Attempt conversion (idempotent — server checks for ref cookie)
+        fetch('/api/referral/convert', { method: 'POST', headers, credentials: 'include' }).catch(() => null);
+
+        // Fetch referral code + stats in parallel
+        const [codeRes, statsRes] = await Promise.all([
+          fetch('/api/referral', { headers }),
+          fetch('/api/referral/stats', { headers }),
+        ]);
+
+        const codeData = codeRes.ok ? await codeRes.json() : null;
+        const statsData = statsRes.ok ? await statsRes.json() : null;
+
+        setReferralStats({
+          code: codeData?.code ?? statsData?.code ?? null,
+          inviteCount: statsData?.inviteCount ?? 0,
+          joinedCount: statsData?.joinedCount ?? 0,
+          referralUrl: codeData?.referralUrl ?? null,
+        });
+      } catch {
+        // Non-critical — swallow silently
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authenticated]);
+
+  function copyReferralUrl() {
+    if (!referralStats?.referralUrl) return;
+    navigator.clipboard.writeText(referralStats.referralUrl).then(() => {
+      setRefUrlCopied(true);
+      setTimeout(() => setRefUrlCopied(false), 2000);
+    });
+  }
+
+  function twitterShareUrl() {
+    if (!referralStats?.referralUrl) return '#';
+    const text = encodeURIComponent(
+      `I've been using this Waking Up Q&A — try it free: ${referralStats.referralUrl}`,
+    );
+    return `https://twitter.com/intent/tweet?text=${text}`;
+  }
 
   function copyAddress() {
     if (!walletAddress) return;
@@ -252,6 +312,103 @@ export default function ProfilePage() {
             Your activity
           </h2>
           <ConversationStats conversations={conversations} />
+        </section>
+
+        {/* Referral — invite a friend */}
+        <section className="mt-10">
+          <h2 className="text-sm font-semibold mb-3" style={{ color: '#3d4f38' }}>
+            Invite a friend
+          </h2>
+
+          {/* Stats card */}
+          {referralStats && referralStats.joinedCount > 0 && (
+            <div
+              className="rounded-xl px-4 py-3 mb-3 flex items-center gap-4"
+              style={{ background: '#eef4ea', border: '1px solid #c8dcbe' }}
+            >
+              <div className="text-center">
+                <p className="text-base font-semibold" style={{ color: '#3d5c34' }}>
+                  {referralStats.inviteCount}
+                </p>
+                <p className="text-xs mt-0.5" style={{ color: '#5a7a50' }}>
+                  invited
+                </p>
+              </div>
+              <div className="w-px self-stretch" style={{ background: '#c8dcbe' }} />
+              <div className="text-center">
+                <p className="text-base font-semibold" style={{ color: '#3d5c34' }}>
+                  {referralStats.joinedCount}
+                </p>
+                <p className="text-xs mt-0.5" style={{ color: '#5a7a50' }}>
+                  joined
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Share link */}
+          {referralStats?.referralUrl ? (
+            <div
+              className="rounded-xl px-4 py-3"
+              style={{ background: '#f5f1e8', border: '1px solid #e0d8cc' }}
+            >
+              <p className="text-xs mb-2" style={{ color: '#7d8c6e' }}>
+                Your invite link
+              </p>
+              <div className="flex items-center gap-2">
+                <p
+                  className="flex-1 text-xs font-mono truncate"
+                  style={{ color: '#3d4f38' }}
+                  title={referralStats.referralUrl}
+                >
+                  {referralStats.referralUrl}
+                </p>
+                <button
+                  onClick={copyReferralUrl}
+                  className="flex-shrink-0 flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg transition-colors"
+                  style={{
+                    background: refUrlCopied ? '#b8ccb0' : '#e8e0d5',
+                    color: refUrlCopied ? '#fff' : '#5a6b52',
+                  }}
+                >
+                  {refUrlCopied ? (
+                    <>
+                      <svg aria-hidden="true" className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+                      </svg>
+                      Copied
+                    </>
+                  ) : (
+                    <>
+                      <svg aria-hidden="true" className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184" />
+                      </svg>
+                      Copy
+                    </>
+                  )}
+                </button>
+              </div>
+              <a
+                href={twitterShareUrl()}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium transition-colors"
+                style={{ color: '#7d8c6e' }}
+              >
+                <svg aria-hidden="true" className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.746l7.73-8.835L1.254 2.25H8.08l4.26 5.632zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+                </svg>
+                Share on X
+              </a>
+            </div>
+          ) : (
+            <div
+              className="rounded-xl px-4 py-3"
+              style={{ background: '#f5f1e8', border: '1px solid #e0d8cc' }}
+            >
+              <p className="text-xs" style={{ color: '#9c9080' }}>Loading your invite link…</p>
+            </div>
+          )}
         </section>
 
         {/* Conversation history */}
