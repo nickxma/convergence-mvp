@@ -98,6 +98,85 @@ function sourceLabel(source: string): string {
   return base.replace(/\.[^.]+$/, '').replace(/[_-]/g, ' ');
 }
 
+/** Stable short hash for a chunk — used as chunkId in citation feedback. */
+function chunkHash(s: Source): string {
+  const raw = `${s.source}::${s.text.slice(0, 100)}`;
+  let h = 0;
+  for (let i = 0; i < raw.length; i++) {
+    h = (Math.imul(31, h) + raw.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h).toString(36);
+}
+
+/**
+ * Thumbs-up / thumbs-down pair for a single citation.
+ * Appears on hover; turns colored on selection. Fire-and-forget POST.
+ */
+function CitationFeedback({
+  qaId,
+  chunkId,
+}: {
+  qaId: string;
+  chunkId: string;
+}) {
+  const [voted, setVoted] = useState<'helpful' | 'unhelpful' | null>(null);
+
+  function submit(signal: 'helpful' | 'unhelpful') {
+    if (voted) return;
+    setVoted(signal);
+    fetch('/api/ask/citation-feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ qaId, chunkId, signal }),
+    }).catch(() => {});
+  }
+
+  return (
+    <div className="flex items-center gap-0.5 ml-1 flex-shrink-0">
+      <button
+        onClick={() => submit('helpful')}
+        disabled={!!voted}
+        title="Helpful source"
+        aria-label="Mark source as helpful"
+        aria-pressed={voted === 'helpful'}
+        style={{
+          background: 'none',
+          border: 'none',
+          padding: '1px',
+          cursor: voted ? 'default' : 'pointer',
+          color: voted === 'helpful' ? 'var(--sage)' : 'var(--text-faint)',
+          opacity: voted && voted !== 'helpful' ? 0.3 : 1,
+          lineHeight: 1,
+        }}
+      >
+        <svg width="12" height="12" viewBox="0 0 24 24" fill={voted === 'helpful' ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M6.633 10.25c.806 0 1.533-.446 2.031-1.08a9.041 9.041 0 0 1 2.861-2.4c.723-.384 1.35-.956 1.653-1.715a4.498 4.498 0 0 0 .322-1.672V2.75a.75.75 0 0 1 .75-.75 2.25 2.25 0 0 1 2.25 2.25c0 1.152-.26 2.243-.723 3.218-.266.558.107 1.282.725 1.282m0 0h3.126c1.026 0 1.945.694 2.054 1.715.045.422.068.85.068 1.285a11.95 11.95 0 0 1-2.649 7.521c-.388.482-.987.729-1.605.729H13.48c-.483 0-.964-.078-1.423-.23l-3.114-1.04a4.501 4.501 0 0 0-1.423-.23H5.909M14.25 9h2.25M5.909 18.006 7.5 18h2.586a4.5 4.5 0 0 0 1.423-.23l3.114-1.04a4.5 4.5 0 0 1 1.423-.23H14.25M5.909 18.006C5.574 18.124 5.216 18.19 4.845 18.19a2.659 2.659 0 0 1-2.659-2.56V10.25a2.25 2.25 0 0 1 2.25-2.25H6M5.909 18.006C5.574 17.886 5.216 17.82 4.845 17.82" />
+        </svg>
+      </button>
+      <button
+        onClick={() => submit('unhelpful')}
+        disabled={!!voted}
+        title="Not a helpful source"
+        aria-label="Mark source as not helpful"
+        aria-pressed={voted === 'unhelpful'}
+        style={{
+          background: 'none',
+          border: 'none',
+          padding: '1px',
+          cursor: voted ? 'default' : 'pointer',
+          color: voted === 'unhelpful' ? 'var(--error-text, #c0392b)' : 'var(--text-faint)',
+          opacity: voted && voted !== 'unhelpful' ? 0.3 : 1,
+          lineHeight: 1,
+        }}
+      >
+        <svg width="12" height="12" viewBox="0 0 24 24" fill={voted === 'unhelpful' ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M7.498 15.25H4.372c-1.026 0-1.945-.694-2.054-1.715a12.137 12.137 0 0 1-.068-1.285c0-2.848.992-5.464 2.649-7.521C5.287 4.247 5.886 4 6.504 4h4.016a4.5 4.5 0 0 1 1.423.23l3.114 1.04a4.5 4.5 0 0 0 1.423.23h1.294M7.498 15.25c.618 0 .991.724.725 1.282A7.471 7.471 0 0 0 7.5 19.75 2.25 2.25 0 0 0 9.75 22a.75.75 0 0 0 .75-.75v-.633c0-.573.11-1.14.322-1.672.304-.76.93-1.33 1.653-1.715a9.04 9.04 0 0 0 2.86-2.4c.498-.634 1.226-1.08 2.032-1.08h.384M7.498 15.25H9.75M14.25 4.75h2.25M9.75 15.25a2.25 2.25 0 0 1-2.25-2.25V9a2.25 2.25 0 0 1 2.25-2.25h.384" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
 /**
  * Numbered, collapsible citations panel. Shows top 3 sources.
  * `open` and `onToggle` are controlled externally so the parent can open
@@ -108,12 +187,15 @@ function SourceList({
   open,
   onToggle,
   sourceRefs,
+  qaId,
 }: {
   sources: Source[];
   open: boolean;
   onToggle: () => void;
   sourceRefs?: RefObject<(HTMLDivElement | null)[]>;
+  qaId?: string;
 }) {
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const top3 = sources.slice(0, 3);
   if (top3.length === 0) return null;
 
@@ -150,6 +232,8 @@ function SourceList({
                 background: 'var(--source-bg)',
                 borderLeft: '2px solid var(--source-border)',
               }}
+              onMouseEnter={() => setHoveredIndex(i)}
+              onMouseLeave={() => setHoveredIndex(null)}
             >
               <div className="flex items-start gap-2">
                 <span
@@ -159,9 +243,16 @@ function SourceList({
                   [{i + 1}]
                 </span>
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold mb-0.5" style={{ color: 'var(--sage-mid)' }}>
-                    {sourceLabel(s.source)}
-                  </p>
+                  <div className="flex items-center gap-1 mb-0.5">
+                    <p className="font-semibold flex-1 min-w-0" style={{ color: 'var(--sage-mid)' }}>
+                      {sourceLabel(s.source)}
+                    </p>
+                    {qaId && (
+                      <div style={{ visibility: hoveredIndex === i ? 'visible' : 'hidden' }}>
+                        <CitationFeedback qaId={qaId} chunkId={chunkHash(s)} />
+                      </div>
+                    )}
+                  </div>
                   {s.speaker && (
                     <p className="mb-1 opacity-70" style={{ color: 'var(--sage-mid)' }}>
                       {s.speaker}
@@ -705,6 +796,7 @@ function AssistantMessage({
               open={sourcesOpen}
               onToggle={() => setSourcesOpen((v) => !v)}
               sourceRefs={sourceRefs}
+              qaId={answerId}
             />
           )}
           {followUps && followUps.length > 0 && onFollowUp && (
