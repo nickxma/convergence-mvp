@@ -11,6 +11,7 @@ import {
   titleFromQuestion,
 } from '@/lib/conversations';
 import { addBookmark, removeBookmark, isBookmarked } from '@/lib/bookmarks';
+import { exportConversation, exportSingleAnswer } from '@/lib/export';
 
 export type { Message };
 
@@ -171,6 +172,132 @@ function SourceList({
               </div>
             </div>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Export conversation button ────────────────────────────────────────────────
+
+function ExportConversationButton({ messages }: { messages: Message[] }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [open]);
+
+  return (
+    <div ref={ref} style={{ position: 'relative', display: 'inline-block' }}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        title="Export conversation"
+        aria-label="Export conversation"
+        aria-expanded={open}
+        className="flex items-center gap-1 text-xs px-2 min-h-[44px] rounded-lg border transition-colors"
+        style={{ borderColor: 'var(--border)', color: 'var(--text-muted)', background: 'transparent' }}
+      >
+        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+        </svg>
+        Export
+        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+        </svg>
+      </button>
+      {open && (
+        <div
+          className="absolute right-0 mt-1 rounded-xl py-1 shadow-lg z-20 min-w-[160px]"
+          style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
+        >
+          <button
+            className="w-full text-left px-3 py-2 text-xs transition-colors"
+            style={{ color: 'var(--text-warm)' }}
+            onClick={() => { exportConversation(messages, 'markdown'); setOpen(false); }}
+          >
+            Export as Markdown
+          </button>
+          <button
+            className="w-full text-left px-3 py-2 text-xs transition-colors"
+            style={{ color: 'var(--text-warm)' }}
+            onClick={() => { exportConversation(messages, 'plaintext'); setOpen(false); }}
+          >
+            Export as Plain Text
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Single-answer export button ───────────────────────────────────────────────
+
+function ExportAnswerButton({
+  question,
+  answer,
+  sources,
+}: {
+  question: string;
+  answer: string;
+  sources: Source[];
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const sourceLabels = sources.slice(0, 3).map((s) => {
+    const base = (s.source ?? '').split('/').pop() ?? s.source ?? '';
+    return base.replace(/\.[^.]+$/, '').replace(/[_-]/g, ' ');
+  });
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [open]);
+
+  return (
+    <div ref={ref} style={{ position: 'relative', display: 'inline-block' }}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        title="Export this answer"
+        aria-label="Export this answer"
+        aria-expanded={open}
+        className="flex items-center gap-1 text-xs transition-colors mt-2"
+        style={{ color: open ? 'var(--sage)' : 'var(--text-faint)' }}
+      >
+        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+        </svg>
+        Export
+      </button>
+      {open && (
+        <div
+          className="absolute left-0 mt-1 rounded-xl py-1 shadow-lg z-20 min-w-[160px]"
+          style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
+        >
+          <button
+            className="w-full text-left px-3 py-2 text-xs transition-colors"
+            style={{ color: 'var(--text-warm)' }}
+            onClick={() => { exportSingleAnswer(question, answer, sourceLabels, 'markdown'); setOpen(false); }}
+          >
+            Export as Markdown
+          </button>
+          <button
+            className="w-full text-left px-3 py-2 text-xs transition-colors"
+            style={{ color: 'var(--text-warm)' }}
+            onClick={() => { exportSingleAnswer(question, answer, sourceLabels, 'plaintext'); setOpen(false); }}
+          >
+            Export as Plain Text
+          </button>
         </div>
       )}
     </div>
@@ -537,6 +664,9 @@ function AssistantMessage({
             {answerId && <FeedbackButtons answerId={answerId} />}
             {answerId && question && (
               <BookmarkButton answerId={answerId} question={question} answer={content} />
+            )}
+            {question && (
+              <ExportAnswerButton question={question} answer={content} sources={sources ?? []} />
             )}
           </div>
           {sources && sources.length > 0 && (
@@ -933,9 +1063,10 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
       {/* Thread header — only visible when conversation has content */}
       {!isEmpty && (
         <div
-          className="flex items-center justify-end px-4 py-2 border-b flex-shrink-0"
+          className="flex items-center justify-between px-4 py-2 border-b flex-shrink-0"
           style={{ borderColor: 'var(--border)', background: 'var(--bg)' }}
         >
+          <ExportConversationButton messages={messages} />
           <button
             onClick={handleClear}
             disabled={loading}
