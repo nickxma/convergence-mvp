@@ -353,19 +353,23 @@ function CopyButton({ text }: { text: string }) {
 // ── Feedback buttons ──────────────────────────────────────────────────────────
 
 function FeedbackButtons({ answerId }: { answerId: string }) {
-  const { getAccessToken } = useAuth();
+  const { getAccessToken, login } = useAuth();
   const [voted, setVoted] = useState<'up' | 'down' | null>(null);
   const [pending, setPending] = useState(false);
 
   const submitFeedback = useCallback(
     async (rating: 'up' | 'down') => {
       if (pending) return;
+      // Guest users: prompt wallet connect
+      const token = await getAccessToken();
+      if (!token) {
+        login();
+        return;
+      }
       // Optimistic update
       setVoted(rating);
       setPending(true);
       try {
-        const token = await getAccessToken();
-        if (!token) return;
         await fetch('/api/qa-feedback', {
           method: 'POST',
           headers: {
@@ -380,7 +384,7 @@ function FeedbackButtons({ answerId }: { answerId: string }) {
         setPending(false);
       }
     },
-    [answerId, getAccessToken, pending],
+    [answerId, getAccessToken, login, pending],
   );
 
   const activeStyle = (which: 'up' | 'down') =>

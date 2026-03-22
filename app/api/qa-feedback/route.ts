@@ -50,17 +50,41 @@ async function updateCacheQualityScore(cacheHash: string): Promise<void> {
     const positiveRate = feedbackCount > 0 ? positiveCount / feedbackCount : 0;
     const qualityScore = pineconeScore * 0.6 + positiveRate * 0.4;
 
-    const { error: updateErr } = await supabase
+    const { data: cacheUpdateData, error: updateErr } = await supabase
       .from('qa_cache')
       .update({
         quality_score: qualityScore,
         feedback_count: feedbackCount,
         positive_feedback_count: positiveCount,
       })
-      .eq('hash', cacheHash);
+      .eq('hash', cacheHash)
+      .select('question')
+      .single();
 
     if (updateErr) {
       console.warn(`[/api/qa-feedback] quality_score_update_err hash=${cacheHash} err=${updateErr.message}`);
+    }
+
+    // Auto-escalate to quality monitor when:
+    //   - at least 3 downvotes, AND
+    //   - positive feedback rate is below 20%
+    const downvoteCount = feedbackCount - positiveCount;
+    const upvoteRate = feedbackCount > 0 ? positiveCount / feedbackCount : 0;
+    if (downvoteCount >= 3 && upvoteRate < 0.2 && cacheUpdateData?.question) {
+      const { error: escalateErr } = await supabase
+        .from('corpus_refresh_candidates')
+        .upsert(
+          {
+            cache_hash: cacheHash,
+            question: cacheUpdateData.question,
+            quality_score: qualityScore,
+            added_by: 'system:auto-escalate',
+          },
+          { onConflict: 'cache_hash' },
+        );
+      if (escalateErr) {
+        console.warn(`[/api/qa-feedback] escalate_err hash=${cacheHash} err=${escalateErr.message}`);
+      }
     }
   } catch (err) {
     console.warn(`[/api/qa-feedback] quality_score_exception hash=${cacheHash} err=${err instanceof Error ? err.message : String(err)}`);
