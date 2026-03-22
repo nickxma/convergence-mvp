@@ -97,6 +97,28 @@ export async function POST(req: NextRequest) {
     return errorResponse(400, 'MISSING_QUESTION', 'question is required and must be a non-empty string.');
   }
 
+  const MAX_QUESTION_LENGTH = 500;
+  if (question.length > MAX_QUESTION_LENGTH) {
+    return errorResponse(400, 'QUESTION_TOO_LONG', `question must be ${MAX_QUESTION_LENGTH} characters or fewer.`);
+  }
+
+  // Prompt injection guard — reject questions containing common override patterns
+  const INJECTION_PATTERNS = [
+    /ignore\s+(all\s+)?(previous|prior|above)\s+instructions?/i,
+    /disregard\s+(all\s+)?(previous|prior|above)\s+instructions?/i,
+    /forget\s+(all\s+)?(previous|prior|above)\s+instructions?/i,
+    /\bsystem\s*:/i,
+    /\boverride\s+(your\s+)?(instructions?|rules?|guidelines?)/i,
+    /you\s+are\s+now\s+/i,
+    /act\s+as\s+(if\s+you\s+are\s+)?a\s+/i,
+    /\bjailbreak\b/i,
+    /\bdan\s+mode\b/i,
+  ];
+  if (INJECTION_PATTERNS.some((re) => re.test(question))) {
+    console.warn(`[/api/ask] prompt_injection_attempt ip=${ip} userId=${userId ?? 'anon'} q="${question.slice(0, 80)}"`);
+    return errorResponse(400, 'INVALID_QUESTION', 'question contains disallowed content.');
+  }
+
   // ── Guest rate limit ──────────────────────────────────────────────────────
   let guestQueriesRemaining: number | null = null;
   if (!userId) {

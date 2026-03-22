@@ -73,7 +73,7 @@ export async function POST(
     return errorResponse(400, 'INVALID_JSON', 'Request body must be valid JSON.');
   }
 
-  const text = typeof body.body === 'string' ? body.body.trim() : '';
+  const text = typeof body.body === 'string' ? body.body.trim().replace(/<[^>]*>/g, '') : '';
   if (!text || text.length > 5000) {
     return errorResponse(400, 'INVALID_BODY', 'body is required and must be ≤ 5 000 characters.');
   }

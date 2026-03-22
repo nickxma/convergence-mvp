@@ -121,8 +121,9 @@ export async function POST(req: NextRequest) {
     return errorResponse(400, 'INVALID_JSON', 'Request body must be valid JSON.');
   }
 
-  const title = typeof body.title === 'string' ? body.title.trim() : '';
-  const text = typeof body.body === 'string' ? body.body.trim() : '';
+  const stripHtml = (s: string) => s.replace(/<[^>]*>/g, '');
+  const title = typeof body.title === 'string' ? stripHtml(body.title.trim()) : '';
+  const text = typeof body.body === 'string' ? stripHtml(body.body.trim()) : '';
 
   if (!title || title.length > 300) {
     return errorResponse(400, 'INVALID_TITLE', 'title is required and must be ≤ 300 characters.');
