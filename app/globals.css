@@ -40,6 +40,11 @@
   /* Pause dots */
   --pause-color: #a8b89e;
 
+  /* Warning (amber) */
+  --warn-bg: #fffbeb;
+  --warn-border: #fde68a;
+  --warn-text: #92400e;
+
   /* Error */
   --error-bg: #fff4f2;
   --error-border: #f5c6c0;
@@ -96,6 +101,11 @@
 
   /* Pause dots */
   --pause-color: #3a5035;
+
+  /* Warning (amber) */
+  --warn-bg: #2a1f00;
+  --warn-border: #6b4f00;
+  --warn-text: #fbbf24;
 
   /* Error */
   --error-bg: #2a1515;

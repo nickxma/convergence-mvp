@@ -512,6 +512,15 @@ function ResponseSkeleton() {
   );
 }
 
+/** Format an ISO date string to local time, e.g. "3:45 PM". */
+function formatResetTime(isoString: string): string {
+  try {
+    return new Date(isoString).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  } catch {
+    return 'soon';
+  }
+}
+
 const STARTER_QUESTIONS = [
   'What is the self?',
   'How do I stop overthinking?',
@@ -547,6 +556,7 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
   // null = not yet determined (avoids flash on mount)
   const [showOnboardingPanel, setShowOnboardingPanel] = useState<boolean | null>(null);
   const [showCelebration, setShowCelebration] = useState(false);
+  const [rateLimit, setRateLimit] = useState<{ remaining: number; resetAt: string } | null>(null);
 
   // Determine first-visit state from localStorage (client-only)
   useEffect(() => {
@@ -644,8 +654,17 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
       });
 
       if (!res.ok) {
-        await res.json().catch(() => null);
-        setMessages([...newMessages, { role: 'assistant', content: 'Something went wrong — try again.', error: true }]);
+        if (res.status === 429) {
+          const resetHeader = res.headers.get('X-RateLimit-Reset');
+          const resetAt = resetHeader
+            ? new Date(parseInt(resetHeader, 10) * 1000).toISOString()
+            : new Date(Date.now() + 3600000).toISOString();
+          setRateLimit({ remaining: 0, resetAt });
+          setMessages(messages); // revert user message since no answer is coming
+        } else {
+          await res.json().catch(() => null);
+          setMessages([...newMessages, { role: 'assistant', content: 'Something went wrong — try again.', error: true }]);
+        }
         return;
       }
 
@@ -711,6 +730,12 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
               ];
               setMessages(finalMessages);
               persistConversation(finalMessages, conversationId);
+              if (event.rateLimit && typeof event.rateLimit === 'object') {
+                const rl = event.rateLimit as { remaining?: unknown; resetAt?: unknown };
+                if (typeof rl.remaining === 'number' && typeof rl.resetAt === 'string') {
+                  setRateLimit({ remaining: rl.remaining, resetAt: rl.resetAt });
+                }
+              }
               if (wasFirstEver) {
                 localStorage.setItem('wu_onboarding_seen', '1');
                 setShowOnboardingPanel(false);
@@ -752,6 +777,9 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
         ];
         setMessages(finalMessages);
         persistConversation(finalMessages, conversationId);
+        if (data.rateLimit && typeof data.rateLimit.remaining === 'number' && typeof data.rateLimit.resetAt === 'string') {
+          setRateLimit({ remaining: data.rateLimit.remaining, resetAt: data.rateLimit.resetAt });
+        }
         if (wasFirstEver) {
           localStorage.setItem('wu_onboarding_seen', '1');
           setShowOnboardingPanel(false);
@@ -974,6 +1002,18 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
         className="border-t px-4 py-4"
         style={{ borderColor: 'var(--border)', background: 'var(--bg)' }}
       >
+        {rateLimit?.remaining === 0 && (
+          <div
+            className="max-w-2xl mx-auto mb-3 rounded-xl px-4 py-2.5 text-sm"
+            style={{
+              background: 'var(--error-bg)',
+              border: '1px solid var(--error-border)',
+              color: 'var(--error-text)',
+            }}
+          >
+            You&apos;ve used all 20 questions for this hour. Resets at {formatResetTime(rateLimit.resetAt)}.
+          </div>
+        )}
         <form onSubmit={handleSubmit} className="max-w-2xl mx-auto">
           <div
             className="flex items-end gap-2 rounded-2xl px-4 py-3"
@@ -990,14 +1030,14 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
               onKeyDown={handleKeyDown}
               placeholder="Ask a question…"
               rows={1}
-              disabled={loading}
+              disabled={loading || rateLimit?.remaining === 0}
               maxLength={MAX_CHARS}
               className="flex-1 resize-none bg-transparent text-sm leading-relaxed outline-none placeholder-zinc-400 disabled:opacity-50"
               style={{ color: 'var(--text)', minHeight: '24px' }}
             />
             <button
               type="submit"
-              disabled={!input.trim() || loading}
+              disabled={!input.trim() || loading || rateLimit?.remaining === 0}
               className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-opacity disabled:opacity-30"
               style={{ background: 'var(--sage)' }}
             >
@@ -1013,9 +1053,19 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
             </button>
           </div>
           <div className="flex justify-between items-center mt-2 px-1">
-            <p className="text-xs" style={{ color: 'var(--text-faint)' }}>
-              Press Enter to send · Shift+Enter for new line
-            </p>
+            {rateLimit !== null && rateLimit.remaining <= 5 && rateLimit.remaining > 0 ? (
+              <p className="text-xs" style={{ color: 'var(--warn-text)' }}>
+                {rateLimit.remaining} question{rateLimit.remaining !== 1 ? 's' : ''} left — resets at {formatResetTime(rateLimit.resetAt)}
+              </p>
+            ) : rateLimit !== null && rateLimit.remaining <= 15 && rateLimit.remaining > 0 ? (
+              <p className="text-xs" style={{ color: 'var(--text-faint)' }}>
+                {rateLimit.remaining} questions remaining this hour
+              </p>
+            ) : (
+              <p className="text-xs" style={{ color: 'var(--text-faint)' }}>
+                Press Enter to send · Shift+Enter for new line
+              </p>
+            )}
             {input.length > 0 && (
               <p
                 className="text-xs tabular-nums"
