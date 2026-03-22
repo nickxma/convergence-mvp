@@ -18,6 +18,14 @@ const EMBED_MODEL = 'text-embedding-3-small';
 const CHAT_MODEL = 'gpt-4o-mini';
 const TOP_K = 10; // fetch extra to allow dedup headroom
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+interface CacheChunk {
+  text: string;
+  speaker: string;
+  source: string;
+  score: number;
+}
 
 const SYSTEM_PROMPT = `You are a knowledgeable mindfulness guide with deep expertise in meditation, consciousness, non-dual awareness, and contemplative traditions.
 Answer any question with your full knowledge — mindfulness, psychology, neuroscience, philosophy of mind, contemplative practice. When transcript excerpts are provided, weave their insights naturally into your answer as enrichment.
@@ -142,19 +150,151 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ── Build augmented query for Pinecone ────────────────────────────────────
-  const queryText = buildQueryText(question, effectiveHistory);
+  // ── Cache flags ───────────────────────────────────────────────────────────
+  // Semantic threshold from env; default 0.92.
+  const semanticThreshold = parseFloat(process.env.SEMANTIC_CACHE_THRESHOLD ?? '0.92');
+  // Cache key: SHA-256 of lowercased+trimmed question (independent of questionHash in analytics).
+  const cacheKey = createHash('sha256').update(question.toLowerCase()).digest('hex');
+  const noCacheParam = req.nextUrl.searchParams.get('noCache') === '1';
+  // Only cache standalone (first-turn) questions. Follow-ups depend on conversation
+  // context, so caching them would return mismatched answers.
+  const isFollowUp = effectiveHistory.length > 0;
 
-  // ── Embed the question ────────────────────────────────────────────────────
+  // ── Exact-hash cache lookup ───────────────────────────────────────────────
+  if (!noCacheParam && !isFollowUp) {
+    try {
+      const { data: exact } = await supabase
+        .from('qa_cache')
+        .select('answer, follow_ups, chunks_json')
+        .eq('hash', cacheKey)
+        .gt('created_at', new Date(Date.now() - CACHE_TTL_MS).toISOString())
+        .single();
+
+      if (exact) {
+        console.log(`[/api/ask] exact_cache_hit ${logCtx}`);
+        const cachedChunks = (exact.chunks_json ?? []) as CacheChunk[];
+        const cachedAnswer = exact.answer as string;
+        const cachedFollowUps = (exact.follow_ups ?? []) as string[];
+
+        supabase.rpc('increment_qa_cache_hit', { p_hash: cacheKey }).then(({ error }) => {
+          if (error) console.warn(`[/api/ask] cache_hit_increment_error err=${error.message}`);
+        });
+
+        const answerSources = cachedChunks.slice(0, 3).map((c) => ({
+          text: c.text.slice(0, 200), speaker: c.speaker, source: c.source,
+          score: Math.round(c.score * 100) / 100,
+        }));
+        let answerId: string | null = null;
+        try {
+          const { data: ar, error: ae } = await supabase
+            .from('qa_answers')
+            .insert({ question, answer: cachedAnswer, sources: answerSources, conversation_id: conversationId })
+            .select('id').single();
+          if (ae) console.warn(`[/api/ask] qa_answer_write_error err=${ae.message}`);
+          else answerId = ar?.id ?? null;
+        } catch (err) {
+          console.warn(`[/api/ask] qa_answer_exception err=${err instanceof Error ? err.message : String(err)}`);
+        }
+
+        const latencyMs = Date.now() - requestStart;
+        const questionHash = createHash('sha256').update(question).digest('hex');
+        supabase.from('qa_analytics')
+          .insert({ question_hash: questionHash, pinecone_scores: [], latency_ms: latencyMs, model_used: CHAT_MODEL, cache_hit: true, semantic_cache_hit: false })
+          .then(({ error }) => { if (error) console.warn(`[/api/ask] analytics_write_error err=${error.message}`); });
+
+        const updatedHistory = appendTurn(effectiveHistory, question, cachedAnswer);
+        supabase.from('conversation_sessions')
+          .upsert({ id: conversationId, history: updatedHistory, expires_at: new Date(Date.now() + SESSION_TTL_MS).toISOString() }, { onConflict: 'id' })
+          .then(({ error }) => { if (error) console.warn(`[/api/ask] supabase_session_error conv=${conversationId} err=${error.message}`); });
+
+        return NextResponse.json({
+          answer: cachedAnswer, answerId, conversationId, followUps: cachedFollowUps, cached: true,
+          sources: cachedChunks.map((c) => ({ text: c.text.slice(0, 200), speaker: c.speaker, source: c.source, score: Math.round(c.score * 100) / 100 })),
+          rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() },
+          ...(guestQueriesRemaining !== null ? { guestQueriesRemaining } : {}),
+        });
+      }
+    } catch {
+      // Non-fatal — fall through to live path
+    }
+  }
+
+  // ── Embed ─────────────────────────────────────────────────────────────────
+  // For standalone questions (no history): embed the raw question.
+  //   - Used for semantic cache search AND as the Pinecone query vector (they're equivalent
+  //     since buildQueryText returns the question unchanged when history is empty).
+  // For follow-ups: embed queryText (question + last assistant turn) for Pinecone only.
+  const queryText = buildQueryText(question, effectiveHistory);
+  const embedInput = isFollowUp ? queryText : question;
+
   let queryVector: number[];
   try {
     const embedResp = await oai.embeddings.create({
       model: EMBED_MODEL,
-      input: queryText,
+      input: embedInput,
     });
     queryVector = embedResp.data[0].embedding;
   } catch (err) {
     return handleOpenAIError(err, 'embeddings', logCtx);
+  }
+
+  // ── Semantic cache lookup ─────────────────────────────────────────────────
+  if (!noCacheParam && !isFollowUp) {
+    try {
+      const { data: semanticRows } = await supabase.rpc('match_qa_cache', {
+        query_embedding: queryVector,
+        match_threshold: semanticThreshold,
+        match_count: 1,
+      });
+
+      const semanticRow = Array.isArray(semanticRows) ? semanticRows[0] : null;
+      if (semanticRow) {
+        console.log(`[/api/ask] semantic_cache_hit similarity=${semanticRow.similarity?.toFixed(4)} ${logCtx}`);
+        const cachedChunks = (semanticRow.chunks_json ?? []) as CacheChunk[];
+        const cachedAnswer = semanticRow.answer as string;
+        const cachedFollowUps = (semanticRow.follow_ups ?? []) as string[];
+
+        supabase.rpc('increment_qa_cache_hit', { p_hash: cacheKey }).then(({ error }) => {
+          if (error) console.warn(`[/api/ask] cache_hit_increment_error err=${error.message}`);
+        });
+
+        const answerSources = cachedChunks.slice(0, 3).map((c) => ({
+          text: c.text.slice(0, 200), speaker: c.speaker, source: c.source,
+          score: Math.round(c.score * 100) / 100,
+        }));
+        let answerId: string | null = null;
+        try {
+          const { data: ar, error: ae } = await supabase
+            .from('qa_answers')
+            .insert({ question, answer: cachedAnswer, sources: answerSources, conversation_id: conversationId })
+            .select('id').single();
+          if (ae) console.warn(`[/api/ask] qa_answer_write_error err=${ae.message}`);
+          else answerId = ar?.id ?? null;
+        } catch (err) {
+          console.warn(`[/api/ask] qa_answer_exception err=${err instanceof Error ? err.message : String(err)}`);
+        }
+
+        const latencyMs = Date.now() - requestStart;
+        const questionHash = createHash('sha256').update(question).digest('hex');
+        supabase.from('qa_analytics')
+          .insert({ question_hash: questionHash, pinecone_scores: [], latency_ms: latencyMs, model_used: CHAT_MODEL, cache_hit: true, semantic_cache_hit: true })
+          .then(({ error }) => { if (error) console.warn(`[/api/ask] analytics_write_error err=${error.message}`); });
+
+        const updatedHistory = appendTurn(effectiveHistory, question, cachedAnswer);
+        supabase.from('conversation_sessions')
+          .upsert({ id: conversationId, history: updatedHistory, expires_at: new Date(Date.now() + SESSION_TTL_MS).toISOString() }, { onConflict: 'id' })
+          .then(({ error }) => { if (error) console.warn(`[/api/ask] supabase_session_error conv=${conversationId} err=${error.message}`); });
+
+        return NextResponse.json({
+          answer: cachedAnswer, answerId, conversationId, followUps: cachedFollowUps, cached: true,
+          sources: cachedChunks.map((c) => ({ text: c.text.slice(0, 200), speaker: c.speaker, source: c.source, score: Math.round(c.score * 100) / 100 })),
+          rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() },
+          ...(guestQueriesRemaining !== null ? { guestQueriesRemaining } : {}),
+        });
+      }
+    } catch {
+      // Non-fatal — fall through to live path
+    }
   }
 
   // ── Retrieve from Pinecone ────────────────────────────────────────────────
@@ -275,8 +415,20 @@ export async function POST(req: NextRequest) {
 
     supabase
       .from('qa_analytics')
-      .insert({ question_hash: questionHash, pinecone_scores: pineconeScores, latency_ms: latencyMs, model_used: CHAT_MODEL })
+      .insert({ question_hash: questionHash, pinecone_scores: pineconeScores, latency_ms: latencyMs, model_used: CHAT_MODEL, cache_hit: false, semantic_cache_hit: false })
       .then(({ error }) => { if (error) console.warn(`[/api/ask] analytics_write_error err=${error.message}`); });
+
+    // Cache write on miss (standalone questions only, fire-and-forget)
+    if (!isFollowUp) {
+      supabase
+        .from('qa_cache')
+        .insert({ hash: cacheKey, question, answer, follow_ups: followUps, chunks_json: chunks, question_embedding: queryVector })
+        .then(({ error }) => {
+          if (error && error.code !== '23505') {
+            console.warn(`[/api/ask] cache_write_error err=${error.message}`);
+          }
+        });
+    }
 
     let answerId: string | null = null;
     try {
@@ -315,6 +467,7 @@ export async function POST(req: NextRequest) {
       conversationId,
       followUps,
       sources: sourcesPayload,
+      cached: false,
       rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() },
       ...(guestQueriesRemaining !== null ? { guestQueriesRemaining } : {}),
     });
@@ -381,8 +534,20 @@ export async function POST(req: NextRequest) {
         const pineconeScores = chunks.slice(0, 3).map((c) => c.score);
         supabase
           .from('qa_analytics')
-          .insert({ question_hash: questionHash, pinecone_scores: pineconeScores, latency_ms: latencyMs, model_used: CHAT_MODEL })
+          .insert({ question_hash: questionHash, pinecone_scores: pineconeScores, latency_ms: latencyMs, model_used: CHAT_MODEL, cache_hit: false, semantic_cache_hit: false })
           .then(({ error }) => { if (error) console.warn(`[/api/ask] analytics_write_error err=${error.message}`); });
+
+        // Cache write on miss (standalone questions only, fire-and-forget)
+        if (!isFollowUp) {
+          supabase
+            .from('qa_cache')
+            .insert({ hash: cacheKey, question, answer: fullAnswer, follow_ups: followUps, chunks_json: chunks, question_embedding: queryVector })
+            .then(({ error }) => {
+              if (error && error.code !== '23505') {
+                console.warn(`[/api/ask] cache_write_error err=${error.message}`);
+              }
+            });
+        }
 
         // Persist answer to get shareable answerId
         let answerId: string | null = null;
@@ -428,6 +593,7 @@ export async function POST(req: NextRequest) {
             answerId,
             followUps,
             sources: sourcesPayload,
+            cached: false,
             rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() },
             ...(guestQueriesRemaining !== null ? { guestQueriesRemaining } : {}),
           }),
