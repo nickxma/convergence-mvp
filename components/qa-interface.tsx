@@ -357,16 +357,27 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // When a different conversation is loaded from the sidebar, reset state
+  // Track current conversationId in a ref so the effect below can read it without
+  // adding it to its dependency array (which would cause spurious resets).
+  const conversationIdRef = useRef(conversationId);
+  conversationIdRef.current = conversationId;
+
+  // When a different conversation is loaded from the sidebar, reset state.
+  // Do NOT reset serverConversationId when the effect fires because
+  // handleConversationUpdate updated activeConversation to the same conversation
+  // that is already open — that would break multi-turn Supabase session continuity.
   useEffect(() => {
     if (initialConversation) {
       setMessages(initialConversation.messages);
       setConversationId(initialConversation.id);
+      if (initialConversation.id !== conversationIdRef.current) {
+        setServerConversationId(null);
+      }
     } else {
       setMessages([]);
       setConversationId(newConversationId());
+      setServerConversationId(null);
     }
-    setServerConversationId(null);
   }, [initialConversation?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {

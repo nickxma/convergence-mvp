@@ -163,15 +163,23 @@ export default function Home() {
 
   const handleConversationUpdate = useCallback(
     (updated: Conversation) => {
-      setConversations((prev) => {
-        const idx = prev.findIndex((c) => c.id === updated.id);
-        if (idx >= 0) {
-          const next = [...prev];
-          next[idx] = updated;
-          return next.sort((a, b) => b.updatedAt - a.updatedAt);
-        }
-        return [updated, ...prev];
-      });
+      // Re-read from localStorage (source of truth — saveConversation was just called)
+      // so the sidebar always reflects the persisted state on the first save.
+      const fresh = loadConversations(updated.userId);
+      if (fresh.length > 0) {
+        setConversations(fresh);
+      } else {
+        // Fallback: apply optimistic in-memory update if localStorage read is empty
+        setConversations((prev) => {
+          const idx = prev.findIndex((c) => c.id === updated.id);
+          if (idx >= 0) {
+            const next = [...prev];
+            next[idx] = updated;
+            return next.sort((a, b) => b.updatedAt - a.updatedAt);
+          }
+          return [updated, ...prev];
+        });
+      }
       setActiveConversation(updated);
     },
     []
