@@ -46,6 +46,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     ? `https://${process.env.VERCEL_URL}`
     : 'https://convergence-mvp.vercel.app';
 
+  const ogImageUrl = `${siteUrl}/api/og?q=${encodeURIComponent(answer.question)}&a=${encodeURIComponent(description)}`;
+
   return {
     title: `${answer.question} — Convergence`,
     description,
@@ -55,11 +57,13 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       url: `${siteUrl}/qa/${answerId}`,
       siteName: 'Convergence',
       type: 'article',
+      images: [{ url: ogImageUrl, width: 1200, height: 630, alt: answer.question }],
     },
     twitter: {
-      card: 'summary',
+      card: 'summary_large_image',
       title: answer.question,
       description,
+      images: [ogImageUrl],
     },
   };
 }
