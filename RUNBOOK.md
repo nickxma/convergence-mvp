@@ -265,9 +265,29 @@ To grant admin access to another wallet, update `ADMIN_WALLET` in Vercel → Env
 | System | Where to look |
 |---|---|
 | **Sentry** | sentry.io → Convergence MVP project — errors, replays, performance |
-| **Vercel Analytics** | Vercel dashboard → Analytics tab — page views, web vitals |
+| **Vercel Analytics** | Vercel dashboard → Analytics tab — page views, web vitals, custom events |
+| **Vercel Speed Insights** | Vercel dashboard → Speed Insights tab — Core Web Vitals per route |
 | **Health endpoint** | `GET /api/health` — returns Supabase, Pinecone, and cache status with latency |
 | **Cron job** | Vercel dashboard → Settings → Cron Jobs — `embed-posts` runs daily at midnight UTC |
+
+### Vercel Analytics
+
+**Enable:** Vercel dashboard → Convergence MVP project → Analytics tab → **Enable**. Requires Vercel Pro or Hobby plan. No additional environment variables needed — `@vercel/analytics` is already installed and rendered in the root layout.
+
+**Dashboard URL:** `https://vercel.com/dashboard/<team>/convergence-mvp/analytics`
+
+**Web Vitals:** Vercel dashboard → Speed Insights tab. Powered by `@vercel/speed-insights` (also installed in root layout). Shows LCP, CLS, FID, TTFB, and INP broken down by route.
+
+**Custom events tracked:**
+
+| Event | Fires when |
+|---|---|
+| `question_asked` | User submits any Q&A question |
+| `conversation_started` | User submits the first question in a new session |
+| `community_post_created` | User successfully publishes a Knowledge Commons post |
+| `wallet_connected` | User completes Privy auth (session login) |
+
+These events appear under **Analytics → Events** in the Vercel dashboard with counts and trend graphs.
 
 ### Health endpoint
 

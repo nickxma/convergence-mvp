@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { PrivyProvider, addRpcUrlOverrideToChain, usePrivy } from '@privy-io/react-auth';
+import { track } from '@vercel/analytics';
 import { arbitrumSepolia } from 'viem/chains';
 import { AuthContext, DEFAULT_AUTH, type AuthState } from '@/lib/auth-context';
 import { ThemeProvider } from '@/lib/theme-context';
@@ -15,6 +16,17 @@ const arbitrumSepoliaWithRpc = addRpcUrlOverrideToChain(arbitrumSepolia, rpcUrl)
 
 function PrivyAuthBridge({ children }: { children: React.ReactNode }) {
   const privy = usePrivy();
+  const prevAuthenticated = useRef<boolean | null>(null);
+
+  useEffect(() => {
+    if (privy.ready && privy.authenticated && prevAuthenticated.current === false) {
+      track('wallet_connected');
+    }
+    if (privy.ready) {
+      prevAuthenticated.current = privy.authenticated;
+    }
+  }, [privy.ready, privy.authenticated]);
+
   const value: AuthState = {
     ready: privy.ready,
     authenticated: privy.authenticated,

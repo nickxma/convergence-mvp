@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPost, TokenGateError } from '@/lib/community';
+import { track } from '@vercel/analytics';
 
 interface CreatePostModalProps {
   authToken: string | null;
@@ -78,6 +79,7 @@ export function CreatePostModal({
 
     try {
       const post = await createPost(title.trim(), body.trim(), authToken);
+      track('community_post_created');
       onCreated(post);
     } catch (err) {
       if (err instanceof TokenGateError) {

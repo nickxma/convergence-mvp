@@ -12,6 +12,7 @@ import {
 } from '@/lib/conversations';
 import { addBookmark, removeBookmark, isBookmarked } from '@/lib/bookmarks';
 import { exportConversation, exportSingleAnswer } from '@/lib/export';
+import { track } from '@vercel/analytics';
 
 export type { Message };
 
@@ -884,6 +885,9 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
 
     // Capture before state changes — used to trigger first-answer celebration
     const wasFirstEver = messages.length === 0 && !localStorage.getItem('wu_onboarding_seen');
+
+    track('question_asked');
+    if (messages.length === 0) track('conversation_started');
 
     setInput('');
     const newMessages: Message[] = [...messages, { role: 'user', content: question }];

@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/providers";
 import { Analytics } from "@vercel/analytics/react";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 
 // Injected before hydration to prevent flash of unstyled content (FOUC).
 // Reads localStorage first, then falls back to OS preference.
@@ -48,6 +49,7 @@ export default function RootLayout({
           </a>
           <Providers>{children}</Providers>
           <Analytics />
+          <SpeedInsights />
         </body>
     </html>
   );
