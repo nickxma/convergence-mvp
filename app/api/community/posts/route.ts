@@ -34,8 +34,47 @@ export async function GET(req: NextRequest) {
     return errorResponse(502, 'DB_ERROR', 'Failed to fetch posts.');
   }
 
+  const posts = data ?? [];
+  const postIds = posts.map((p) => p.id);
+
+  // Fetch emoji reaction counts for this page of posts
+  const reactionsMap = new Map<number, Record<string, number>>();
+  const myReactionsMap = new Map<number, string[]>();
+
+  if (postIds.length > 0) {
+    const { data: reactionRows, error: rxErr } = await supabase
+      .from('post_reactions')
+      .select('post_id, emoji, user_id')
+      .in('post_id', postIds);
+
+    if (rxErr) {
+      console.error('[community/posts GET] reactions fetch error:', rxErr.message);
+      // Non-fatal: return posts without reactions rather than failing the request
+    } else {
+      // Optionally resolve current user to populate myReactions
+      const auth = await verifyRequest(req);
+
+      for (const row of reactionRows ?? []) {
+        if (!reactionsMap.has(row.post_id)) reactionsMap.set(row.post_id, {});
+        const counts = reactionsMap.get(row.post_id)!;
+        counts[row.emoji] = (counts[row.emoji] ?? 0) + 1;
+
+        if (auth && row.user_id === auth.userId) {
+          if (!myReactionsMap.has(row.post_id)) myReactionsMap.set(row.post_id, []);
+          myReactionsMap.get(row.post_id)!.push(row.emoji);
+        }
+      }
+    }
+  }
+
+  const postsWithReactions = posts.map((post) => ({
+    ...post,
+    reactions: reactionsMap.get(post.id) ?? {},
+    myReactions: myReactionsMap.get(post.id) ?? [],
+  }));
+
   return NextResponse.json({
-    posts: data,
+    posts: postsWithReactions,
     page,
     pageSize: PAGE_SIZE,
     total: count ?? 0,

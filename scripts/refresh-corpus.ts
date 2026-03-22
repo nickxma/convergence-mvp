@@ -269,7 +269,7 @@ async function main() {
           chunk_index: chunk.chunk_index,
         },
       }));
-      await ns.upsert(vectors);
+      await ns.upsert({ records: vectors });
       fileChunksUpserted += vectors.length;
       totalChunksAdded += vectors.length;
       process.stdout.write(`  Upserted ${fileChunksUpserted}/${chunks.length}...\r`);
