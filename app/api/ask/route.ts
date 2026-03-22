@@ -191,18 +191,41 @@ export async function POST(req: NextRequest) {
     : `Question: ${question}`;
 
   let answer: string;
+  let followUps: string[] = [];
   try {
-    const chat = await oai.chat.completions.create({
-      model: CHAT_MODEL,
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        ...priorMessages,
-        { role: 'user', content: userContent },
-      ],
-      temperature: 0.5,
-      max_tokens: 600,
-    });
-    answer = chat.choices[0]?.message?.content ?? '';
+    const [chatResp, followUpsResp] = await Promise.all([
+      oai.chat.completions.create({
+        model: CHAT_MODEL,
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          ...priorMessages,
+          { role: 'user', content: userContent },
+        ],
+        temperature: 0.5,
+        max_tokens: 600,
+      }),
+      oai.chat.completions.create({
+        model: CHAT_MODEL,
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You generate follow-up questions for a mindfulness Q&A. Return exactly 3 short, distinct questions a curious reader might ask next. Output only a JSON array of strings, no other text.',
+          },
+          { role: 'user', content: `Original question: ${question}\n\nAnswer summary: ${userContent.slice(0, 400)}` },
+        ],
+        temperature: 0.7,
+        max_tokens: 150,
+      }),
+    ]);
+    answer = chatResp.choices[0]?.message?.content ?? '';
+    try {
+      const raw = followUpsResp.choices[0]?.message?.content ?? '[]';
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) followUps = parsed.slice(0, 3).map(String);
+    } catch {
+      // Follow-ups are non-critical — silently skip on parse error
+    }
   } catch (err) {
     return handleOpenAIError(err, 'chat', logCtx);
   }
@@ -248,6 +271,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     answer,
     conversationId,
+    followUps,
     sources: chunks.map((c) => ({
       text: c.text.slice(0, 200),
       speaker: c.speaker,

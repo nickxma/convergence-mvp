@@ -86,9 +86,17 @@ function FormattedAnswer({
   );
 }
 
+/** Derive a human-readable label from a raw source filename/path. */
+function sourceLabel(source: string): string {
+  if (!source) return 'Transcript';
+  const base = source.split('/').pop() ?? source;
+  return base.replace(/\.[^.]+$/, '').replace(/[_-]/g, ' ');
+}
+
 /**
- * Numbered, collapsible source list. `open` and `onToggle` are controlled
- * externally so the parent can open the panel when a citation is clicked.
+ * Numbered, collapsible citations panel. Shows top 3 sources.
+ * `open` and `onToggle` are controlled externally so the parent can open
+ * the panel when a citation badge is clicked.
  */
 function SourceList({
   sources,
@@ -101,7 +109,8 @@ function SourceList({
   onToggle: () => void;
   sourceRefs?: RefObject<(HTMLDivElement | null)[]>;
 }) {
-  if (sources.length === 0) return null;
+  const top3 = sources.slice(0, 3);
+  if (top3.length === 0) return null;
 
   return (
     <div className="mt-3">
@@ -120,12 +129,12 @@ function SourceList({
         >
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
         </svg>
-        {sources.length} source{sources.length !== 1 ? 's' : ''}
+        {top3.length} citation{top3.length !== 1 ? 's' : ''}
       </button>
 
       {open && (
         <div className="mt-2 space-y-2">
-          {sources.map((s, i) => (
+          {top3.map((s, i) => (
             <div
               key={i}
               ref={(el) => {
@@ -145,25 +154,94 @@ function SourceList({
                   [{i + 1}]
                 </span>
                 <div className="flex-1 min-w-0">
+                  <p className="font-semibold mb-0.5" style={{ color: '#5a6b52' }}>
+                    {sourceLabel(s.source)}
+                  </p>
                   {s.speaker && (
-                    <p className="font-semibold mb-1" style={{ color: '#5a6b52' }}>
+                    <p className="mb-1 opacity-70" style={{ color: '#5a6b52' }}>
                       {s.speaker}
                     </p>
                   )}
                   <p className="leading-relaxed" style={{ color: '#5c5248' }}>
                     {s.text}
                   </p>
-                  {s.source && (
-                    <p className="mt-1 opacity-60 font-mono" style={{ color: '#7d8c6e' }}>
-                      {s.source}
-                    </p>
-                  )}
                 </div>
               </div>
             </div>
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Copy button ───────────────────────────────────────────────────────────────
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard API unavailable — silently skip
+    }
+  }
+
+  return (
+    <button
+      onClick={handleCopy}
+      title="Copy answer"
+      className="flex items-center gap-1 text-xs transition-colors mt-2"
+      style={{ color: copied ? '#7d8c6e' : '#b0a898' }}
+    >
+      {copied ? (
+        <>
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+          </svg>
+          Copied
+        </>
+      ) : (
+        <>
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184"
+            />
+          </svg>
+          Copy
+        </>
+      )}
+    </button>
+  );
+}
+
+// ── Follow-up chips ───────────────────────────────────────────────────────────
+
+function FollowUpChips({
+  questions,
+  onSelect,
+}: {
+  questions: string[];
+  onSelect: (q: string) => void;
+}) {
+  if (questions.length === 0) return null;
+  return (
+    <div className="mt-3 flex flex-col gap-1.5">
+      {questions.map((q, i) => (
+        <button
+          key={i}
+          onClick={() => onSelect(q)}
+          className="text-left text-xs rounded-xl px-3 py-2 transition-colors"
+          style={{ background: '#f0ece3', color: '#5c5248', border: '1px solid #ddd5c8' }}
+        >
+          {q}
+        </button>
+      ))}
     </div>
   );
 }
@@ -175,11 +253,15 @@ function SourceList({
 function AssistantMessage({
   content,
   sources,
+  followUps,
   isError,
+  onFollowUp,
 }: {
   content: string;
   sources?: Source[];
+  followUps?: string[];
   isError?: boolean;
+  onFollowUp?: (q: string) => void;
 }) {
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const sourceRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -193,7 +275,7 @@ function AssistantMessage({
   }
 
   return (
-    <div className="max-w-xl">
+    <div className="max-w-xl w-full">
       <div
         className="rounded-2xl rounded-tl-sm px-4 py-3 text-sm leading-relaxed"
         style={{
@@ -207,14 +289,20 @@ function AssistantMessage({
           onCitationClick={(sources?.length ?? 0) > 0 ? handleCitationClick : undefined}
         />
       </div>
-      {sources && sources.length > 0 && (
+      {!isError && (
         <div className="px-2">
-          <SourceList
-            sources={sources}
-            open={sourcesOpen}
-            onToggle={() => setSourcesOpen((v) => !v)}
-            sourceRefs={sourceRefs}
-          />
+          <CopyButton text={content} />
+          {sources && sources.length > 0 && (
+            <SourceList
+              sources={sources}
+              open={sourcesOpen}
+              onToggle={() => setSourcesOpen((v) => !v)}
+              sourceRefs={sourceRefs}
+            />
+          )}
+          {followUps && followUps.length > 0 && onFollowUp && (
+            <FollowUpChips questions={followUps} onSelect={onFollowUp} />
+          )}
         </div>
       )}
     </div>
@@ -308,8 +396,8 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
     onConversationUpdate?.(conversation);
   }
 
-  async function submit() {
-    const question = input.trim();
+  async function submit(questionOverride?: string) {
+    const question = (questionOverride ?? input).trim();
     if (!question || loading) return;
 
     setInput('');
@@ -351,6 +439,7 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
           role: 'assistant',
           content: data.answer ?? '',
           sources: data.sources ?? [],
+          followUps: data.followUps ?? [],
         },
       ];
       setMessages(finalMessages);
@@ -372,13 +461,13 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      submit();
+      void submit();
     }
   }
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    submit();
+    void submit();
   }
 
   function handleClear() {
@@ -486,7 +575,9 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
                   <AssistantMessage
                     content={msg.content}
                     sources={msg.sources}
+                    followUps={loading ? [] : msg.followUps}
                     isError={msg.error}
+                    onFollowUp={submit}
                   />
                 </div>
               )}
