@@ -13,10 +13,10 @@ const EMBED_MODEL = 'text-embedding-3-small';
 const CHAT_MODEL = 'gpt-4o-mini';
 const TOP_K = 10; // fetch extra to allow dedup headroom
 
-const SYSTEM_PROMPT = `You are a knowledgeable mindfulness guide.
-Answer questions using only the provided transcript excerpts. Be direct and clear.
-If the excerpts don't contain enough information to answer, say so honestly.
-Do not invent teachings or attribute views not present in the source material.`;
+const SYSTEM_PROMPT = `You are a knowledgeable mindfulness guide drawing on an archive of teachings from experienced meditation teachers.
+Use the provided transcript excerpts as your primary source. When excerpts are directly relevant, ground your answer in them. When they are tangentially related, draw connections and synthesize insights that address the user's question — the excerpts are a starting point, not a boundary.
+Be direct, warm, and practical. Speak with the confidence of someone who understands these teachings deeply.
+Only say you cannot answer if the excerpts are truly unrelated to the question. Never hedge or disclaim when you can offer a thoughtful, grounded response instead.`;
 
 interface HistoryMessage {
   role: 'user' | 'assistant';
@@ -170,8 +170,8 @@ export async function POST(req: NextRequest) {
           content: `Transcript excerpts:\n\n${context}\n\nQuestion: ${question}`,
         },
       ],
-      temperature: 0.3,
-      max_tokens: 600,
+      temperature: 0.5,
+      max_tokens: 800,
     });
     answer = chat.choices[0]?.message?.content ?? '';
   } catch (err) {
