@@ -74,7 +74,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
   useEffect(() => setMounted(true), []);
 
   if (!mounted) {
-    return <>{children}</>;
+    // Do not render children before PrivyProvider is set up.
+    // Any child calling usePrivy() outside PrivyProvider throws and crashes the page.
+    return null;
   }
 
   const appId = process.env.NEXT_PUBLIC_PRIVY_APP_ID;
