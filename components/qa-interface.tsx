@@ -771,9 +771,11 @@ interface QAInterfaceProps {
 }
 
 export function QAInterface({ initialConversation, onConversationUpdate, onNewChat, initialQuestion, actionsRef }: QAInterfaceProps) {
-  const { user, login } = useAuth();
+  const { user, login, getAccessToken } = useAuth();
   const walletAddress = user?.wallet?.address ?? null;
   const userId = user?.id ?? null;
+  const adminWallet = process.env.NEXT_PUBLIC_ADMIN_WALLET;
+  const isAdmin = !!(adminWallet && walletAddress?.toLowerCase() === adminWallet.toLowerCase());
 
   const MAX_CHARS = 500;
   const [messages, setMessages] = useState<Message[]>(initialConversation?.messages ?? []);
@@ -786,6 +788,12 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
   const [serverConversationId, setServerConversationId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Key takeaways — generated async after session completion
+  const [sessionTakeaways, setSessionTakeaways] = useState<string[] | null>(null);
+  const [takeawaysState, setTakeawaysState] = useState<'loading' | 'ready' | 'timeout' | null>(null);
+  const takeawaysPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const takeawaysSessionIdRef = useRef<string | null>(null);
 
   // null = not yet determined (avoids flash on mount)
   const [showOnboardingPanel, setShowOnboardingPanel] = useState<boolean | null>(null);
@@ -955,6 +963,17 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
 
     track('question_asked');
     if (messages.length === 0) track('conversation_started');
+
+    // Dismiss takeaways card when a new conversation begins
+    if (takeawaysState !== null) {
+      if (takeawaysPollRef.current) {
+        clearInterval(takeawaysPollRef.current);
+        takeawaysPollRef.current = null;
+      }
+      setTakeawaysState(null);
+      setSessionTakeaways(null);
+      takeawaysSessionIdRef.current = null;
+    }
 
     setInput('');
     setShowSimilarPanel(false);
@@ -1174,7 +1193,12 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
     void submit();
   }
 
-  function handleClear() {
+  async function handleClear() {
+    // Capture session context before clearing
+    const completedSessionId = serverConversationId;
+    const hasEnoughTurns = messages.length >= 4; // 2 Q&A pairs minimum
+
+    // Clear conversation UI immediately
     setMessages([]);
     setConversationId(newConversationId());
     setServerConversationId(null);
@@ -1183,6 +1207,60 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
     setShowSimilarPanel(false);
     similarDismissedInput.current = null;
     onNewChat?.();
+
+    // Trigger async takeaways generation if session had meaningful content
+    if (completedSessionId && hasEnoughTurns && userId) {
+      // Clear any prior takeaways poll
+      if (takeawaysPollRef.current) {
+        clearInterval(takeawaysPollRef.current);
+        takeawaysPollRef.current = null;
+      }
+      setSessionTakeaways(null);
+      setTakeawaysState('loading');
+      takeawaysSessionIdRef.current = completedSessionId;
+
+      // Fire POST — fire-and-forget (server uses `after()` for the OpenAI call)
+      const token = await getAccessToken();
+      void fetch(`/api/conversations/${completedSessionId}/takeaways`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      }).catch(() => {});
+
+      // Poll for takeaways every 3s, give up after 30s
+      const startTime = Date.now();
+      takeawaysPollRef.current = setInterval(async () => {
+        if (takeawaysSessionIdRef.current !== completedSessionId) {
+          // Session changed — stop polling
+          clearInterval(takeawaysPollRef.current!);
+          takeawaysPollRef.current = null;
+          return;
+        }
+        if (Date.now() - startTime >= 30_000) {
+          clearInterval(takeawaysPollRef.current!);
+          takeawaysPollRef.current = null;
+          setTakeawaysState('timeout');
+          return;
+        }
+        try {
+          const pollToken = await getAccessToken();
+          const res = await fetch(`/api/conversations/${completedSessionId}/takeaways`, {
+            headers: pollToken ? { Authorization: `Bearer ${pollToken}` } : {},
+          });
+          if (res.ok) {
+            const data = await res.json() as { takeaways: string[] };
+            if (Array.isArray(data.takeaways) && data.takeaways.length > 0) {
+              setSessionTakeaways(data.takeaways);
+              setTakeawaysState('ready');
+              clearInterval(takeawaysPollRef.current!);
+              takeawaysPollRef.current = null;
+            }
+          }
+          // 404 = not yet generated, keep polling
+        } catch {
+          // network error — keep trying
+        }
+      }, 3_000);
+    }
   }
 
   // Expose imperative actions to parent (for keyboard shortcuts)
@@ -1272,6 +1350,98 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
       {/* Conversation thread */}
       <div className="flex-1 overflow-y-auto px-4 py-6">
         <div className="max-w-2xl mx-auto space-y-6">
+          {/* Key Takeaways card — shown after session completion while polling or when ready */}
+          {isEmpty && takeawaysState !== null && (
+            <div
+              className="rounded-2xl p-5 mb-2"
+              style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)' }}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold" style={{ color: 'var(--sage-dark)' }}>
+                  Key Takeaways
+                </h3>
+                {takeawaysState === 'loading' && (
+                  <span className="text-xs" style={{ color: 'var(--text-faint)' }}>Generating…</span>
+                )}
+                {isAdmin && takeawaysState === 'ready' && takeawaysSessionIdRef.current && (
+                  <button
+                    className="text-xs underline"
+                    style={{ color: 'var(--text-faint)' }}
+                    onClick={async () => {
+                      const sid = takeawaysSessionIdRef.current;
+                      if (!sid) return;
+                      setTakeawaysState('loading');
+                      setSessionTakeaways(null);
+                      const token = await getAccessToken();
+                      void fetch(`/api/conversations/${sid}/takeaways`, {
+                        method: 'POST',
+                        headers: token ? { Authorization: `Bearer ${token}` } : {},
+                      }).catch(() => {});
+                      const start = Date.now();
+                      const regen = setInterval(async () => {
+                        if (Date.now() - start >= 30_000) {
+                          clearInterval(regen);
+                          setTakeawaysState('timeout');
+                          return;
+                        }
+                        try {
+                          const t = await getAccessToken();
+                          const res = await fetch(`/api/conversations/${sid}/takeaways`, {
+                            headers: t ? { Authorization: `Bearer ${t}` } : {},
+                          });
+                          if (res.ok) {
+                            const d = await res.json() as { takeaways: string[] };
+                            if (Array.isArray(d.takeaways) && d.takeaways.length > 0) {
+                              setSessionTakeaways(d.takeaways);
+                              setTakeawaysState('ready');
+                              clearInterval(regen);
+                            }
+                          }
+                        } catch { /* keep trying */ }
+                      }, 3_000);
+                    }}
+                  >
+                    Regenerate
+                  </button>
+                )}
+              </div>
+
+              {takeawaysState === 'loading' && (
+                <div className="space-y-2">
+                  {[1, 2, 3].map((n) => (
+                    <div
+                      key={n}
+                      className="h-4 rounded animate-pulse"
+                      style={{ background: 'var(--bg-chip)', width: n === 3 ? '60%' : '100%' }}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {takeawaysState === 'ready' && sessionTakeaways && (
+                <ol className="space-y-2">
+                  {sessionTakeaways.map((t, i) => (
+                    <li key={i} className="flex gap-2.5 text-sm" style={{ color: 'var(--text-warm)' }}>
+                      <span
+                        className="flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-xs font-semibold"
+                        style={{ background: 'var(--bg-chip)', color: 'var(--sage)' }}
+                      >
+                        {i + 1}
+                      </span>
+                      <span className="leading-relaxed">{t}</span>
+                    </li>
+                  ))}
+                </ol>
+              )}
+
+              {takeawaysState === 'timeout' && (
+                <p className="text-xs" style={{ color: 'var(--text-faint)' }}>
+                  Could not generate takeaways — the session may have timed out.
+                </p>
+              )}
+            </div>
+          )}
+
           {isEmpty && showOnboardingPanel === true && (
             /* First-time user: full onboarding welcome panel */
             <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
