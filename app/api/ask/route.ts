@@ -14,6 +14,7 @@ import { supabase } from '@/lib/supabase';
 import { isValidConversationId, buildQueryText, appendTurn } from '@/lib/conversation-session';
 import type { HistoryMessage } from '@/lib/conversation-session';
 import { monitoredQuery } from '@/lib/db-monitor';
+import { logOpenAIUsage } from '@/lib/openai-usage';
 
 const EMBED_MODEL = 'text-embedding-3-small';
 const CHAT_MODEL = 'gpt-4o-mini';
@@ -263,6 +264,7 @@ export async function POST(req: NextRequest) {
       input: embedInput,
     });
     queryVector = embedResp.data[0].embedding;
+    logOpenAIUsage({ model: EMBED_MODEL, endpoint: 'embedding', promptTokens: embedResp.usage.total_tokens });
   } catch (err) {
     return handleOpenAIError(err, 'embeddings', logCtx);
   }
@@ -428,6 +430,8 @@ export async function POST(req: NextRequest) {
           max_tokens: 150,
         }),
       ]);
+      logOpenAIUsage({ model: CHAT_MODEL, endpoint: 'completion', promptTokens: chatResp.usage?.prompt_tokens ?? 0, completionTokens: chatResp.usage?.completion_tokens ?? 0 });
+      logOpenAIUsage({ model: CHAT_MODEL, endpoint: 'completion', promptTokens: followUpsResp.usage?.prompt_tokens ?? 0, completionTokens: followUpsResp.usage?.completion_tokens ?? 0 });
       answer = chatResp.choices[0]?.message?.content ?? '';
       try {
         const raw = followUpsResp.choices[0]?.message?.content ?? '[]';
@@ -514,6 +518,7 @@ export async function POST(req: NextRequest) {
   const followUpsPromise: Promise<string[]> = oai.chat.completions
     .create({ model: CHAT_MODEL, messages: followUpMessages, temperature: 0.7, max_tokens: 150 })
     .then((r) => {
+      logOpenAIUsage({ model: CHAT_MODEL, endpoint: 'completion', promptTokens: r.usage?.prompt_tokens ?? 0, completionTokens: r.usage?.completion_tokens ?? 0 });
       try {
         const raw = r.choices[0]?.message?.content ?? '[]';
         const parsed = JSON.parse(raw);
@@ -545,6 +550,7 @@ export async function POST(req: NextRequest) {
             temperature: 0.5,
             max_tokens: 600,
             stream: true,
+            stream_options: { include_usage: true },
           },
           { signal: streamAbortController.signal },
         );
@@ -554,6 +560,9 @@ export async function POST(req: NextRequest) {
           if (delta) {
             fullAnswer += delta;
             controller.enqueue(sseEvent({ delta }));
+          }
+          if (chunk.usage) {
+            logOpenAIUsage({ model: CHAT_MODEL, endpoint: 'completion', promptTokens: chunk.usage.prompt_tokens, completionTokens: chunk.usage.completion_tokens });
           }
         }
 

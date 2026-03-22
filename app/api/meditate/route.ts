@@ -8,6 +8,7 @@ import OpenAI, {
 } from 'openai';
 import { Pinecone } from '@pinecone-database/pinecone';
 import { checkRateLimit } from '@/lib/rate-limit';
+import { logOpenAIUsage } from '@/lib/openai-usage';
 
 const EMBED_MODEL = 'text-embedding-3-small';
 const CHAT_MODEL = 'gpt-4o-mini';
@@ -102,6 +103,7 @@ export async function POST(req: NextRequest) {
       input: topic,
     });
     queryVector = embedResp.data[0].embedding;
+    logOpenAIUsage({ model: EMBED_MODEL, endpoint: 'embedding', promptTokens: embedResp.usage.total_tokens });
   } catch (err) {
     return handleOpenAIError(err, 'embeddings', logCtx);
   }
@@ -159,6 +161,7 @@ export async function POST(req: NextRequest) {
       temperature: 0.7,
       max_tokens: 1800,
     });
+    logOpenAIUsage({ model: CHAT_MODEL, endpoint: 'completion', promptTokens: chat.usage?.prompt_tokens ?? 0, completionTokens: chat.usage?.completion_tokens ?? 0 });
     script = chat.choices[0]?.message?.content ?? '';
   } catch (err) {
     return handleOpenAIError(err, 'chat', logCtx);

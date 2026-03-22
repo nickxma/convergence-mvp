@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { Pinecone } from '@pinecone-database/pinecone';
 import { supabase } from '@/lib/supabase';
+import { logOpenAIUsage } from '@/lib/openai-usage';
 
 type RelatedCacheRow = { related: unknown[] };
 type RelatedMatch = { question: string; answer: string; chunks_json: Array<{ source?: string }>; similarity: number };
@@ -71,6 +72,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     const embedResp = await oai.embeddings.create({ model: EMBED_MODEL, input: question });
     queryVector = embedResp.data[0].embedding;
+    logOpenAIUsage({ model: EMBED_MODEL, endpoint: 'embedding', promptTokens: embedResp.usage.total_tokens });
   } catch (err) {
     console.error(`[/api/qa/related] embed_error err=${err instanceof Error ? err.message : String(err)}`);
     return errorResponse(503, 'EMBED_FAILED', 'Failed to process question. Try again.');

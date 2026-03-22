@@ -16,6 +16,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { Pinecone } from '@pinecone-database/pinecone';
 import { supabase } from '@/lib/supabase';
+import { logOpenAIUsage } from '@/lib/openai-usage';
 
 const EMBED_MODEL = 'text-embedding-3-small';
 const COMMUNITY_NAMESPACE = 'community';
@@ -74,6 +75,7 @@ async function runEmbedJob(req: NextRequest): Promise<NextResponse> {
     let embedResp: Awaited<ReturnType<typeof oai.embeddings.create>>;
     try {
       embedResp = await oai.embeddings.create({ model: EMBED_MODEL, input: texts });
+      logOpenAIUsage({ model: EMBED_MODEL, endpoint: 'embedding', promptTokens: embedResp.usage.total_tokens });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[embed-posts] OpenAI embed error batch=${i}: ${msg}`);

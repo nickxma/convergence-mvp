@@ -38,6 +38,25 @@ interface AnalyticsData {
   feedback: FeedbackSummary;
 }
 
+interface CostByModel {
+  model: string;
+  totalUsd: number;
+  promptTokens: number;
+  completionTokens: number;
+}
+
+interface CostByDay {
+  date: string;
+  totalUsd: number;
+}
+
+interface CostsData {
+  period: string;
+  totalUsd: number;
+  byModel: CostByModel[];
+  byDay: CostByDay[];
+}
+
 interface LowQualityAnswer {
   hash: string;
   question: string;
@@ -137,6 +156,7 @@ export default function AdminPage() {
   const walletAddress = user?.wallet?.address ?? null;
 
   const [data, setData] = useState<AnalyticsData | null>(null);
+  const [costs, setCosts] = useState<CostsData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
@@ -147,12 +167,16 @@ export default function AdminPage() {
     setLoading(true);
     setError(null);
     try {
-      const [analyticsRes, lowQualityRes] = await Promise.all([
+      const [analyticsRes, lowQualityRes, costsRes] = await Promise.all([
         fetch('/api/admin/qa-analytics', {
           headers: { Authorization: `Bearer ${wallet}` },
           cache: 'no-store',
         }),
         fetch('/api/admin/low-quality-answers', {
+          headers: { Authorization: `Bearer ${wallet}` },
+          cache: 'no-store',
+        }),
+        fetch('/api/admin/costs?period=7d', {
           headers: { Authorization: `Bearer ${wallet}` },
           cache: 'no-store',
         }),
@@ -172,6 +196,9 @@ export default function AdminPage() {
       if (lowQualityRes.ok) {
         const lqData = await lowQualityRes.json();
         setLowQualityAnswers(lqData.items ?? []);
+      }
+      if (costsRes.ok) {
+        setCosts(await costsRes.json());
       }
       setLastRefresh(new Date());
     } catch {
@@ -420,6 +447,59 @@ export default function AdminPage() {
                 <StatCard label="Thumbs up" value={String(data.feedback.up)} />
                 <StatCard label="Thumbs down" value={String(data.feedback.down)} />
               </div>
+            </section>
+
+            {/* OpenAI costs */}
+            <section>
+              <h2 className="text-xs font-semibold uppercase tracking-wide mb-3" style={{ color: '#7d8c6e' }}>
+                OpenAI costs (last 7 days)
+              </h2>
+              {costs == null ? (
+                <p className="text-xs" style={{ color: '#b0a898' }}>Loading…</p>
+              ) : (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    <StatCard label="Total spend" value={`$${costs.totalUsd.toFixed(4)}`} />
+                    {costs.byModel.map((m) => (
+                      <StatCard
+                        key={m.model}
+                        label={m.model}
+                        value={`$${m.totalUsd.toFixed(4)}`}
+                      />
+                    ))}
+                  </div>
+                  {costs.byModel.length > 0 && (
+                    <div className="rounded-xl overflow-hidden" style={{ border: '1px solid #e0d8cc' }}>
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr style={{ background: '#f5f1e8', borderBottom: '1px solid #e0d8cc' }}>
+                            <th className="text-left px-4 py-2.5 font-semibold" style={{ color: '#7d8c6e' }}>Model</th>
+                            <th className="text-right px-4 py-2.5 font-semibold" style={{ color: '#7d8c6e' }}>Prompt tokens</th>
+                            <th className="text-right px-4 py-2.5 font-semibold" style={{ color: '#7d8c6e' }}>Completion tokens</th>
+                            <th className="text-right px-4 py-2.5 font-semibold" style={{ color: '#7d8c6e' }}>Cost (USD)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {costs.byModel.map((m, i) => (
+                            <tr
+                              key={m.model}
+                              style={{
+                                background: i % 2 === 0 ? '#faf8f3' : '#f5f1e8',
+                                borderBottom: '1px solid #ede8e0',
+                              }}
+                            >
+                              <td className="px-4 py-2.5 font-mono" style={{ color: '#5c5248' }}>{m.model}</td>
+                              <td className="px-4 py-2.5 text-right" style={{ color: '#5c5248' }}>{m.promptTokens.toLocaleString()}</td>
+                              <td className="px-4 py-2.5 text-right" style={{ color: '#5c5248' }}>{m.completionTokens.toLocaleString()}</td>
+                              <td className="px-4 py-2.5 text-right font-semibold" style={{ color: '#3d4f38' }}>${m.totalUsd.toFixed(4)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
             </section>
 
             {/* Answer quality histogram */}
