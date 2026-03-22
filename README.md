@@ -60,6 +60,35 @@ The script fetches all unique questions from `qa_answers`, embeds them with `tex
 
 Re-cluster after significant new question volume (suggested: weekly via cron or Supabase Edge Function). The minimum corpus size is 10 unique questions.
 
+## Uptime Monitoring
+
+Both production sites are monitored via [UptimeRobot](https://uptimerobot.com) (free tier, 5-minute polling).
+
+### Monitors to create
+
+| Friendly name              | Type  | URL                                             |
+| -------------------------- | ----- | ----------------------------------------------- |
+| Convergence MVP — Health   | HTTP  | `https://convergence-mvp.vercel.app/api/health` |
+| Convergence MVP — Frontend | HTTP  | `https://convergence-mvp.vercel.app/`           |
+| Paradox of Acceptance      | HTTP  | `https://paradoxofacceptance.xyz/`              |
+
+### Setup steps
+
+1. Create a free account at <https://uptimerobot.com>.
+2. For each row in the table above, click **Add New Monitor** and fill in:
+   - **Monitor Type:** HTTP(s)
+   - **Friendly Name:** as shown
+   - **URL:** as shown
+   - **Monitoring Interval:** 5 minutes
+3. Create an **Alert Contact** using the email stored in `ADMIN_EMAIL` env var. Set the notification threshold to **2 consecutive failures** to avoid noise from transient blips.
+4. Under **My Settings → Integrations/API**, copy your API key.
+5. Add a webhook alert contact pointing to `https://convergence-mvp.vercel.app/api/webhooks/uptime-alert` — this logs down/up events to Sentry.
+6. Enable the **Public Status Page** for the account and copy the URL into this README once created.
+
+### Vercel cron keep-warm
+
+`vercel.json` includes a cron that pings `/api/health` every 5 minutes. This keeps the serverless function warm and produces a Sentry breadcrumb if the health endpoint returns non-200.
+
 ## Environment Variables
 
 Copy `.env.example` to `.env.local` and fill in your keys (Privy, Pinecone, OpenAI).
