@@ -2,14 +2,138 @@
 
 import { usePrivy } from '@privy-io/react-auth';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { loadConversations, deleteConversation, type Conversation } from '@/lib/conversations';
+import { CancellationSurveyModal } from '@/components/cancellation-survey-modal';
 
 interface ReferralStats {
   code: string | null;
   inviteCount: number;
   joinedCount: number;
   referralUrl: string | null;
+}
+
+interface SubscriptionInfo {
+  tier: string;
+  renewalDate: string | null;
+  stripeSubscriptionId: string | null;
+}
+
+function SubscriptionSection({
+  userId,
+  getAccessToken,
+}: {
+  userId: string;
+  getAccessToken: () => Promise<string | null>;
+}) {
+  const [sub, setSub] = useState<SubscriptionInfo | null>(null);
+  const [loading, setLoading] = useState<'portal' | null>(null);
+  const [showCancelModal, setShowCancelModal] = useState(false);
+
+  const fetchSub = useCallback(async () => {
+    try {
+      const token = await getAccessToken();
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch('/api/subscriptions/me', { headers });
+      if (res.ok) {
+        const data = await res.json() as SubscriptionInfo & { questionsUsedToday?: number; questionsLimit?: number | null };
+        setSub({ tier: data.tier, renewalDate: data.renewalDate, stripeSubscriptionId: data.stripeSubscriptionId });
+      }
+    } catch {
+      // non-critical
+    }
+  }, [getAccessToken]);
+
+  useEffect(() => { void fetchSub(); }, [fetchSub]);
+
+  async function handleManage() {
+    setLoading('portal');
+    try {
+      const token = await getAccessToken();
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch('/api/stripe/portal', { method: 'POST', headers, body: '{}' });
+      if (res.ok) {
+        const { url } = await res.json() as { url: string };
+        window.location.href = url;
+        return;
+      }
+    } catch { /* fall through */ }
+    setLoading(null);
+  }
+
+  if (!sub || sub.tier === 'free') return null;
+
+  const renewalLabel = sub.renewalDate
+    ? new Date(sub.renewalDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    : null;
+
+  return (
+    <>
+      <section className="mt-10">
+        <h2 className="text-sm font-semibold mb-3" style={{ color: '#3d4f38' }}>
+          Subscription
+        </h2>
+        <div
+          className="rounded-xl px-4 py-4"
+          style={{ background: '#f5f1e8', border: '1px solid #e0d8cc' }}
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <span
+                  className="text-[10px] font-bold px-2 py-0.5 rounded tracking-wide"
+                  style={{ background: '#7c3aed', color: '#fff' }}
+                >
+                  PRO
+                </span>
+                <span className="text-sm font-medium" style={{ color: '#3d4f38' }}>
+                  Pro plan
+                </span>
+              </div>
+              {renewalLabel && (
+                <p className="text-xs mt-1" style={{ color: '#9c9080' }}>
+                  Renews {renewalLabel}
+                </p>
+              )}
+            </div>
+            <button
+              onClick={handleManage}
+              disabled={loading !== null}
+              className="text-xs px-3 py-1.5 rounded-lg font-medium transition-opacity"
+              style={{
+                background: '#e8e0d5',
+                color: '#5a6b52',
+                opacity: loading ? 0.7 : 1,
+              }}
+            >
+              {loading === 'portal' ? 'Opening…' : 'Manage'}
+            </button>
+          </div>
+
+          <div style={{ borderTop: '1px solid #e0d8cc' }} className="pt-3">
+            <button
+              onClick={() => setShowCancelModal(true)}
+              disabled={loading !== null}
+              className="text-xs transition-colors"
+              style={{ color: '#9c9080' }}
+            >
+              Cancel subscription
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {showCancelModal && (
+        <CancellationSurveyModal
+          subscriptionId={sub.stripeSubscriptionId}
+          userId={userId}
+          onClose={() => setShowCancelModal(false)}
+        />
+      )}
+    </>
+  );
 }
 
 function WalletExplainer() {
@@ -305,6 +429,11 @@ export default function ProfilePage() {
 
           <WalletExplainer />
         </section>
+
+        {/* Subscription section — only rendered for Pro subscribers */}
+        {userId && (
+          <SubscriptionSection userId={userId} getAccessToken={getAccessToken} />
+        )}
 
         {/* Activity section */}
         <section className="mt-10">

@@ -39,5 +39,6 @@ export async function GET(req: NextRequest) {
     questionsUsedToday,
     questionsLimit,
     renewalDate: sub.currentPeriodEnd,
+    stripeSubscriptionId: sub.stripeSubscriptionId,
   });
 }
