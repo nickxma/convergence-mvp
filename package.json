@@ -12,7 +12,8 @@
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "seed:community": "tsx scripts/seed-community.ts",
-    "verify-migrations": "tsx scripts/verify-migrations.ts"
+    "verify-migrations": "tsx scripts/verify-migrations.ts",
+    "refresh:corpus": "tsx scripts/refresh-corpus.ts"
   },
   "dependencies": {
     "@pinecone-database/pinecone": "^7.1.0",

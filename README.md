@@ -30,6 +30,20 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
+## Corpus Refresh
+
+To add new Waking Up transcripts to the Pinecone vector store without re-embedding the entire corpus:
+
+```bash
+pnpm refresh:corpus
+```
+
+The script reads all `.txt` files from the iCloud transcript directory, compares them against the `corpus_manifest` table in Supabase, and only embeds files that are new or have changed. Re-running is safe and idempotent.
+
+**Required env vars:** `PINECONE_API_KEY`, `PINECONE_INDEX`, `OPENAI_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+
+After the run, new transcripts are immediately queryable via `/api/ask`.
+
 ## Environment Variables
 
 Copy `.env.example` to `.env.local` and fill in your keys (Privy, Pinecone, OpenAI).
