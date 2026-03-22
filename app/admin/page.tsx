@@ -21,6 +21,13 @@ interface TopQuestion {
   count: number;
 }
 
+interface FeedbackSummary {
+  total: number;
+  up: number;
+  down: number;
+  pctPositive: number | null;
+}
+
 interface AnalyticsData {
   queryCounts: { today: number; week: number };
   avgLatencyMs: number | null;
@@ -28,6 +35,7 @@ interface AnalyticsData {
   topQuestions: TopQuestion[];
   dailyCounts: DayCount[];
   scoreDistribution: ScoreBucket[];
+  feedback: FeedbackSummary;
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
@@ -351,6 +359,22 @@ export default function AdminPage() {
                     </tbody>
                   </table>
                 )}
+              </div>
+            </section>
+
+            {/* Feedback summary */}
+            <section>
+              <h2 className="text-xs font-semibold uppercase tracking-wide mb-3" style={{ color: '#7d8c6e' }}>
+                Feedback summary
+              </h2>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <StatCard label="Total ratings" value={String(data.feedback.total)} />
+                <StatCard
+                  label="Positive"
+                  value={data.feedback.pctPositive != null ? `${data.feedback.pctPositive}%` : '—'}
+                />
+                <StatCard label="Thumbs up" value={String(data.feedback.up)} />
+                <StatCard label="Thumbs down" value={String(data.feedback.down)} />
               </div>
             </section>
 
