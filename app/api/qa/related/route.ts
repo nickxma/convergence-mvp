@@ -1,14 +1,11 @@
 import { createHash } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
-import OpenAI from 'openai';
 import { Pinecone } from '@pinecone-database/pinecone';
 import { supabase } from '@/lib/supabase';
-import { logOpenAIUsage } from '@/lib/openai-usage';
+import { embedOne } from '@/lib/embeddings';
 
 type RelatedCacheRow = { related: unknown[] };
 type RelatedMatch = { question: string; answer: string; chunks_json: Array<{ source?: string }>; similarity: number };
-
-const EMBED_MODEL = 'text-embedding-3-small';
 const PINECONE_TOP_K = 8;
 const RELATED_MAX = 5;
 const RELATED_MIN = 2;
@@ -67,12 +64,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   // ── Embed ──────────────────────────────────────────────────────────────
-  const oai = new OpenAI({ apiKey: openaiKey });
   let queryVector: number[];
   try {
-    const embedResp = await oai.embeddings.create({ model: EMBED_MODEL, input: question });
-    queryVector = embedResp.data[0].embedding;
-    logOpenAIUsage({ model: EMBED_MODEL, endpoint: 'embedding', promptTokens: embedResp.usage.total_tokens });
+    queryVector = await embedOne(question);
   } catch (err) {
     console.error(`[/api/qa/related] embed_error err=${err instanceof Error ? err.message : String(err)}`);
     return errorResponse(503, 'EMBED_FAILED', 'Failed to process question. Try again.');

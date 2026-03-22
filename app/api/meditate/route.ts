@@ -9,8 +9,7 @@ import OpenAI, {
 import { Pinecone } from '@pinecone-database/pinecone';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { logOpenAIUsage } from '@/lib/openai-usage';
-
-const EMBED_MODEL = 'text-embedding-3-small';
+import { embedOne } from '@/lib/embeddings';
 const CHAT_MODEL = 'gpt-4o-mini';
 const TOP_K = 8;
 
@@ -98,12 +97,7 @@ export async function POST(req: NextRequest) {
   // ── Embed the topic ───────────────────────────────────────────────────────
   let queryVector: number[];
   try {
-    const embedResp = await oai.embeddings.create({
-      model: EMBED_MODEL,
-      input: topic,
-    });
-    queryVector = embedResp.data[0].embedding;
-    logOpenAIUsage({ model: EMBED_MODEL, endpoint: 'embedding', promptTokens: embedResp.usage.total_tokens });
+    queryVector = await embedOne(topic, { client: oai });
   } catch (err) {
     return handleOpenAIError(err, 'embeddings', logCtx);
   }

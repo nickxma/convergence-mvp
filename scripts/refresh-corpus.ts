@@ -57,6 +57,7 @@ loadEnvLocal();
 import { createClient } from '@supabase/supabase-js';
 import { Pinecone } from '@pinecone-database/pinecone';
 import OpenAI from 'openai';
+import { embedBatch } from '@/lib/embeddings';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -288,8 +289,7 @@ function chunkText(text: string, sourceFile: string): Chunk[] {
 // ── Embed helper ──────────────────────────────────────────────────────────────
 
 async function embedTexts(oai: OpenAI, texts: string[]): Promise<number[][]> {
-  const resp = await oai.embeddings.create({ model: EMBED_MODEL, input: texts, dimensions: EMBED_DIMENSIONS });
-  return resp.data.map((item) => item.embedding);
+  return embedBatch(texts, { model: EMBED_MODEL, dimensions: EMBED_DIMENSIONS, client: oai });
 }
 
 // ── Summary generation ────────────────────────────────────────────────────────
