@@ -606,6 +606,7 @@ function AssistantMessage({
   answerId,
   question,
   streaming,
+  fromCache,
 }: {
   content: string;
   sources?: Source[];
@@ -615,6 +616,7 @@ function AssistantMessage({
   answerId?: string;
   question?: string;
   streaming?: boolean;
+  fromCache?: boolean;
 }) {
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const sourceRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -656,6 +658,28 @@ function AssistantMessage({
               animation: 'blink 1s step-end infinite',
             }}
           />
+        )}
+        {fromCache && !streaming && (
+          <span
+            aria-label="Served from cache"
+            title="This answer was retrieved from cache"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              marginTop: '8px',
+              padding: '2px 7px',
+              borderRadius: '4px',
+              fontSize: '0.65rem',
+              fontWeight: 500,
+              letterSpacing: '0.04em',
+              background: 'var(--bg-chip)',
+              color: 'var(--text-muted)',
+              verticalAlign: 'middle',
+              userSelect: 'none',
+            }}
+          >
+            Cache
+          </span>
         )}
       </div>
       {!isError && !streaming && (
@@ -777,6 +801,13 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
   const [showSuggestions, setShowSuggestions] = useState(false);
   const suggestDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Similar-question dedup panel state
+  interface SimilarQuestion { question: string; answer_snippet: string; similarity: number; }
+  const [similarQuestions, setSimilarQuestions] = useState<SimilarQuestion[]>([]);
+  const [showSimilarPanel, setShowSimilarPanel] = useState(false);
+  const similarDismissedInput = useRef<string | null>(null);
+  const similarDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Determine first-visit state from localStorage (client-only)
   useEffect(() => {
     setShowOnboardingPanel(!localStorage.getItem('wu_onboarding_seen'));
@@ -821,6 +852,9 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
     setGuestLimitReached(false);
     setSuggestions([]);
     setShowSuggestions(false);
+    setSimilarQuestions([]);
+    setShowSimilarPanel(false);
+    similarDismissedInput.current = null;
   }, [initialConversation?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Pre-fill input from leaderboard "Ask this" link (?q=...)
@@ -866,6 +900,35 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
     return () => { if (suggestDebounceRef.current) clearTimeout(suggestDebounceRef.current); };
   }, [input]);
 
+  // Debounced similar-question detection (500ms, threshold 0.92 on backend)
+  useEffect(() => {
+    if (similarDebounceRef.current) clearTimeout(similarDebounceRef.current);
+    // Respect dismissal: don't re-show for the exact input that was dismissed
+    if (similarDismissedInput.current !== null && input === similarDismissedInput.current) return;
+    // New input — reset dismissal so panel can reappear
+    if (similarDismissedInput.current !== null && input !== similarDismissedInput.current) {
+      similarDismissedInput.current = null;
+    }
+    if (input.length < 10) {
+      setSimilarQuestions([]);
+      setShowSimilarPanel(false);
+      return;
+    }
+    similarDebounceRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/qa/similar?q=${encodeURIComponent(input)}`);
+        if (!res.ok) return;
+        const json = await res.json();
+        const qs: SimilarQuestion[] = json.similar ?? [];
+        setSimilarQuestions(qs);
+        setShowSimilarPanel(qs.length > 0);
+      } catch {
+        // silently ignore network errors
+      }
+    }, 500);
+    return () => { if (similarDebounceRef.current) clearTimeout(similarDebounceRef.current); };
+  }, [input]); // eslint-disable-line react-hooks/exhaustive-deps
+
   function persistConversation(msgs: Message[], cid: string, serverConvId?: string | null) {
     if (!userId) return;
     const firstQuestion = msgs.find((m) => m.role === 'user')?.content ?? 'Untitled';
@@ -894,6 +957,9 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
     if (messages.length === 0) track('conversation_started');
 
     setInput('');
+    setShowSimilarPanel(false);
+    setSimilarQuestions([]);
+    similarDismissedInput.current = null;
     const newMessages: Message[] = [...messages, { role: 'user', content: question }];
     setMessages(newMessages);
     setLoading(true);
@@ -989,6 +1055,7 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
                   sources: Array.isArray(event.sources) ? (event.sources as Source[]) : [],
                   followUps: Array.isArray(event.followUps) ? (event.followUps as string[]) : [],
                   answerId: typeof event.answerId === 'string' ? event.answerId : undefined,
+                  fromCache: event.cached === true,
                 },
               ];
               setMessages(finalMessages);
@@ -1040,6 +1107,7 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
             sources: data.sources ?? [],
             followUps: data.followUps ?? [],
             answerId: data.answerId ?? undefined,
+            fromCache: data.cached === true,
           },
         ];
         setMessages(finalMessages);
@@ -1111,6 +1179,9 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
     setConversationId(newConversationId());
     setServerConversationId(null);
     setInput('');
+    setSimilarQuestions([]);
+    setShowSimilarPanel(false);
+    similarDismissedInput.current = null;
     onNewChat?.();
   }
 
@@ -1313,6 +1384,7 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
                     answerId={msg.answerId}
                     question={messages[i - 1]?.role === 'user' ? messages[i - 1].content : undefined}
                     streaming={msg.streaming}
+                    fromCache={msg.fromCache}
                   />
                 </div>
               )}
@@ -1370,6 +1442,57 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
           </div>
         )}
         <form onSubmit={handleSubmit} className="max-w-2xl mx-auto">
+          {/* Similar-question dedup panel */}
+          {showSimilarPanel && similarQuestions.length > 0 && (
+            <div
+              className="mb-3 rounded-xl px-3 py-2.5"
+              style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)' }}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>
+                  Others have asked something similar
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    similarDismissedInput.current = input;
+                    setShowSimilarPanel(false);
+                  }}
+                  aria-label="Dismiss similar questions"
+                  className="text-xs leading-none"
+                  style={{ color: 'var(--text-faint)' }}
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {similarQuestions.map((sq, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      setShowSimilarPanel(false);
+                      setSimilarQuestions([]);
+                      void submit(sq.question);
+                    }}
+                    className="text-xs rounded-full px-3 py-1.5 text-left transition-colors"
+                    style={{
+                      background: 'var(--bg-chip)',
+                      color: 'var(--sage-dark)',
+                      border: '1px solid var(--border-subtle)',
+                      maxWidth: '100%',
+                    }}
+                    title={sq.answer_snippet}
+                  >
+                    {sq.question}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <div style={{ position: 'relative' }}>
             <div
               className="flex items-end gap-2 rounded-2xl px-4 py-3"

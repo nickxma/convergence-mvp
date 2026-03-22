@@ -16,10 +16,14 @@ export interface Message {
   error?: boolean;
   /** Transient UI state: true while SSE stream is still in progress. Never persisted. */
   streaming?: boolean;
+  /** True when the answer was served from cache (exact-hash or semantic). Never persisted. */
+  fromCache?: boolean;
 }
 
 export interface Conversation {
   id: string;
+  /** Supabase UUID from /api/ask. Set after first turn; enables cross-device history loading. */
+  serverConversationId?: string;
   userId: string;
   title: string; // First user question, truncated
   messages: Message[];
