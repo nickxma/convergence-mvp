@@ -15,6 +15,7 @@ import { supabase } from '@/lib/supabase';
 import { getUserSubscription, FREE_TIER_DAILY_LIMIT } from '@/lib/subscription';
 import { isValidConversationId, buildQueryText, appendTurn } from '@/lib/conversation-session';
 import type { HistoryMessage } from '@/lib/conversation-session';
+import { getConversationHistory, setConversationHistory } from '@/lib/conversation-cache';
 import { monitoredQuery } from '@/lib/db-monitor';
 import { logOpenAIUsage } from '@/lib/openai-usage';
 import { embedOne } from '@/lib/embeddings';
@@ -235,22 +236,28 @@ export async function POST(req: NextRequest) {
   const logCtx = `ip=${ip} userId=${userId ?? 'anon'} wallet=${walletAddress ?? 'none'} conv=${conversationId} q="${question.slice(0, 80)}"`;
 
   // ── Load server-side history if conversationId provided but client sent no history ──
+  // Primary: Upstash Redis (2h TTL, fast). Fallback: Supabase conversation_sessions.
   let effectiveHistory = history;
   if (isExistingConversation && history.length === 0) {
-    try {
-      const { data } = await monitoredQuery('conversation_sessions.fetch', () =>
-        supabase
-          .from('conversation_sessions')
-          .select('history')
-          .eq('id', conversationId)
-          .gt('expires_at', new Date().toISOString())
-          .single(),
-      );
-      if (data?.history && Array.isArray(data.history)) {
-        effectiveHistory = data.history as HistoryMessage[];
+    const cached = await getConversationHistory(conversationId);
+    if (cached) {
+      effectiveHistory = cached;
+    } else {
+      try {
+        const { data } = await monitoredQuery('conversation_sessions.fetch', () =>
+          supabase
+            .from('conversation_sessions')
+            .select('history')
+            .eq('id', conversationId)
+            .gt('expires_at', new Date().toISOString())
+            .single(),
+        );
+        if (data?.history && Array.isArray(data.history)) {
+          effectiveHistory = data.history as HistoryMessage[];
+        }
+      } catch {
+        // Proceed without server-side history — not fatal
       }
-    } catch {
-      // Proceed without server-side history — not fatal
     }
   }
 
@@ -312,6 +319,10 @@ export async function POST(req: NextRequest) {
         supabase.from('conversation_sessions')
           .upsert({ id: conversationId, history: updatedHistory, expires_at: new Date(Date.now() + SESSION_TTL_MS).toISOString() }, { onConflict: 'id' })
           .then(({ error }) => { if (error) console.warn(`[/api/ask] supabase_session_error conv=${conversationId} err=${error.message}`); });
+        setConversationHistory(conversationId, updatedHistory).catch(() => {});
+        supabase.from('qa_conversations')
+          .upsert({ id: conversationId, messages: updatedHistory, updated_at: new Date().toISOString(), ...(userId ? { user_id: userId } : {}) }, { onConflict: 'id' })
+          .then(({ error }) => { if (error) console.warn(`[/api/ask] qa_conv_error conv=${conversationId} err=${error.message}`); });
 
         return NextResponse.json({
           answer: cachedAnswer, answerId, conversationId, followUps: cachedFollowUps, cached: true,
@@ -389,6 +400,10 @@ export async function POST(req: NextRequest) {
         supabase.from('conversation_sessions')
           .upsert({ id: conversationId, history: updatedHistory, expires_at: new Date(Date.now() + SESSION_TTL_MS).toISOString() }, { onConflict: 'id' })
           .then(({ error }) => { if (error) console.warn(`[/api/ask] supabase_session_error conv=${conversationId} err=${error.message}`); });
+        setConversationHistory(conversationId, updatedHistory).catch(() => {});
+        supabase.from('qa_conversations')
+          .upsert({ id: conversationId, messages: updatedHistory, updated_at: new Date().toISOString(), ...(userId ? { user_id: userId } : {}) }, { onConflict: 'id' })
+          .then(({ error }) => { if (error) console.warn(`[/api/ask] qa_conv_error conv=${conversationId} err=${error.message}`); });
 
         return NextResponse.json({
           answer: cachedAnswer, answerId, conversationId, followUps: cachedFollowUps, cached: true,
@@ -632,6 +647,10 @@ export async function POST(req: NextRequest) {
         ...(isExistingConversation ? {} : { title: sessionTitle }),
       }, { onConflict: 'id' })
       .then(({ error }) => { if (error) console.warn(`[/api/ask] supabase_session_error conv=${conversationId} err=${error.message}`); });
+    setConversationHistory(conversationId, updatedHistory).catch(() => {});
+    supabase.from('qa_conversations')
+      .upsert({ id: conversationId, messages: updatedHistory, updated_at: new Date().toISOString(), ...(userId ? { user_id: userId } : {}) }, { onConflict: 'id' })
+      .then(({ error }) => { if (error) console.warn(`[/api/ask] qa_conv_error conv=${conversationId} err=${error.message}`); });
 
     return NextResponse.json({
       answer,
@@ -763,6 +782,10 @@ export async function POST(req: NextRequest) {
             { onConflict: 'id' },
           )
           .then(({ error }) => { if (error) console.warn(`[/api/ask] supabase_session_error conv=${conversationId} err=${error.message}`); });
+        setConversationHistory(conversationId, updatedHistory).catch(() => {});
+        supabase.from('qa_conversations')
+          .upsert({ id: conversationId, messages: updatedHistory, updated_at: new Date().toISOString(), ...(userId ? { user_id: userId } : {}) }, { onConflict: 'id' })
+          .then(({ error }) => { if (error) console.warn(`[/api/ask] qa_conv_error conv=${conversationId} err=${error.message}`); });
 
         // Send done event with all metadata
         controller.enqueue(
