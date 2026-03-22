@@ -20,6 +20,7 @@ import { monitoredQuery } from '@/lib/db-monitor';
 import { logOpenAIUsage } from '@/lib/openai-usage';
 import { embedOne } from '@/lib/embeddings';
 import { buildConceptPreamble } from '@/lib/concept-graph';
+import { getEssayContext } from '@/lib/essay-cache';
 
 const EMBED_MODEL = 'text-embedding-3-large';
 const EMBED_DIMENSIONS = 1536;
@@ -120,6 +121,8 @@ export async function POST(req: NextRequest) {
   // Teacher filter: restricts Pinecone retrieval to a single teacher's chunks.
   // Bypass cache when active — different teachers yield different results for the same question.
   const teacher: string | null = typeof body?.teacher === 'string' && body.teacher.trim() ? body.teacher.trim() : null;
+  // Essay context: when provided the answer is injected with the essay body and bypasses cache.
+  const essaySlug: string | null = typeof body?.essaySlug === 'string' && body.essaySlug.trim() ? body.essaySlug.trim() : null;
 
   const rawConvId = body?.conversationId;
   const isExistingConversation = isValidConversationId(rawConvId);
@@ -268,7 +271,7 @@ export async function POST(req: NextRequest) {
   const cacheKey = createHash('sha256').update(question.toLowerCase()).digest('hex');
   // Pro users and teacher-filtered queries always get fresh answers (bypass semantic cache).
   // Bypass cache when answer style is non-default — cached answers were generated with the 'detailed' prompt.
-  const noCacheParam = req.nextUrl.searchParams.get('noCache') === '1' || isProUser || teacher !== null || answerStyle !== 'detailed';
+  const noCacheParam = req.nextUrl.searchParams.get('noCache') === '1' || isProUser || teacher !== null || essaySlug !== null || answerStyle !== 'detailed';
   // Only cache standalone (first-turn) questions. Follow-ups depend on conversation
   // context, so caching them would return mismatched answers.
   const isFollowUp = effectiveHistory.length > 0;
@@ -337,13 +340,22 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // ── Fetch essay context (when essaySlug provided) ─────────────────────────
+  // Cached in Upstash for 1 hour. Returns null when essay not found — graceful.
+  const essayCtx = essaySlug ? await getEssayContext(essaySlug).catch(() => null) : null;
+
   // ── Embed ─────────────────────────────────────────────────────────────────
   // For standalone questions (no history): embed the raw question.
   //   - Used for semantic cache search AND as the Pinecone query vector (they're equivalent
   //     since buildQueryText returns the question unchanged when history is empty).
   // For follow-ups: embed queryText (question + last assistant turn) for Pinecone only.
+  // When an essay context is present, append essay title + tags to the embed input so
+  // Pinecone retrieval is biased toward chunks topically related to the essay.
   const queryText = buildQueryText(question, effectiveHistory);
-  const embedInput = isFollowUp ? queryText : question;
+  const baseEmbedInput = isFollowUp ? queryText : question;
+  const embedInput = essayCtx
+    ? `${baseEmbedInput}\n\nEssay topic: ${essayCtx.title}${essayCtx.tags.length ? `. Tags: ${essayCtx.tags.join(', ')}` : ''}`
+    : baseEmbedInput;
 
   let queryVector: number[];
   try {
@@ -523,6 +535,10 @@ export async function POST(req: NextRequest) {
   const userContent = (() => {
     const parts: string[] = [];
     if (conceptPreamble) parts.push(conceptPreamble);
+    if (essayCtx) {
+      const essayBody = essayCtx.bodyMarkdown.slice(0, 2000);
+      parts.push(`[Essay context: ${essayCtx.title}\n${essayBody}]`);
+    }
     if (context) parts.push(`Transcript excerpts from our archive:\n\n${context}`);
     parts.push(`Question: ${question}`);
     return parts.join('\n\n');
@@ -604,8 +620,8 @@ export async function POST(req: NextRequest) {
       .insert({ question_hash: questionHash, pinecone_scores: pineconeScores, latency_ms: latencyMs, model_used: CHAT_MODEL, cache_hit: false, semantic_cache_hit: false })
       .then(({ error }) => { if (error) console.warn(`[/api/ask] analytics_write_error err=${error.message}`); });
 
-    // Cache write on miss (standalone questions only, no teacher filter, fire-and-forget)
-    if (!isFollowUp && !teacher) {
+    // Cache write on miss (standalone questions only, no teacher/essay filter, fire-and-forget)
+    if (!isFollowUp && !teacher && !essaySlug) {
       const pineconeTop1Score = chunks[0]?.score ?? null;
       supabase
         .from('qa_cache')
