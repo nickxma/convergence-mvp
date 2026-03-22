@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import "./globals.css";
 import { Providers } from "@/components/providers";
 import { ReferralBanner } from "@/components/referral-banner";
+import { TrialBanner } from "@/components/trial-banner";
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 
@@ -52,7 +53,12 @@ export default function RootLayout({
           <Suspense>
             <ReferralBanner />
           </Suspense>
-          <Providers>{children}</Providers>
+          <Providers>
+            <Suspense>
+              <TrialBanner />
+            </Suspense>
+            {children}
+          </Providers>
           <Analytics />
           <SpeedInsights />
         </body>

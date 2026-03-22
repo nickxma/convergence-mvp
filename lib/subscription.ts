@@ -96,6 +96,8 @@ export interface UserSubscription {
   currentPeriodEnd: string | null;
   stripeCustomerId: string | null;
   stripeSubscriptionId: string | null;
+  subscriptionStatus: string | null;
+  trialEnd: string | null;
 }
 
 /**
@@ -105,12 +107,12 @@ export interface UserSubscription {
 export async function getUserSubscription(userId: string): Promise<UserSubscription> {
   const { data, error } = await supabase
     .from('subscriptions')
-    .select('tier, stripe_subscriber, current_period_end, stripe_customer_id, stripe_subscription_id')
+    .select('tier, stripe_subscriber, current_period_end, stripe_customer_id, stripe_subscription_id, subscription_status, trial_end')
     .eq('user_id', userId)
     .single();
 
   if (error || !data) {
-    return { tier: 'free', stripeSubscriber: false, currentPeriodEnd: null, stripeCustomerId: null, stripeSubscriptionId: null };
+    return { tier: 'free', stripeSubscriber: false, currentPeriodEnd: null, stripeCustomerId: null, stripeSubscriptionId: null, subscriptionStatus: null, trialEnd: null };
   }
 
   return {
@@ -119,6 +121,8 @@ export async function getUserSubscription(userId: string): Promise<UserSubscript
     currentPeriodEnd: (data.current_period_end as string) ?? null,
     stripeCustomerId: (data.stripe_customer_id as string) ?? null,
     stripeSubscriptionId: (data.stripe_subscription_id as string) ?? null,
+    subscriptionStatus: (data.subscription_status as string) ?? null,
+    trialEnd: (data.trial_end as string) ?? null,
   };
 }
 

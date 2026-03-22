@@ -40,5 +40,7 @@ export async function GET(req: NextRequest) {
     questionsLimit,
     renewalDate: sub.currentPeriodEnd,
     stripeSubscriptionId: sub.stripeSubscriptionId,
+    subscriptionStatus: sub.subscriptionStatus,
+    trialEnd: sub.trialEnd,
   });
 }

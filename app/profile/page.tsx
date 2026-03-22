@@ -17,6 +17,8 @@ interface SubscriptionInfo {
   tier: string;
   renewalDate: string | null;
   stripeSubscriptionId: string | null;
+  subscriptionStatus: string | null;
+  trialEnd: string | null;
 }
 
 function SubscriptionSection({
@@ -38,7 +40,7 @@ function SubscriptionSection({
       const res = await fetch('/api/subscriptions/me', { headers });
       if (res.ok) {
         const data = await res.json() as SubscriptionInfo & { questionsUsedToday?: number; questionsLimit?: number | null };
-        setSub({ tier: data.tier, renewalDate: data.renewalDate, stripeSubscriptionId: data.stripeSubscriptionId });
+        setSub({ tier: data.tier, renewalDate: data.renewalDate, stripeSubscriptionId: data.stripeSubscriptionId, subscriptionStatus: data.subscriptionStatus ?? null, trialEnd: data.trialEnd ?? null });
       }
     } catch {
       // non-critical
@@ -65,8 +67,17 @@ function SubscriptionSection({
 
   if (!sub || sub.tier === 'free') return null;
 
-  const renewalLabel = sub.renewalDate
+  const isTrialing = sub.subscriptionStatus === 'trialing';
+  const trialDaysLeft = isTrialing && sub.trialEnd
+    ? Math.max(0, Math.ceil((new Date(sub.trialEnd).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
+    : null;
+
+  const renewalLabel = sub.renewalDate && !isTrialing
     ? new Date(sub.renewalDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    : null;
+
+  const trialEndLabel = isTrialing && sub.trialEnd
+    ? new Date(sub.trialEnd).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
     : null;
 
   return (
@@ -89,14 +100,20 @@ function SubscriptionSection({
                   PRO
                 </span>
                 <span className="text-sm font-medium" style={{ color: '#3d4f38' }}>
-                  Pro plan
+                  {isTrialing ? 'Free trial' : 'Pro plan'}
                 </span>
               </div>
-              {renewalLabel && (
+              {isTrialing && trialDaysLeft !== null ? (
+                <p className="text-xs mt-1" style={{ color: trialDaysLeft <= 1 ? '#b91c1c' : trialDaysLeft <= 3 ? '#92400e' : '#6b7280' }}>
+                  {trialDaysLeft === 0
+                    ? 'Trial ended'
+                    : `${trialDaysLeft} day${trialDaysLeft === 1 ? '' : 's'} remaining${trialEndLabel ? ` — ends ${trialEndLabel}` : ''}`}
+                </p>
+              ) : renewalLabel ? (
                 <p className="text-xs mt-1" style={{ color: '#9c9080' }}>
                   Renews {renewalLabel}
                 </p>
-              )}
+              ) : null}
             </div>
             <button
               onClick={handleManage}
@@ -111,6 +128,28 @@ function SubscriptionSection({
               {loading === 'portal' ? 'Opening…' : 'Manage'}
             </button>
           </div>
+
+          {isTrialing && (
+            <div
+              className="flex items-center gap-2 rounded-lg px-3 py-2 mb-3"
+              style={{ background: '#fffbeb', border: '1px solid #fde68a' }}
+            >
+              <svg aria-hidden="true" className="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="#92400e" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+              </svg>
+              <p className="text-xs flex-1" style={{ color: '#92400e' }}>
+                Add a payment method before your trial ends to keep Pro access.
+              </p>
+              <button
+                onClick={handleManage}
+                disabled={loading !== null}
+                className="flex-shrink-0 text-xs font-medium underline underline-offset-2 transition-opacity"
+                style={{ color: '#92400e', opacity: loading ? 0.6 : 1 }}
+              >
+                {loading === 'portal' ? 'Opening\u2026' : 'Add payment'}
+              </button>
+            </div>
+          )}
 
           <div style={{ borderTop: '1px solid #e0d8cc' }} className="pt-3">
             <button
