@@ -1,11 +1,11 @@
 /**
  * GET  /api/community/posts  — paginated post feed sorted by vote score
- * POST /api/community/posts  — create a post (Acceptance Pass holders only)
+ * POST /api/community/posts  — create a post (Pro subscribers only)
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { verifyRequest } from '@/lib/privy-auth';
-import { isPassHolder } from '@/lib/token-gate';
+import { requiresPro } from '@/lib/subscription';
 import { checkRateLimitWithFallback, checkRateLimit, isDuplicateContent, buildRateLimitError, getClientIp, isInternalRequest, MINUTE_MS } from '@/lib/rate-limit';
 import { getFeedCache, setFeedCache, invalidateFeedCache } from '@/lib/feed-cache';
 import { monitoredQuery } from '@/lib/db-monitor';
@@ -124,18 +124,9 @@ export async function POST(req: NextRequest) {
     return errorResponse(401, 'UNAUTHORIZED', 'Valid Privy auth token required.');
   }
 
-  // 2. Token gate
-  let holder: boolean;
-  try {
-    holder = await isPassHolder(auth.walletAddress);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error('[community/posts POST] token gate error:', msg);
-    return errorResponse(503, 'TOKEN_GATE_ERROR', 'Could not verify pass ownership. Try again.');
-  }
-  if (!holder) {
-    return errorResponse(403, 'NOT_PASS_HOLDER', 'An Acceptance Pass is required to post.');
-  }
+  // 2. Pro subscription gate — community post creation is a Pro feature
+  const gate = await requiresPro('community_post', auth.userId);
+  if (!gate.allowed) return gate.response;
 
   // 3. Rate limit — 10 posts per minute per user (bypass for internal calls)
   if (!isInternalRequest(req)) {

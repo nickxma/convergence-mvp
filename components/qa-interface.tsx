@@ -13,6 +13,7 @@ import {
 import { addBookmark, removeBookmark, isBookmarked } from '@/lib/bookmarks';
 import { exportConversation, exportSingleAnswer } from '@/lib/export';
 import { track } from '@vercel/analytics';
+import { UpgradePrompt } from '@/components/upgrade-prompt';
 
 export type { Message };
 
@@ -887,6 +888,7 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
   const [guestLimitReached, setGuestLimitReached] = useState(false);
   const [userQuestionsRemaining, setUserQuestionsRemaining] = useState<number | null>(null);
   const [freeTierLimitReached, setFreeTierLimitReached] = useState(false);
+  const [upgradeFeature, setUpgradeFeature] = useState<string | null>(null);
 
   // Suggestion dropdown state
   interface Suggestion { question: string; count: number; }
@@ -1443,6 +1445,13 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
   const showRelatedPanel = relatedLoading || relatedQuestions.length > 0;
 
   return (
+    <>
+    {upgradeFeature && (
+      <UpgradePrompt
+        feature={upgradeFeature}
+        onClose={() => setUpgradeFeature(null)}
+      />
+    )}
     <div className="flex flex-col h-full" style={{ background: 'var(--bg)' }}>
       {/* Thread header — only visible when conversation has content */}
       {!isEmpty && (
@@ -1802,13 +1811,13 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
                 <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
                   Upgrade to Pro for unlimited access. Your question counter resets at midnight UTC.
                 </p>
-                <a
-                  href="/access"
-                  className="inline-block text-xs px-4 py-2 rounded-full font-medium"
+                <button
+                  onClick={() => setUpgradeFeature('unlimited_qa')}
+                  className="text-xs px-4 py-2 rounded-full font-medium"
                   style={{ background: 'var(--sage)', color: '#fff' }}
                 >
                   Upgrade to Pro →
-                </a>
+                </button>
               </div>
             </div>
           )}
@@ -2090,5 +2099,6 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
         }
       `}</style>
     </div>
+    </>
   );
 }
