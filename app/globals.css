@@ -1,19 +1,118 @@
 @import "tailwindcss";
 
 :root {
-  --background: #faf8f3;
-  --foreground: #2c2c2c;
-  --cream-50: #faf8f3;
-  --cream-100: #f5f0e8;
-  --cream-200: #e8e0d5;
-  --sage-400: #7d8c6e;
-  --sage-600: #5a6b52;
-  --sage-800: #3d4f38;
+  /* Backgrounds */
+  --bg: #faf8f3;
+  --bg-sidebar: #f5f1e8;
+  --bg-surface: #f0ece3;
+  --bg-chip: #e8e0d5;
+  --bg-input: #ffffff;
+
+  /* Borders */
+  --border: #e0d8cc;
+  --border-subtle: #ddd5c8;
+  --border-muted: #d0c8be;
+
+  /* Text */
+  --text: #2c2c2c;
+  --text-warm: #5c5248;
+  --text-muted: #9c9080;
+  --text-faint: #b0a898;
+
+  /* Accent (sage green) */
+  --sage: #7d8c6e;
+  --sage-hover: #6b7960;
+  --sage-dark: #3d4f38;
+  --sage-mid: #5a6b52;
+  --sage-dim: #6b7b62;
+  --sage-pale: #b0c4a8;
+  --sage-ring: #c8d8c0;
+  --sage-ring-mid: #b0c4a8;
+  --sage-bg: #eef4eb;
+
+  /* Source panel */
+  --source-bg: #f0ece3;
+  --source-border: #b8ccb0;
+
+  /* Citation chip */
+  --citation-bg: #ddd5c8;
+
+  /* Pause dots */
+  --pause-color: #a8b89e;
+
+  /* Error */
+  --error-bg: #fff4f2;
+  --error-border: #f5c6c0;
+  --error-text: #c0392b;
+
+  /* Celebration */
+  --celebration-bg: #ddf0d5;
+  --celebration-border: #c8e4bb;
+  --celebration-text: #3d5c38;
+  --celebration-link: #3d5c38;
+  --celebration-close: #5a7a52;
+
+  /* Tailwind compat */
+  --background: var(--bg);
+  --foreground: var(--text);
+}
+
+.dark {
+  /* Backgrounds */
+  --bg: #0f0f0f;
+  --bg-sidebar: #141414;
+  --bg-surface: #1e1e1e;
+  --bg-chip: #252525;
+  --bg-input: #1a1a1a;
+
+  /* Borders */
+  --border: #2c2c2c;
+  --border-subtle: #333333;
+  --border-muted: #2a2a2a;
+
+  /* Text */
+  --text: #e8e8e8;
+  --text-warm: #c0b5ab;
+  --text-muted: #7a7060;
+  --text-faint: #6a6258;
+
+  /* Accent (sage green — same hue, same in dark) */
+  --sage: #7d8c6e;
+  --sage-hover: #8d9c7e;
+  --sage-dark: #9eb89c;
+  --sage-mid: #7a9070;
+  --sage-dim: #7a8870;
+  --sage-pale: #3a5038;
+  --sage-ring: #2a3e28;
+  --sage-ring-mid: #3a5038;
+  --sage-bg: #1a2a1a;
+
+  /* Source panel */
+  --source-bg: #1e1e1e;
+  --source-border: #2e4830;
+
+  /* Citation chip */
+  --citation-bg: #2a2a2a;
+
+  /* Pause dots */
+  --pause-color: #3a5035;
+
+  /* Error */
+  --error-bg: #2a1515;
+  --error-border: #7d2020;
+  --error-text: #e87070;
+
+  /* Celebration */
+  --celebration-bg: #1a2e1a;
+  --celebration-border: #284828;
+  --celebration-text: #8ab898;
+  --celebration-link: #8ab898;
+  --celebration-close: #5a8a62;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-background: var(--bg);
+  --color-foreground: var(--text);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -23,7 +122,7 @@ html, body {
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--bg);
+  color: var(--text);
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
 }

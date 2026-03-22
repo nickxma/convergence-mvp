@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { PrivyProvider, addRpcUrlOverrideToChain, usePrivy } from '@privy-io/react-auth';
 import { arbitrumSepolia } from 'viem/chains';
 import { AuthContext, DEFAULT_AUTH, type AuthState } from '@/lib/auth-context';
+import { ThemeProvider } from '@/lib/theme-context';
 
 const rpcUrl =
   process.env.NEXT_PUBLIC_ARBITRUM_SEPOLIA_RPC ?? 'https://sepolia-rollup.arbitrum.io/rpc';
@@ -83,28 +84,34 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   if (!appId) {
     // No Privy configured — use mock bridge (handles E2E tests via window.__PRIVY_MOCK)
-    return <MockAuthBridge>{children}</MockAuthBridge>;
+    return (
+      <ThemeProvider>
+        <MockAuthBridge>{children}</MockAuthBridge>
+      </ThemeProvider>
+    );
   }
 
   return (
-    <PrivyProvider
-      appId={appId}
-      config={{
-        defaultChain: arbitrumSepoliaWithRpc,
-        supportedChains: [arbitrumSepoliaWithRpc],
-        loginMethods: ['email'],
-        embeddedWallets: {
-          ethereum: {
-            createOnLogin: 'users-without-wallets',
+    <ThemeProvider>
+      <PrivyProvider
+        appId={appId}
+        config={{
+          defaultChain: arbitrumSepoliaWithRpc,
+          supportedChains: [arbitrumSepoliaWithRpc],
+          loginMethods: ['email'],
+          embeddedWallets: {
+            ethereum: {
+              createOnLogin: 'users-without-wallets',
+            },
           },
-        },
-        appearance: {
-          theme: 'light',
-          accentColor: '#7d8c6e',
-        },
-      }}
-    >
-      <PrivyAuthBridge>{children}</PrivyAuthBridge>
-    </PrivyProvider>
+          appearance: {
+            theme: 'light',
+            accentColor: '#7d8c6e',
+          },
+        }}
+      >
+        <PrivyAuthBridge>{children}</PrivyAuthBridge>
+      </PrivyProvider>
+    </ThemeProvider>
   );
 }

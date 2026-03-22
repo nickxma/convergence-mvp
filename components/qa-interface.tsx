@@ -54,8 +54,8 @@ function FormattedAnswer({
                       display: 'inline-flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      background: '#ddd5c8',
-                      color: '#5a6b52',
+                      background: 'var(--citation-bg)',
+                      color: 'var(--sage-mid)',
                       borderRadius: '3px',
                       padding: '0 4px',
                       fontSize: '0.6rem',
@@ -117,7 +117,7 @@ function SourceList({
       <button
         onClick={onToggle}
         className="flex items-center gap-1.5 text-xs font-medium transition-colors"
-        style={{ color: '#7d8c6e' }}
+        style={{ color: 'var(--sage)' }}
       >
         <svg
           className="w-3.5 h-3.5 transition-transform"
@@ -142,27 +142,27 @@ function SourceList({
               }}
               className="rounded-lg p-3 text-xs"
               style={{
-                background: '#f0ece3',
-                borderLeft: '2px solid #b8ccb0',
+                background: 'var(--source-bg)',
+                borderLeft: '2px solid var(--source-border)',
               }}
             >
               <div className="flex items-start gap-2">
                 <span
                   className="font-mono flex-shrink-0 mt-0.5"
-                  style={{ color: '#9c9080', fontSize: '0.65rem' }}
+                  style={{ color: 'var(--text-muted)', fontSize: '0.65rem' }}
                 >
                   [{i + 1}]
                 </span>
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold mb-0.5" style={{ color: '#5a6b52' }}>
+                  <p className="font-semibold mb-0.5" style={{ color: 'var(--sage-mid)' }}>
                     {sourceLabel(s.source)}
                   </p>
                   {s.speaker && (
-                    <p className="mb-1 opacity-70" style={{ color: '#5a6b52' }}>
+                    <p className="mb-1 opacity-70" style={{ color: 'var(--sage-mid)' }}>
                       {s.speaker}
                     </p>
                   )}
-                  <p className="leading-relaxed line-clamp-3" style={{ color: '#5c5248' }}>
+                  <p className="leading-relaxed line-clamp-3" style={{ color: 'var(--text-warm)' }}>
                     {s.text}
                   </p>
                 </div>
@@ -195,7 +195,7 @@ function CopyButton({ text }: { text: string }) {
       onClick={handleCopy}
       title="Copy answer"
       className="flex items-center gap-1 text-xs transition-colors mt-2"
-      style={{ color: copied ? '#7d8c6e' : '#b0a898' }}
+      style={{ color: copied ? 'var(--sage)' : 'var(--text-faint)' }}
     >
       {copied ? (
         <>
@@ -254,7 +254,7 @@ function FeedbackButtons({ answerId }: { answerId: string }) {
   );
 
   const activeStyle = (which: 'up' | 'down') =>
-    voted === which ? { color: '#5a6b52' } : { color: '#b0a898' };
+    voted === which ? { color: 'var(--sage-mid)' } : { color: 'var(--text-faint)' };
 
   return (
     <div className="flex items-center gap-1 mt-2">
@@ -321,7 +321,7 @@ function ShareLinkButton({ answerId }: { answerId: string }) {
       onClick={handleCopy}
       title="Copy link to this answer"
       className="flex items-center gap-1 text-xs transition-colors mt-2"
-      style={{ color: copied ? '#7d8c6e' : '#b0a898' }}
+      style={{ color: copied ? 'var(--sage)' : 'var(--text-faint)' }}
     >
       {copied ? (
         <>
@@ -358,7 +358,7 @@ function TwitterShareButton({ question, answer, answerId }: { question: string; 
       onClick={handleShare}
       title="Share on Twitter / X"
       className="flex items-center gap-1 text-xs transition-colors mt-2"
-      style={{ color: '#b0a898' }}
+      style={{ color: 'var(--text-faint)' }}
     >
       <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
         <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
@@ -385,7 +385,7 @@ function FollowUpChips({
           key={i}
           onClick={() => onSelect(q)}
           className="text-left text-xs rounded-xl px-3 min-h-[44px] flex items-center transition-colors"
-          style={{ background: '#f0ece3', color: '#5c5248', border: '1px solid #ddd5c8' }}
+          style={{ background: 'var(--bg-surface)', color: 'var(--text-warm)', border: '1px solid var(--border-subtle)' }}
         >
           {q}
         </button>
@@ -434,9 +434,9 @@ function AssistantMessage({
       <div
         className="rounded-2xl rounded-tl-sm px-4 py-3 text-sm leading-relaxed"
         style={{
-          background: isError ? '#fff4f2' : '#f0ece3',
-          color: isError ? '#c0392b' : '#2c2c2c',
-          border: isError ? '1px solid #f5c6c0' : 'none',
+          background: isError ? 'var(--error-bg)' : 'var(--bg-surface)',
+          color: isError ? 'var(--error-text)' : 'var(--text)',
+          border: isError ? '1px solid var(--error-border)' : 'none',
         }}
       >
         {content ? (
@@ -452,7 +452,7 @@ function AssistantMessage({
               display: 'inline-block',
               width: '2px',
               height: '1em',
-              background: '#7d8c6e',
+              background: 'var(--sage)',
               marginLeft: content ? '1px' : 0,
               verticalAlign: 'text-bottom',
               animation: 'blink 1s step-end infinite',
@@ -491,21 +491,21 @@ function ResponseSkeleton() {
   return (
     <div
       className="rounded-2xl rounded-tl-sm px-4 py-3 max-w-xl"
-      style={{ background: '#f0ece3' }}
+      style={{ background: 'var(--bg-surface)' }}
       aria-label="Loading response"
     >
       <div className="space-y-2">
         <div
           className="h-3 rounded-full"
-          style={{ width: '85%', background: '#ddd5c8', animation: 'shimmer 1.4s ease-in-out infinite' }}
+          style={{ width: '85%', background: 'var(--border-subtle)', animation: 'shimmer 1.4s ease-in-out infinite' }}
         />
         <div
           className="h-3 rounded-full"
-          style={{ width: '70%', background: '#ddd5c8', animation: 'shimmer 1.4s ease-in-out 0.15s infinite' }}
+          style={{ width: '70%', background: 'var(--border-subtle)', animation: 'shimmer 1.4s ease-in-out 0.15s infinite' }}
         />
         <div
           className="h-3 rounded-full"
-          style={{ width: '55%', background: '#ddd5c8', animation: 'shimmer 1.4s ease-in-out 0.3s infinite' }}
+          style={{ width: '55%', background: 'var(--border-subtle)', animation: 'shimmer 1.4s ease-in-out 0.3s infinite' }}
         />
       </div>
     </div>
@@ -791,18 +791,18 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
   const isEmpty = messages.length === 0 && !loading;
 
   return (
-    <div className="flex flex-col h-full" style={{ background: '#faf8f3' }}>
+    <div className="flex flex-col h-full" style={{ background: 'var(--bg)' }}>
       {/* Thread header — only visible when conversation has content */}
       {!isEmpty && (
         <div
           className="flex items-center justify-end px-4 py-2 border-b flex-shrink-0"
-          style={{ borderColor: '#e0d8cc', background: '#faf8f3' }}
+          style={{ borderColor: 'var(--border)', background: 'var(--bg)' }}
         >
           <button
             onClick={handleClear}
             disabled={loading}
             className="flex items-center gap-1.5 text-xs px-3 min-h-[44px] rounded-full border transition-colors disabled:opacity-40"
-            style={{ borderColor: '#e0d8cc', color: '#9c9080' }}
+            style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}
             aria-label="Clear conversation"
           >
             <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -817,11 +817,11 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
       {showCelebration && (
         <div
           className="flex items-center justify-between px-4 py-2.5 flex-shrink-0 text-sm"
-          style={{ background: '#ddf0d5', borderBottom: '1px solid #c8e4bb' }}
+          style={{ background: 'var(--celebration-bg)', borderBottom: '1px solid var(--celebration-border)' }}
         >
-          <span style={{ color: '#3d5c38' }}>
+          <span style={{ color: 'var(--celebration-text)' }}>
             Nice! Your conversation is saved.{' '}
-            <a href="/community" style={{ textDecoration: 'underline', color: '#3d5c38' }}>
+            <a href="/community" style={{ textDecoration: 'underline', color: 'var(--celebration-link)' }}>
               Explore the Community
             </a>{' '}
             or ask a follow-up.
@@ -829,7 +829,7 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
           <button
             onClick={() => setShowCelebration(false)}
             aria-label="Dismiss"
-            style={{ color: '#5a7a52', marginLeft: '12px', flexShrink: 0 }}
+            style={{ color: 'var(--celebration-close)', marginLeft: '12px', flexShrink: 0 }}
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -846,11 +846,11 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
             <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
               <div
                 className="w-14 h-14 rounded-full flex items-center justify-center mb-5"
-                style={{ background: '#e8e0d5' }}
+                style={{ background: 'var(--bg-chip)' }}
               >
                 <svg
                   className="w-7 h-7"
-                  style={{ color: '#7d8c6e' }}
+                  style={{ color: 'var(--sage)' }}
                   fill="none"
                   viewBox="0 0 24 24"
                   stroke="currentColor"
@@ -863,16 +863,16 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
                   />
                 </svg>
               </div>
-              <h2 className="font-semibold text-base mb-1" style={{ color: '#3d4f38' }}>
+              <h2 className="font-semibold text-base mb-1" style={{ color: 'var(--sage-dark)' }}>
                 Ask anything about mindfulness
               </h2>
-              <p className="text-xs mb-4 max-w-xs" style={{ color: '#9c9080' }}>
+              <p className="text-xs mb-4 max-w-xs" style={{ color: 'var(--text-muted)' }}>
                 Answers drawn from 760+ hours of Waking Up content — talks, guided meditations, and conversations.
               </p>
               {!walletAddress && (
                 <p
                   className="text-xs mb-5 px-3 py-2 rounded-lg max-w-xs"
-                  style={{ background: '#f0ece3', color: '#7d8c6e' }}
+                  style={{ background: 'var(--bg-surface)', color: 'var(--sage)' }}
                 >
                   Connect a wallet in your{' '}
                   <a href="/profile" style={{ textDecoration: 'underline' }}>
@@ -888,9 +888,9 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
                     onClick={() => setInput(prompt)}
                     className="text-left rounded-xl px-4 py-3 text-sm transition-colors"
                     style={{
-                      background: '#f0ece3',
-                      color: '#5c5248',
-                      border: '1px solid #ddd5c8',
+                      background: 'var(--bg-surface)',
+                      color: 'var(--text-warm)',
+                      border: '1px solid var(--border-subtle)',
                     }}
                   >
                     {prompt}
@@ -903,10 +903,10 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
           {isEmpty && showOnboardingPanel === false && (
             /* Returning user: minimal empty state */
             <div className="flex flex-col items-center justify-center h-64 text-center">
-              <p className="text-sm font-medium" style={{ color: '#5c5248' }}>
+              <p className="text-sm font-medium" style={{ color: 'var(--text-warm)' }}>
                 Ask a question to explore mindfulness teachings
               </p>
-              <p className="text-xs mt-1 mb-5" style={{ color: '#9c9080' }}>
+              <p className="text-xs mt-1 mb-5" style={{ color: 'var(--text-muted)' }}>
                 Sourced from 760+ hours of mindfulness content
               </p>
               <div className="flex flex-wrap justify-center gap-2 max-w-md">
@@ -916,9 +916,9 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
                     onClick={() => setInput(prompt)}
                     className="rounded-full px-3 py-1.5 text-xs transition-colors"
                     style={{
-                      background: '#f0ece3',
-                      color: '#5c5248',
-                      border: '1px solid #ddd5c8',
+                      background: 'var(--bg-surface)',
+                      color: 'var(--text-warm)',
+                      border: '1px solid var(--border-subtle)',
                     }}
                   >
                     {prompt}
@@ -935,7 +935,7 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
                   <div
                     className="rounded-2xl rounded-tr-sm px-4 py-3 max-w-sm text-sm leading-relaxed"
                     style={{
-                      background: '#7d8c6e',
+                      background: 'var(--sage)',
                       color: '#fff',
                     }}
                   >
@@ -972,14 +972,14 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
       {/* Input bar */}
       <div
         className="border-t px-4 py-4"
-        style={{ borderColor: '#e0d8cc', background: '#faf8f3' }}
+        style={{ borderColor: 'var(--border)', background: 'var(--bg)' }}
       >
         <form onSubmit={handleSubmit} className="max-w-2xl mx-auto">
           <div
             className="flex items-end gap-2 rounded-2xl px-4 py-3"
             style={{
-              background: '#fff',
-              border: '1px solid #e0d8cc',
+              background: 'var(--bg-input)',
+              border: '1px solid var(--border)',
               boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
             }}
           >
@@ -993,13 +993,13 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
               disabled={loading}
               maxLength={MAX_CHARS}
               className="flex-1 resize-none bg-transparent text-sm leading-relaxed outline-none placeholder-zinc-400 disabled:opacity-50"
-              style={{ color: '#2c2c2c', minHeight: '24px' }}
+              style={{ color: 'var(--text)', minHeight: '24px' }}
             />
             <button
               type="submit"
               disabled={!input.trim() || loading}
               className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-opacity disabled:opacity-30"
-              style={{ background: '#7d8c6e' }}
+              style={{ background: 'var(--sage)' }}
             >
               <svg
                 className="w-4 h-4 text-white"
@@ -1013,13 +1013,13 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
             </button>
           </div>
           <div className="flex justify-between items-center mt-2 px-1">
-            <p className="text-xs" style={{ color: '#b0a898' }}>
+            <p className="text-xs" style={{ color: 'var(--text-faint)' }}>
               Press Enter to send · Shift+Enter for new line
             </p>
             {input.length > 0 && (
               <p
                 className="text-xs tabular-nums"
-                style={{ color: input.length >= MAX_CHARS ? '#c0392b' : '#b0a898' }}
+                style={{ color: input.length >= MAX_CHARS ? 'var(--error-text)' : 'var(--text-faint)' }}
               >
                 {input.length} / {MAX_CHARS}
               </p>

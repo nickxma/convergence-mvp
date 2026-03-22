@@ -1,37 +1,63 @@
 'use client';
 
 import { usePrivy } from '@privy-io/react-auth';
+import { useTheme } from '@/lib/theme-context';
+
+function ThemeToggle() {
+  const { theme, toggleTheme } = useTheme();
+  return (
+    <button
+      onClick={toggleTheme}
+      aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+      className="flex items-center justify-center w-8 h-8 rounded-full border transition-colors"
+      style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}
+    >
+      {theme === 'dark' ? (
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />
+        </svg>
+      ) : (
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" />
+        </svg>
+      )}
+    </button>
+  );
+}
 
 export function LandingPage() {
   const { login } = usePrivy();
 
   return (
-    <div className="flex flex-col min-h-full" style={{ background: '#faf8f3', color: '#2c2c2c' }}>
+    <div className="flex flex-col min-h-full" style={{ background: 'var(--bg)', color: 'var(--text)' }}>
       {/* Nav */}
       <header
         className="flex items-center justify-between px-6 py-4 border-b"
-        style={{ borderColor: '#e0d8cc', background: '#faf8f3' }}
+        style={{ borderColor: 'var(--border)', background: 'var(--bg)' }}
       >
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold tracking-tight" style={{ color: '#3d4f38' }}>
+          <span className="text-sm font-semibold tracking-tight" style={{ color: 'var(--sage-dark)' }}>
             Convergence
           </span>
           <span
             className="text-xs px-1.5 py-0.5 rounded-full"
-            style={{ background: '#e8e0d5', color: '#7d8c6e' }}
+            style={{ background: 'var(--bg-chip)', color: 'var(--sage)' }}
           >
             beta
           </span>
         </div>
-        <button
-          onClick={login}
-          className="text-sm px-4 py-2 rounded-full font-medium transition-colors"
-          style={{ background: '#7d8c6e', color: '#fff' }}
-          onMouseOver={(e) => (e.currentTarget.style.background = '#6b7960')}
-          onMouseOut={(e) => (e.currentTarget.style.background = '#7d8c6e')}
-        >
-          Sign in
-        </button>
+        <div className="flex items-center gap-2">
+          <ThemeToggle />
+          <button
+            onClick={login}
+            className="text-sm px-4 py-2 rounded-full font-medium transition-colors"
+            style={{ background: 'var(--sage)', color: '#fff' }}
+            onMouseOver={(e) => (e.currentTarget.style.background = 'var(--sage-hover)')}
+            onMouseOut={(e) => (e.currentTarget.style.background = 'var(--sage)')}
+          >
+            Sign in
+          </button>
+        </div>
       </header>
 
       {/* Hero */}
@@ -39,13 +65,13 @@ export function LandingPage() {
         <div className="max-w-2xl mx-auto space-y-6">
           <div
             className="inline-block text-xs font-medium px-3 py-1 rounded-full mb-2"
-            style={{ background: '#e8e0d5', color: '#5a6b52' }}
+            style={{ background: 'var(--bg-chip)', color: 'var(--sage-mid)' }}
           >
             Paradox of Acceptance
           </div>
           <h1
             className="text-4xl md:text-5xl font-semibold tracking-tight leading-tight"
-            style={{ color: '#3d4f38' }}
+            style={{ color: 'var(--sage-dark)' }}
           >
             Ask anything about
             <br />
@@ -53,7 +79,7 @@ export function LandingPage() {
           </h1>
           <p
             className="text-base md:text-lg leading-relaxed max-w-md mx-auto"
-            style={{ color: '#7d8c6e' }}
+            style={{ color: 'var(--sage)' }}
           >
             Answers sourced from 760+ hours of guided meditations, teachings, and conversations
             from leading mindfulness teachers.
@@ -62,9 +88,9 @@ export function LandingPage() {
             <button
               onClick={login}
               className="w-full sm:w-auto text-sm px-6 py-3 rounded-full font-medium transition-colors"
-              style={{ background: '#7d8c6e', color: '#fff' }}
-              onMouseOver={(e) => (e.currentTarget.style.background = '#6b7960')}
-              onMouseOut={(e) => (e.currentTarget.style.background = '#7d8c6e')}
+              style={{ background: 'var(--sage)', color: '#fff' }}
+              onMouseOver={(e) => (e.currentTarget.style.background = 'var(--sage-hover)')}
+              onMouseOut={(e) => (e.currentTarget.style.background = 'var(--sage)')}
             >
               Get started — it&apos;s free
             </button>
@@ -73,11 +99,11 @@ export function LandingPage() {
       </section>
 
       {/* How it works */}
-      <section className="px-6 py-16 border-t" style={{ borderColor: '#e0d8cc' }}>
+      <section className="px-6 py-16 border-t" style={{ borderColor: 'var(--border)' }}>
         <div className="max-w-3xl mx-auto">
           <h2
             className="text-lg font-semibold text-center mb-10"
-            style={{ color: '#3d4f38' }}
+            style={{ color: 'var(--sage-dark)' }}
           >
             How it works
           </h2>
@@ -100,13 +126,13 @@ export function LandingPage() {
               },
             ].map(({ step, title, desc }) => (
               <div key={step} className="space-y-2">
-                <div className="text-xs font-mono font-semibold" style={{ color: '#b8ccb0' }}>
+                <div className="text-xs font-mono font-semibold" style={{ color: 'var(--source-border)' }}>
                   {step}
                 </div>
-                <h3 className="text-sm font-semibold" style={{ color: '#3d4f38' }}>
+                <h3 className="text-sm font-semibold" style={{ color: 'var(--sage-dark)' }}>
                   {title}
                 </h3>
-                <p className="text-sm leading-relaxed" style={{ color: '#7d8c6e' }}>
+                <p className="text-sm leading-relaxed" style={{ color: 'var(--sage)' }}>
                   {desc}
                 </p>
               </div>
@@ -118,26 +144,26 @@ export function LandingPage() {
       {/* About */}
       <section
         className="px-6 py-16 border-t"
-        style={{ borderColor: '#e0d8cc', background: '#f5f0e8' }}
+        style={{ borderColor: 'var(--border)', background: 'var(--bg-sidebar)' }}
       >
         <div className="max-w-2xl mx-auto space-y-4">
-          <h2 className="text-lg font-semibold" style={{ color: '#3d4f38' }}>
+          <h2 className="text-lg font-semibold" style={{ color: 'var(--sage-dark)' }}>
             About
           </h2>
-          <p className="text-sm leading-relaxed" style={{ color: '#5c5248' }}>
+          <p className="text-sm leading-relaxed" style={{ color: 'var(--text-warm)' }}>
             Convergence is a knowledge tool for people who take mindfulness seriously. It uses
             retrieval-augmented generation (RAG) to search and synthesize answers from a curated
             archive of 760+ hours of content — guided meditations, teachings, and conversations
             with scientists and philosophers.
           </p>
-          <p className="text-sm leading-relaxed" style={{ color: '#5c5248' }}>
+          <p className="text-sm leading-relaxed" style={{ color: 'var(--text-warm)' }}>
             Every answer cites its sources. You can read the exact transcript passages that
             informed the response. No hallucinations, no invented teachings — only what was
             actually said.
           </p>
-          <p className="text-sm leading-relaxed" style={{ color: '#5c5248' }}>
+          <p className="text-sm leading-relaxed" style={{ color: 'var(--text-warm)' }}>
             Built by{' '}
-            <span style={{ color: '#5a6b52' }}>Paradox of Acceptance</span> — a project at the
+            <span style={{ color: 'var(--sage-mid)' }}>Paradox of Acceptance</span> — a project at the
             intersection of mindfulness, AI, and crypto-native infrastructure.
           </p>
         </div>
@@ -146,14 +172,14 @@ export function LandingPage() {
       {/* Footer */}
       <footer
         className="px-6 py-8 border-t"
-        style={{ borderColor: '#e0d8cc', background: '#faf8f3' }}
+        style={{ borderColor: 'var(--border)', background: 'var(--bg)' }}
       >
         <div className="max-w-3xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold" style={{ color: '#3d4f38' }}>
+            <span className="text-xs font-semibold" style={{ color: 'var(--sage-dark)' }}>
               Convergence
             </span>
-            <span className="text-xs" style={{ color: '#b0a898' }}>
+            <span className="text-xs" style={{ color: 'var(--text-faint)' }}>
               · Paradox of Acceptance
             </span>
           </div>
@@ -161,9 +187,9 @@ export function LandingPage() {
             <a
               href="#about"
               className="text-xs transition-colors"
-              style={{ color: '#9c9080' }}
-              onMouseOver={(e) => (e.currentTarget.style.color = '#5a6b52')}
-              onMouseOut={(e) => (e.currentTarget.style.color = '#9c9080')}
+              style={{ color: 'var(--text-muted)' }}
+              onMouseOver={(e) => (e.currentTarget.style.color = 'var(--sage-mid)')}
+              onMouseOut={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
             >
               About
             </a>
@@ -172,18 +198,18 @@ export function LandingPage() {
               target="_blank"
               rel="noopener noreferrer"
               className="text-xs transition-colors"
-              style={{ color: '#9c9080' }}
-              onMouseOver={(e) => (e.currentTarget.style.color = '#5a6b52')}
-              onMouseOut={(e) => (e.currentTarget.style.color = '#9c9080')}
+              style={{ color: 'var(--text-muted)' }}
+              onMouseOver={(e) => (e.currentTarget.style.color = 'var(--sage-mid)')}
+              onMouseOut={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
             >
               GitHub
             </a>
             <button
               onClick={login}
               className="text-xs transition-colors"
-              style={{ color: '#7d8c6e' }}
-              onMouseOver={(e) => (e.currentTarget.style.color = '#5a6b52')}
-              onMouseOut={(e) => (e.currentTarget.style.color = '#7d8c6e')}
+              style={{ color: 'var(--sage)' }}
+              onMouseOver={(e) => (e.currentTarget.style.color = 'var(--sage-mid)')}
+              onMouseOut={(e) => (e.currentTarget.style.color = 'var(--sage)')}
             >
               Sign in →
             </button>
