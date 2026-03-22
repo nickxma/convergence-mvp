@@ -23,9 +23,9 @@ export async function GET(req: NextRequest) {
 
   const { data, error, count } = await supabase
     .from('posts')
-    .select('id, author_wallet, title, body, votes, created_at', { count: 'exact' })
+    .select('id, author_wallet, title, body, vote_score, created_at', { count: 'exact' })
     .eq('hidden', false)
-    .order('votes', { ascending: false })
+    .order('vote_score', { ascending: false })
     .order('created_at', { ascending: false })
     .range(offset, offset + PAGE_SIZE - 1);
 
@@ -101,7 +101,7 @@ export async function POST(req: NextRequest) {
   const { data, error } = await supabase
     .from('posts')
     .insert({ author_wallet: auth.walletAddress, title, body: text })
-    .select('id, author_wallet, title, body, votes, created_at')
+    .select('id, author_wallet, title, body, vote_score, created_at')
     .single();
 
   if (error) {

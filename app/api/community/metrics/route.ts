@@ -86,8 +86,8 @@ export async function GET(req: NextRequest) {
         .gte('created_at', periodStart),
       supabase
         .from('posts')
-        .select('id, author_wallet, title, votes')
-        .order('votes', { ascending: false })
+        .select('id, author_wallet, title, vote_score')
+        .order('vote_score', { ascending: false })
         .limit(5),
       getTotalPassHolders().catch(() => null),
     ]);

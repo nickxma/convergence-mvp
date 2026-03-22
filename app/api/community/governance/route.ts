@@ -24,20 +24,19 @@ export async function GET() {
       supabase.from('replies').select('*', { count: 'exact', head: true }),
       supabase
         .from('posts')
-        .select('id, author_wallet, title, votes')
-        .order('votes', { ascending: false })
+        .select('id, author_wallet, title, vote_score')
+        .order('vote_score', { ascending: false })
         .limit(10),
       // Fetch enough posts to compute top contributor rankings
       supabase
         .from('posts')
-        .select('author_wallet, votes')
-        .order('votes', { ascending: false })
+        .select('author_wallet, vote_score')
+        .order('vote_score', { ascending: false })
         .limit(500),
       // Recent votes for trending calculation
       supabase
         .from('votes')
-        .select('target_id')
-        .eq('target_type', 'post')
+        .select('post_id')
         .gte('created_at', oneWeekAgo),
       // All voters for unique count
       supabase.from('votes').select('voter_wallet').limit(10000),
@@ -56,7 +55,7 @@ export async function GET() {
       id: String(p.id),
       authorWallet: p.author_wallet as string,
       title: p.title as string,
-      votes: p.votes as number,
+      votes: (p as any).vote_score as number,
     }));
 
     // ── Top contributors: aggregate votes per author ──
@@ -65,7 +64,7 @@ export async function GET() {
       const key = post.author_wallet as string;
       const cur = contributorMap.get(key) ?? { totalVotes: 0, postCount: 0 };
       contributorMap.set(key, {
-        totalVotes: cur.totalVotes + (post.votes as number),
+        totalVotes: cur.totalVotes + ((post as any).vote_score as number),
         postCount: cur.postCount + 1,
       });
     }
@@ -81,7 +80,7 @@ export async function GET() {
     // ── Trending this week: count recent votes per post ──
     const recentVotesByPost = new Map<string, number>();
     for (const vote of recentVotesRes.data ?? []) {
-      const key = String(vote.target_id);
+      const key = String((vote as any).post_id);
       recentVotesByPost.set(key, (recentVotesByPost.get(key) ?? 0) + 1);
     }
 
@@ -101,7 +100,7 @@ export async function GET() {
     if (trendingIds.length > 0) {
       const trendingRes = await supabase
         .from('posts')
-        .select('id, author_wallet, title, votes')
+        .select('id, author_wallet, title, vote_score')
         .in('id', trendingIds);
 
       trendingThisWeek = (trendingRes.data ?? [])
@@ -109,7 +108,7 @@ export async function GET() {
           id: String(p.id),
           authorWallet: p.author_wallet as string,
           title: p.title as string,
-          votes: p.votes as number,
+          votes: (p as any).vote_score as number,
           weeklyVotes: recentVotesByPost.get(String(p.id)) ?? 0,
         }))
         .sort((a, b) => b.weeklyVotes - a.weeklyVotes);

@@ -47,9 +47,9 @@ async function runEmbedJob(req: NextRequest): Promise<NextResponse> {
   // ── Fetch qualifying posts from Supabase ──────────────────────────────────
   const { data: posts, error: dbError } = await supabase
     .from('posts')
-    .select('id, author_wallet, title, body, votes')
-    .gte('votes', VOTE_THRESHOLD)
-    .order('votes', { ascending: false });
+    .select('id, author_wallet, title, body, vote_score')
+    .gte('vote_score', VOTE_THRESHOLD)
+    .order('vote_score', { ascending: false });
 
   if (dbError) {
     console.error('[embed-posts] DB error:', dbError.message);
@@ -87,7 +87,7 @@ async function runEmbedJob(req: NextRequest): Promise<NextResponse> {
         source: 'community',
         post_id: batch[j].id,
         author_wallet: batch[j].author_wallet,
-        vote_score: batch[j].votes,
+        vote_score: (batch[j] as any).vote_score,
         title: batch[j].title,
         // Truncated text for context retrieval; full content is in the DB.
         text: texts[j].slice(0, TEXT_STORE_LIMIT),

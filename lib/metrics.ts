@@ -73,16 +73,16 @@ export function periodStartIso(periodDays: number, now = Date.now()): string {
 }
 
 export function topPostsFromRows(
-  rows: Array<{ id: number | string; title: string; author_wallet: string; votes: number }>,
+  rows: Array<{ id: number | string; title: string; author_wallet: string; vote_score: number }>,
   limit = 5,
 ): MetricsResponse['topPosts'] {
   return rows
-    .sort((a, b) => (b.votes as number) - (a.votes as number))
+    .sort((a, b) => (b.vote_score as number) - (a.vote_score as number))
     .slice(0, limit)
     .map((p) => ({
       id: String(p.id),
       title: p.title as string,
       authorWallet: p.author_wallet as string,
-      votes: p.votes as number,
+      votes: p.vote_score as number,
     }));
 }
