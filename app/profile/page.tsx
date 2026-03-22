@@ -69,9 +69,8 @@ function ConversationStats({ conversations }: { conversations: Conversation[] })
   );
   const lastActive = conversations[0]?.updatedAt
     ? new Date(conversations[0].updatedAt).toLocaleDateString('en-US', {
-        month: 'long',
+        month: 'short',
         day: 'numeric',
-        year: 'numeric',
       })
     : null;
 
@@ -87,7 +86,7 @@ function ConversationStats({ conversations }: { conversations: Conversation[] })
           className="rounded-xl p-3 text-center"
           style={{ background: '#f5f1e8', border: '1px solid #e0d8cc' }}
         >
-          <p className="text-lg font-semibold" style={{ color: '#3d4f38' }}>
+          <p className="text-base font-semibold" style={{ color: '#3d4f38' }}>
             {value}
           </p>
           <p className="text-xs mt-0.5" style={{ color: '#9c9080' }}>
@@ -158,7 +157,7 @@ export default function ProfilePage() {
         <div className="flex items-center gap-3">
           <a
             href="/"
-            className="flex items-center gap-1.5 text-xs"
+            className="flex items-center gap-1.5 text-xs min-h-[44px]"
             style={{ color: '#7d8c6e' }}
           >
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -172,7 +171,7 @@ export default function ProfilePage() {
         </div>
         <button
           onClick={logout}
-          className="text-xs px-3 py-1.5 rounded-full border transition-colors"
+          className="text-xs px-3 min-h-[44px] inline-flex items-center rounded-full border transition-colors"
           style={{ borderColor: '#e0d8cc', color: '#7d8c6e' }}
         >
           Sign out
@@ -283,7 +282,7 @@ export default function ProfilePage() {
                   </a>
                   <button
                     onClick={() => handleDeleteConversation(c.id)}
-                    className="opacity-0 group-hover:opacity-100 flex-shrink-0 p-1 rounded transition-opacity"
+                    className="flex-shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center rounded transition-opacity sm:opacity-0 sm:group-hover:opacity-100"
                     style={{ color: '#9c9080' }}
                     aria-label="Delete"
                   >

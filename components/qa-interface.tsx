@@ -162,7 +162,7 @@ function SourceList({
                       {s.speaker}
                     </p>
                   )}
-                  <p className="leading-relaxed" style={{ color: '#5c5248' }}>
+                  <p className="leading-relaxed line-clamp-3" style={{ color: '#5c5248' }}>
                     {s.text}
                   </p>
                 </div>
@@ -384,7 +384,7 @@ function FollowUpChips({
         <button
           key={i}
           onClick={() => onSelect(q)}
-          className="text-left text-xs rounded-xl px-3 py-2 transition-colors"
+          className="text-left text-xs rounded-xl px-3 min-h-[44px] flex items-center transition-colors"
           style={{ background: '#f0ece3', color: '#5c5248', border: '1px solid #ddd5c8' }}
         >
           {q}
@@ -443,7 +443,7 @@ function AssistantMessage({
       </div>
       {!isError && (
         <div className="px-2">
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <CopyButton text={content} />
             {answerId && <ShareLinkButton answerId={answerId} />}
             {answerId && question && (
@@ -662,7 +662,7 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
           <button
             onClick={handleClear}
             disabled={loading}
-            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border transition-colors disabled:opacity-40"
+            className="flex items-center gap-1.5 text-xs px-3 min-h-[44px] rounded-full border transition-colors disabled:opacity-40"
             style={{ borderColor: '#e0d8cc', color: '#9c9080' }}
             aria-label="Clear conversation"
           >

@@ -268,7 +268,7 @@ export default function ContributorProfilePage({
         <div className="flex items-center gap-3">
           <a
             href="/"
-            className="flex items-center gap-1.5 text-xs"
+            className="flex items-center gap-1.5 text-xs min-h-[44px]"
             style={{ color: '#7d8c6e' }}
           >
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
