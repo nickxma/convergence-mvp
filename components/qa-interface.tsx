@@ -880,6 +880,8 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
   const [rateLimit, setRateLimit] = useState<{ remaining: number; resetAt: string } | null>(null);
   const [guestQueriesRemaining, setGuestQueriesRemaining] = useState<number | null>(null);
   const [guestLimitReached, setGuestLimitReached] = useState(false);
+  const [userQuestionsRemaining, setUserQuestionsRemaining] = useState<number | null>(null);
+  const [freeTierLimitReached, setFreeTierLimitReached] = useState(false);
 
   // Suggestion dropdown state
   interface Suggestion { question: string; count: number; }
@@ -913,11 +915,14 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
     return () => clearTimeout(t);
   }, [showCelebration]);
 
-  // Clear guest limit state when user signs in
+  // Clear guest limit state when user signs in; clear free-tier state on sign-out
   useEffect(() => {
     if (userId) {
       setGuestLimitReached(false);
       setGuestQueriesRemaining(null);
+    } else {
+      setFreeTierLimitReached(false);
+      setUserQuestionsRemaining(null);
     }
   }, [userId]);
 
@@ -1111,10 +1116,15 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
           setRateLimit({ remaining: 0, resetAt });
           setMessages(messages); // revert user message since no answer is coming
         } else if (res.status === 402) {
-          // Guest question limit reached — show CTA, preserve question for resubmission
           setMessages(newMessages); // keep user message visible
-          setGuestLimitReached(true);
-          setInput(question); // restore so user can resubmit after signing in
+          setInput(question); // restore so user can resubmit after upgrading/signing in
+          if (userId) {
+            // Authenticated free-tier user hit daily limit
+            setFreeTierLimitReached(true);
+          } else {
+            // Unauthenticated guest hit IP-based limit
+            setGuestLimitReached(true);
+          }
         } else {
           await res.json().catch(() => null);
           setMessages([...newMessages, { role: 'assistant', content: 'Something went wrong — try again.', error: true }]);
@@ -1194,6 +1204,9 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
               if (typeof event.guestQueriesRemaining === 'number') {
                 setGuestQueriesRemaining(event.guestQueriesRemaining);
               }
+              if (typeof event.userQuestionsRemaining === 'number') {
+                setUserQuestionsRemaining(event.userQuestionsRemaining);
+              }
               if (wasFirstEver) {
                 localStorage.setItem('wu_onboarding_seen', '1');
                 setShowOnboardingPanel(false);
@@ -1243,6 +1256,9 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
         }
         if (typeof data.guestQueriesRemaining === 'number') {
           setGuestQueriesRemaining(data.guestQueriesRemaining);
+        }
+        if (typeof data.userQuestionsRemaining === 'number') {
+          setUserQuestionsRemaining(data.userQuestionsRemaining);
         }
         if (wasFirstEver) {
           localStorage.setItem('wu_onboarding_seen', '1');
@@ -1468,6 +1484,25 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
           >
             Sign in
           </button>
+        </div>
+      )}
+
+      {/* Free-tier authenticated usage indicator */}
+      {userId && userQuestionsRemaining !== null && (
+        <div
+          className="flex items-center justify-between px-4 py-2 border-b flex-shrink-0"
+          style={{ background: 'var(--bg-chip)', borderColor: 'var(--border)' }}
+        >
+          <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+            {userQuestionsRemaining} of 5 questions remaining today
+          </span>
+          <a
+            href="/access"
+            className="text-xs px-3 py-1 rounded-full flex-shrink-0 ml-3 transition-colors"
+            style={{ background: 'var(--sage)', color: '#fff' }}
+          >
+            Upgrade to Pro
+          </a>
         </div>
       )}
 
@@ -1738,6 +1773,29 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
             </div>
           )}
 
+          {freeTierLimitReached && (
+            <div className="flex justify-start">
+              <div
+                className="max-w-xl w-full rounded-2xl rounded-tl-sm px-4 py-4"
+                style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)' }}
+              >
+                <p className="text-sm font-medium mb-1" style={{ color: 'var(--sage-dark)' }}>
+                  You&apos;ve used all 5 free questions today
+                </p>
+                <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
+                  Upgrade to Pro for unlimited access. Your question counter resets at midnight UTC.
+                </p>
+                <a
+                  href="/access"
+                  className="inline-block text-xs px-4 py-2 rounded-full font-medium"
+                  style={{ background: 'var(--sage)', color: '#fff' }}
+                >
+                  Upgrade to Pro →
+                </a>
+              </div>
+            </div>
+          )}
+
           {loading && (
             <div className="flex justify-start">
               <ResponseSkeleton />
@@ -1860,7 +1918,7 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
                 type="submit"
                 title="Submit (Enter or Ctrl+Enter)"
                 aria-label="Submit question"
-                disabled={!input.trim() || loading || rateLimit?.remaining === 0 || guestLimitReached}
+                disabled={!input.trim() || loading || rateLimit?.remaining === 0 || guestLimitReached || freeTierLimitReached}
                 className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-opacity disabled:opacity-30"
                 style={{ background: 'var(--sage)' }}
               >

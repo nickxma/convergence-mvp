@@ -11,6 +11,7 @@ import { Pinecone } from '@pinecone-database/pinecone';
 import { checkRateLimitWithFallback, getClientIp, isInternalRequest, MINUTE_MS } from '@/lib/rate-limit';
 import { verifyRequest } from '@/lib/privy-auth';
 import { supabase } from '@/lib/supabase';
+import { getUserSubscription, incrementUserQaUsage, FREE_TIER_DAILY_LIMIT } from '@/lib/subscription';
 import { isValidConversationId, buildQueryText, appendTurn } from '@/lib/conversation-session';
 import type { HistoryMessage } from '@/lib/conversation-session';
 import { monitoredQuery } from '@/lib/db-monitor';
@@ -145,6 +146,29 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // ── Free-tier authenticated user daily limit ──────────────────────────────
+  // Pro/team users bypass this; free users are capped at FREE_TIER_DAILY_LIMIT/day.
+  let userQuestionsRemaining: number | null = null;
+  let isProUser = false;
+  if (userId && !isInternalRequest(req)) {
+    const sub = await getUserSubscription(userId);
+    isProUser = sub.tier === 'pro' || sub.tier === 'team';
+    if (!isProUser) {
+      const count = await incrementUserQaUsage(userId);
+      if (count > FREE_TIER_DAILY_LIMIT) {
+        return NextResponse.json(
+          {
+            error: 'tier_limit_reached',
+            message: `You've used all ${FREE_TIER_DAILY_LIMIT} free questions today. Upgrade to Pro for unlimited access.`,
+            questionsLimit: FREE_TIER_DAILY_LIMIT,
+          },
+          { status: 402 },
+        );
+      }
+      userQuestionsRemaining = FREE_TIER_DAILY_LIMIT - count;
+    }
+  }
+
   // ── Env / config check ────────────────────────────────────────────────────
   const openaiKey = process.env.OPENAI_API_KEY;
   const pineconeKey = process.env.PINECONE_API_KEY;
@@ -185,7 +209,8 @@ export async function POST(req: NextRequest) {
   const semanticThreshold = parseFloat(process.env.SEMANTIC_CACHE_THRESHOLD ?? '0.92');
   // Cache key: SHA-256 of lowercased+trimmed question (independent of questionHash in analytics).
   const cacheKey = createHash('sha256').update(question.toLowerCase()).digest('hex');
-  const noCacheParam = req.nextUrl.searchParams.get('noCache') === '1';
+  // Pro users always get fresh answers (bypass semantic cache).
+  const noCacheParam = req.nextUrl.searchParams.get('noCache') === '1' || isProUser;
   // Only cache standalone (first-turn) questions. Follow-ups depend on conversation
   // context, so caching them would return mismatched answers.
   const isFollowUp = effectiveHistory.length > 0;
@@ -242,6 +267,7 @@ export async function POST(req: NextRequest) {
           sources: cachedChunks.map((c) => ({ text: c.text.slice(0, 200), speaker: c.speaker, source: c.source, score: Math.round(c.score * 100) / 100 })),
           ...(rl !== null ? { rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() } } : {}),
           ...(guestQueriesRemaining !== null ? { guestQueriesRemaining } : {}),
+          ...(userQuestionsRemaining !== null ? { userQuestionsRemaining } : {}),
         });
       }
     } catch {
@@ -323,6 +349,7 @@ export async function POST(req: NextRequest) {
           sources: cachedChunks.map((c) => ({ text: c.text.slice(0, 200), speaker: c.speaker, source: c.source, score: Math.round(c.score * 100) / 100 })),
           ...(rl !== null ? { rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() } } : {}),
           ...(guestQueriesRemaining !== null ? { guestQueriesRemaining } : {}),
+          ...(userQuestionsRemaining !== null ? { userQuestionsRemaining } : {}),
         });
       }
     } catch {
@@ -638,6 +665,7 @@ export async function POST(req: NextRequest) {
             cached: false,
             ...(rl !== null ? { rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() } } : {}),
             ...(guestQueriesRemaining !== null ? { guestQueriesRemaining } : {}),
+          ...(userQuestionsRemaining !== null ? { userQuestionsRemaining } : {}),
           }),
         );
       } catch (err) {
