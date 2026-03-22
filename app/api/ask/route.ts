@@ -18,6 +18,7 @@ import type { HistoryMessage } from '@/lib/conversation-session';
 import { monitoredQuery } from '@/lib/db-monitor';
 import { logOpenAIUsage } from '@/lib/openai-usage';
 import { embedOne } from '@/lib/embeddings';
+import { buildConceptPreamble } from '@/lib/concept-graph';
 
 const EMBED_MODEL = 'text-embedding-3-large';
 const EMBED_DIMENSIONS = 1536;
@@ -446,14 +447,23 @@ export async function POST(req: NextRequest) {
     ? chunks.map((c, i) => `[${i + 1}] ${c.text}`).join('\n\n')
     : null;
 
+  // ── Concept graph augmentation (OLU-443) ──────────────────────────────────
+  // Adds a cross-teacher concept preamble when the concept graph is populated.
+  // Fails gracefully — never blocks the response.
+  const conceptPreamble = await buildConceptPreamble(supabase, queryVector).catch(() => null);
+
   const priorMessages = effectiveHistory.slice(-6).map((m) => ({
     role: m.role as 'user' | 'assistant',
     content: m.content,
   }));
 
-  const userContent = context
-    ? `Transcript excerpts from our archive:\n\n${context}\n\nQuestion: ${question}`
-    : `Question: ${question}`;
+  const userContent = (() => {
+    const parts: string[] = [];
+    if (conceptPreamble) parts.push(conceptPreamble);
+    if (context) parts.push(`Transcript excerpts from our archive:\n\n${context}`);
+    parts.push(`Question: ${question}`);
+    return parts.join('\n\n');
+  })();
 
   // Shared sources payloads (built once, used in both paths)
   const sourcesPayload = chunks.map((c) => ({
