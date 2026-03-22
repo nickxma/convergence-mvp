@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI, {
   APIConnectionTimeoutError,
@@ -8,20 +9,23 @@ import OpenAI, {
 } from 'openai';
 import { Pinecone } from '@pinecone-database/pinecone';
 import { checkRateLimit } from '@/lib/rate-limit';
+import { supabase } from '@/lib/supabase';
+import { isValidConversationId, buildQueryText, appendTurn } from '@/lib/conversation-session';
+import type { HistoryMessage } from '@/lib/conversation-session';
 
 const EMBED_MODEL = 'text-embedding-3-small';
 const CHAT_MODEL = 'gpt-4o-mini';
 const TOP_K = 10; // fetch extra to allow dedup headroom
+const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
 const SYSTEM_PROMPT = `You are a knowledgeable mindfulness guide with deep expertise in meditation, consciousness, non-dual awareness, and contemplative traditions.
-Answer questions with the same depth and competence as any leading AI assistant. You have broad knowledge of mindfulness, psychology, neuroscience, philosophy of mind, and contemplative practice.
-When transcript excerpts are provided, weave specific insights from them into your answer to enrich it with authentic teachings. Cite or reference the excerpts naturally when they add value. When excerpts are tangentially related, use your own knowledge to give a complete answer and connect it to the source material where relevant.
-Be direct, warm, and practical. Never refuse to answer or say the excerpts don't cover a topic — use your full knowledge to give a thoughtful response, enhanced by the archive when possible.`;
-
-interface HistoryMessage {
-  role: 'user' | 'assistant';
-  content: string;
-}
+Answer any question with your full knowledge — mindfulness, psychology, neuroscience, philosophy of mind, contemplative practice. When transcript excerpts are provided, weave their insights naturally into your answer as enrichment.
+Rules:
+- Keep answers concise: 2-4 short paragraphs max. No walls of text.
+- Be warm, direct, and conversational — like a wise friend, not a textbook.
+- Never name specific teachers, authors, or brands. Refer to "teachers in this tradition" or "contemplative traditions" instead.
+- Never refuse to answer. If excerpts are sparse, rely on your own knowledge.
+- No numbered lists or academic structure unless the user asks for it.`;
 
 /** Extract the best available client IP from request headers. */
 function getClientIp(req: NextRequest): string {
@@ -77,6 +81,11 @@ export async function POST(req: NextRequest) {
   const history: HistoryMessage[] = Array.isArray(body?.history) ? (body.history as HistoryMessage[]) : [];
   const walletAddress: string | null = typeof body?.walletAddress === 'string' ? body.walletAddress : null;
 
+  // Resolve or generate conversationId
+  const rawConvId = body?.conversationId;
+  const isExistingConversation = isValidConversationId(rawConvId);
+  const conversationId: string = isExistingConversation ? rawConvId : randomUUID();
+
   if (!question) {
     return errorResponse(400, 'MISSING_QUESTION', 'question is required and must be a non-empty string.');
   }
@@ -94,14 +103,37 @@ export async function POST(req: NextRequest) {
   const oai = new OpenAI({ apiKey: openaiKey });
   const pc = new Pinecone({ apiKey: pineconeKey });
 
-  const logCtx = `ip=${ip} auth=${authenticated} wallet=${walletAddress ?? 'none'} q="${question.slice(0, 80)}"`;
+  const logCtx = `ip=${ip} auth=${authenticated} wallet=${walletAddress ?? 'none'} conv=${conversationId} q="${question.slice(0, 80)}"`;
+
+  // ── Load server-side history if conversationId provided but client sent no history ──
+  let effectiveHistory = history;
+  if (isExistingConversation && history.length === 0) {
+    try {
+      const { data } = await supabase
+        .from('conversation_sessions')
+        .select('history')
+        .eq('id', conversationId)
+        .gt('expires_at', new Date().toISOString())
+        .single();
+      if (data?.history && Array.isArray(data.history)) {
+        effectiveHistory = data.history as HistoryMessage[];
+      }
+    } catch {
+      // Proceed without server-side history — not fatal
+    }
+  }
+
+  // ── Build augmented query for Pinecone ────────────────────────────────────
+  // For follow-up questions, enrich the embedding query with the last assistant
+  // response so retrieval is semantically grounded in the current thread.
+  const queryText = buildQueryText(question, effectiveHistory);
 
   // ── Embed the question ────────────────────────────────────────────────────
   let queryVector: number[];
   try {
     const embedResp = await oai.embeddings.create({
       model: EMBED_MODEL,
-      input: question,
+      input: queryText,
     });
     queryVector = embedResp.data[0].embedding;
   } catch (err) {
@@ -142,11 +174,13 @@ export async function POST(req: NextRequest) {
     .slice(0, 6);
 
   // ── Build context and generate answer ────────────────────────────────────
+  // Strip speaker names from LLM context to prevent name leakage in responses.
+  // Speaker metadata is still returned in the sources panel for attribution.
   const context = chunks.length > 0
-    ? chunks.map((c, i) => `[${i + 1}] ${c.speaker ? `${c.speaker}: ` : ''}${c.text}`).join('\n\n')
+    ? chunks.map((c, i) => `[${i + 1}] ${c.text}`).join('\n\n')
     : null;
 
-  const priorMessages = history.slice(-6).map((m) => ({
+  const priorMessages = effectiveHistory.slice(-6).map((m) => ({
     role: m.role as 'user' | 'assistant',
     content: m.content,
   }));
@@ -165,15 +199,35 @@ export async function POST(req: NextRequest) {
         { role: 'user', content: userContent },
       ],
       temperature: 0.5,
-      max_tokens: 800,
+      max_tokens: 600,
     });
     answer = chat.choices[0]?.message?.content ?? '';
   } catch (err) {
     return handleOpenAIError(err, 'chat', logCtx);
   }
 
+  // ── Persist conversation session to Supabase (best-effort, non-blocking) ──
+  const updatedHistory = appendTurn(effectiveHistory, question, answer);
+
+  supabase
+    .from('conversation_sessions')
+    .upsert(
+      {
+        id: conversationId,
+        history: updatedHistory,
+        expires_at: new Date(Date.now() + SESSION_TTL_MS).toISOString(),
+      },
+      { onConflict: 'id' },
+    )
+    .then(({ error }) => {
+      if (error) {
+        console.warn(`[/api/ask] supabase_session_error conv=${conversationId} err=${error.message}`);
+      }
+    });
+
   return NextResponse.json({
     answer,
+    conversationId,
     sources: chunks.map((c) => ({
       text: c.text.slice(0, 200),
       speaker: c.speaker,
