@@ -29,8 +29,11 @@ Copy `.env.example` to `.env.local` and fill in each value.
 | `UPSTASH_REDIS_REST_URL` | Optional. console.upstash.com → Redis → REST API | Rate limiting falls back to in-memory (single process only) |
 | `UPSTASH_REDIS_REST_TOKEN` | Optional. Same dashboard | Same as above |
 | `ENABLE_COMMUNITY_RAG` | `"true"` to enable community posts in RAG pipeline | Community posts excluded from Q&A answers (default: `false`) |
-| `RESEND_API_KEY` | resend.com → API Keys | `pnpm export:subscribers` fails |
+| `RESEND_API_KEY` | resend.com → API Keys | `pnpm export:subscribers` fails; deploy notifications fall back to Slack or are skipped |
 | `RESEND_AUDIENCE_ID` | resend.com → Audiences → copy ID | `pnpm export:subscribers` fails |
+| `VERCEL_WEBHOOK_SECRET` | Generated (see §10 below); set in Vercel Webhooks config | Deploy webhook accepts unsigned requests (insecure) |
+| `ADMIN_EMAIL` | Your email address | Deploy notifications are not sent (unless `SLACK_WEBHOOK_URL` is set) |
+| `SLACK_WEBHOOK_URL` | Optional. api.slack.com → Incoming Webhooks | Email used instead; omit if you prefer email |
 
 Vercel auto-injects `NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA` and `NEXT_PUBLIC_VERCEL_ENV` — do not set manually.
 
@@ -312,3 +315,59 @@ Returns JSON with `status: ok | degraded | down` for each dependency. Use this a
 | Rate limiting not working across restarts | Redis not configured | Set `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`; in-memory resets on restart |
 | Token gate not recognizing pass holders | Wrong contract address or wrong chain | Verify `ACCEPTANCE_PASS_CONTRACT_ADDRESS` matches Base mainnet `0x9691107...` |
 | Build fails with Sentry error | DSN env vars missing | Set `NEXT_PUBLIC_SENTRY_DSN` and `SENTRY_DSN` in Vercel env |
+| Deploy notifications not arriving | `ADMIN_EMAIL` / `RESEND_API_KEY` not set, or `SLACK_WEBHOOK_URL` missing | Set the relevant env vars in Vercel → Environment Variables |
+| Deploy webhook returns 401 | `VERCEL_WEBHOOK_SECRET` mismatch | Regenerate with `openssl rand -hex 32`, update in both Vercel Webhooks settings and env vars |
+
+---
+
+## 10. Deploy Notifications (Vercel Webhook)
+
+`POST /api/webhooks/deploy` receives Vercel deployment events and sends a notification when a production deploy succeeds or fails.
+
+### How it works
+
+1. Vercel sends a signed POST request on each deployment event.
+2. The endpoint validates `x-vercel-signature` (HMAC-SHA1 of the raw body using `VERCEL_WEBHOOK_SECRET`).
+3. For `deployment.succeeded` → sends ✅ success notification.
+4. For `deployment.error` / `deployment.canceled` → sends ❌ failure notification.
+5. Non-production deployments (preview, branch) are silently acknowledged and skipped.
+
+**Notification routing (first match wins):**
+- `SLACK_WEBHOOK_URL` is set → Slack incoming webhook
+- Otherwise → email via Resend to `ADMIN_EMAIL`
+
+### Registration steps
+
+1. **Generate a webhook secret:**
+   ```bash
+   openssl rand -hex 32
+   ```
+
+2. **Add env vars in Vercel** (dashboard → Project → Settings → Environment Variables):
+   | Variable | Value |
+   |---|---|
+   | `VERCEL_WEBHOOK_SECRET` | the secret from step 1 |
+   | `ADMIN_EMAIL` | your email address (if using email) |
+   | `RESEND_API_KEY` | resend.com API key (if using email) |
+   | `SLACK_WEBHOOK_URL` | Slack webhook URL (if using Slack instead) |
+
+3. **Register the webhook in Vercel** (dashboard → Project → Settings → Webhooks → Add):
+   - **URL:** `https://convergence-mvp.vercel.app/api/webhooks/deploy`
+   - **Secret:** same value as `VERCEL_WEBHOOK_SECRET`
+   - **Events to subscribe:** `deployment.succeeded`, `deployment.error`, `deployment.canceled`
+
+4. **Redeploy** (or trigger a manual deploy) to confirm notifications arrive.
+
+### Testing locally
+
+```bash
+# Generate a test payload + signature
+SECRET=your-webhook-secret
+PAYLOAD='{"type":"deployment.succeeded","payload":{"deployment":{"id":"test","name":"convergence-mvp","url":"convergence-mvp.vercel.app","meta":{"githubCommitSha":"abc1234","githubCommitMessage":"test deploy","githubCommitRef":"main"}},"target":"production"}}'
+SIG=$(echo -n "$PAYLOAD" | openssl dgst -sha1 -hmac "$SECRET" | awk '{print $2}')
+
+curl -X POST http://localhost:3000/api/webhooks/deploy \
+  -H "Content-Type: application/json" \
+  -H "x-vercel-signature: $SIG" \
+  -d "$PAYLOAD"
+```
