@@ -7,6 +7,7 @@ import OpenAI, {
   AuthenticationError as OpenAIAuthError,
   InternalServerError as OpenAIServerError,
 } from 'openai';
+import { CohereClient } from 'cohere-ai';
 import { Pinecone } from '@pinecone-database/pinecone';
 import { checkRateLimitWithFallback, getClientIp, isInternalRequest, MINUTE_MS } from '@/lib/rate-limit';
 import { verifyRequest } from '@/lib/privy-auth';
@@ -23,7 +24,8 @@ const EMBED_DIMENSIONS = 1536;
 const CHAT_MODEL = 'gpt-4o-mini';
 const PINECONE_NAMESPACE = 'waking-up';
 const PINECONE_SUMMARY_NAMESPACE = 'waking-up-summaries';
-const TOP_K = 8; // fetch per namespace; merged result has headroom for dedup
+const TOP_K = 20; // broad retrieval per namespace — merged result is re-ranked below
+const RERANK_TOP_N = 6; // final chunk count after Cohere re-ranking
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
@@ -408,9 +410,36 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const chunks = Array.from(chunkScores.values())
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 6);
+  const allChunks = Array.from(chunkScores.values())
+    .sort((a, b) => b.score - a.score);
+
+  // ── Cohere re-ranking ─────────────────────────────────────────────────────
+  // If COHERE_API_KEY is set, re-rank the broad retrieval set and keep top N.
+  // Falls back to cosine-score order if the key is absent or the call fails.
+  const cohereKey = process.env.COHERE_API_KEY;
+  let chunks: typeof allChunks;
+  if (cohereKey && allChunks.length > RERANK_TOP_N) {
+    try {
+      const cohere = new CohereClient({ token: cohereKey });
+      const rerankResult = await cohere.rerank({
+        model: 'rerank-v3.5',
+        query: question,
+        documents: allChunks.map((c) => ({ text: c.text })),
+        topN: RERANK_TOP_N,
+        returnDocuments: false,
+      });
+      chunks = rerankResult.results.map((r) => ({
+        ...allChunks[r.index],
+        score: r.relevanceScore,
+      }));
+      console.log(`[/api/ask] reranked ${allChunks.length} → ${chunks.length} chunks ${logCtx}`);
+    } catch (err) {
+      console.warn(`[/api/ask] rerank_failed fallback to cosine err=${err instanceof Error ? err.message : String(err)}`);
+      chunks = allChunks.slice(0, RERANK_TOP_N);
+    }
+  } else {
+    chunks = allChunks.slice(0, RERANK_TOP_N);
+  }
 
   // ── Build context ─────────────────────────────────────────────────────────
   const context = chunks.length > 0
