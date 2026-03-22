@@ -1222,9 +1222,11 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
               }
               if (typeof event.guestQueriesRemaining === 'number') {
                 setGuestQueriesRemaining(event.guestQueriesRemaining);
+                if (event.guestQueriesRemaining === 0) setGuestLimitReached(true);
               }
               if (typeof event.userQuestionsRemaining === 'number') {
                 setUserQuestionsRemaining(event.userQuestionsRemaining);
+                if (event.userQuestionsRemaining === 0) setFreeTierLimitReached(true);
               }
               if (wasFirstEver) {
                 localStorage.setItem('wu_onboarding_seen', '1');
@@ -1275,9 +1277,11 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
         }
         if (typeof data.guestQueriesRemaining === 'number') {
           setGuestQueriesRemaining(data.guestQueriesRemaining);
+          if (data.guestQueriesRemaining === 0) setGuestLimitReached(true);
         }
         if (typeof data.userQuestionsRemaining === 'number') {
           setUserQuestionsRemaining(data.userQuestionsRemaining);
+          if (data.userQuestionsRemaining === 0) setFreeTierLimitReached(true);
         }
         if (wasFirstEver) {
           localStorage.setItem('wu_onboarding_seen', '1');
@@ -1490,18 +1494,17 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
         </div>
       )}
 
-      {/* Guest mode banner */}
-      {!userId && (
+      {/* Guest mode banner — shown only after first question */}
+      {!userId && guestQueriesRemaining !== null && (
         <div
           className="flex items-center justify-between px-4 py-2 border-b flex-shrink-0"
           style={{ background: 'var(--bg-chip)', borderColor: 'var(--border)' }}
         >
           <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
-            Guest mode —{' '}
-            {guestQueriesRemaining !== null
-              ? `${guestQueriesRemaining} question${guestQueriesRemaining !== 1 ? 's' : ''} remaining`
-              : '3 free questions'
-            }. Connect wallet to save history.
+            {guestQueriesRemaining > 0
+              ? `${guestQueriesRemaining} free question${guestQueriesRemaining !== 1 ? 's' : ''} remaining — sign in to get 5/day`
+              : 'Sign in to get 5 free questions/day and save your history'
+            }
           </span>
           <button
             onClick={login}
@@ -1510,25 +1513,6 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
           >
             Sign in
           </button>
-        </div>
-      )}
-
-      {/* Free-tier authenticated usage indicator */}
-      {userId && userQuestionsRemaining !== null && (
-        <div
-          className="flex items-center justify-between px-4 py-2 border-b flex-shrink-0"
-          style={{ background: 'var(--bg-chip)', borderColor: 'var(--border)' }}
-        >
-          <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
-            {userQuestionsRemaining} of 5 questions remaining today
-          </span>
-          <a
-            href="/access"
-            className="text-xs px-3 py-1 rounded-full flex-shrink-0 ml-3 transition-colors"
-            style={{ background: 'var(--sage)', color: '#fff' }}
-          >
-            Upgrade to Pro
-          </a>
         </div>
       )}
 
@@ -2068,6 +2052,32 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
               </p>
             )}
           </div>
+
+          {/* Daily usage pill — free-tier authenticated users */}
+          {userId && userQuestionsRemaining !== null && userQuestionsRemaining > 0 && (
+            <div className="flex items-center gap-2 mt-1.5 px-1">
+              <span
+                className="text-xs px-2 py-0.5 rounded-full"
+                style={
+                  userQuestionsRemaining === 1
+                    ? { background: 'var(--warn-bg)', color: 'var(--warn-text)', border: '1px solid var(--warn-border)' }
+                    : { background: 'var(--bg-chip)', color: 'var(--text-faint)' }
+                }
+              >
+                {userQuestionsRemaining} of 5 remaining today
+              </span>
+              {userQuestionsRemaining === 1 && (
+                <button
+                  type="button"
+                  onClick={() => setUpgradeFeature('unlimited_qa')}
+                  className="text-xs font-medium"
+                  style={{ color: 'var(--sage)' }}
+                >
+                  Upgrade for unlimited →
+                </button>
+              )}
+            </div>
+          )}
         </form>
       </div>
 
