@@ -8,7 +8,7 @@ import OpenAI, {
   InternalServerError as OpenAIServerError,
 } from 'openai';
 import { Pinecone } from '@pinecone-database/pinecone';
-import { checkRateLimitWithFallback } from '@/lib/rate-limit';
+import { checkRateLimitWithFallback, getClientIp, isInternalRequest, MINUTE_MS } from '@/lib/rate-limit';
 import { verifyRequest } from '@/lib/privy-auth';
 import { supabase } from '@/lib/supabase';
 import { isValidConversationId, buildQueryText, appendTurn } from '@/lib/conversation-session';
@@ -36,13 +36,6 @@ Rules:
 - Never refuse to answer. If excerpts are sparse, rely on your own knowledge.
 - No numbered lists or academic structure unless the user asks for it.`;
 
-/** Extract the best available client IP from request headers. */
-function getClientIp(req: NextRequest): string {
-  const forwarded = req.headers.get('x-forwarded-for');
-  if (forwarded) return forwarded.split(',')[0].trim();
-  return req.headers.get('x-real-ip') ?? 'unknown';
-}
-
 /** Structured error response helper. */
 function errorResponse(
   status: number,
@@ -53,26 +46,33 @@ function errorResponse(
   return NextResponse.json({ error: { code, message } }, { status, headers });
 }
 
-const RATE_LIMIT_PER_USER = 20; // requests per hour
-const GUEST_LIMIT = 3; // free questions per IP per 24h
+// Per-minute rate limits — authenticated users get 6× the budget
+const RATE_LIMIT_AUTHED = 30; // wallet-authenticated requests per minute
+const RATE_LIMIT_ANON = 5;    // unauthenticated requests per minute
+const GUEST_LIMIT = 3; // free questions per IP per 24h (Supabase-tracked overall cap)
 const REFERRED_GUEST_LIMIT = 5; // bumped limit for visitors arriving via referral link
 
 export async function POST(req: NextRequest) {
   const requestStart = Date.now();
   const ip = getClientIp(req);
 
-  // ── Identify caller and rate limit ────────────────────────────────────────
+  // ── Identify caller ───────────────────────────────────────────────────────
   const authResult = await verifyRequest(req);
   const userId = authResult?.userId ?? null;
-  const rateLimitKey = userId ? `ask:user:${userId}` : `ask:anon:${ip}`;
 
-  const rl = await checkRateLimitWithFallback(rateLimitKey, RATE_LIMIT_PER_USER);
-  if (!rl.allowed) {
+  // ── Rate limit (bypassed for internal/agent calls) ────────────────────────
+  const rateLimit = userId ? RATE_LIMIT_AUTHED : RATE_LIMIT_ANON;
+  const rateLimitKey = userId ? `ask:user:${userId}` : `ask:anon:${ip}`;
+  const rl = isInternalRequest(req)
+    ? null
+    : await checkRateLimitWithFallback(rateLimitKey, rateLimit, MINUTE_MS);
+
+  if (rl !== null && !rl.allowed) {
     const retryAfterSec = Math.ceil((rl.resetAt - Date.now()) / 1000);
     console.warn(`[/api/ask] rate_limit ip=${ip} userId=${userId ?? 'anon'} store=${rl.store}`);
     return errorResponse(429, 'RATE_LIMIT_EXCEEDED', 'Too many requests — please wait before trying again.', {
       'Retry-After': String(retryAfterSec),
-      'X-RateLimit-Limit': String(RATE_LIMIT_PER_USER),
+      'X-RateLimit-Limit': String(rateLimit),
       'X-RateLimit-Remaining': '0',
       'X-RateLimit-Reset': String(Math.ceil(rl.resetAt / 1000)),
     });
@@ -236,7 +236,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({
           answer: cachedAnswer, answerId, conversationId, followUps: cachedFollowUps, cached: true,
           sources: cachedChunks.map((c) => ({ text: c.text.slice(0, 200), speaker: c.speaker, source: c.source, score: Math.round(c.score * 100) / 100 })),
-          rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() },
+          ...(rl !== null ? { rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() } } : {}),
           ...(guestQueriesRemaining !== null ? { guestQueriesRemaining } : {}),
         });
       }
@@ -314,7 +314,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({
           answer: cachedAnswer, answerId, conversationId, followUps: cachedFollowUps, cached: true,
           sources: cachedChunks.map((c) => ({ text: c.text.slice(0, 200), speaker: c.speaker, source: c.source, score: Math.round(c.score * 100) / 100 })),
-          rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() },
+          ...(rl !== null ? { rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() } } : {}),
           ...(guestQueriesRemaining !== null ? { guestQueriesRemaining } : {}),
         });
       }
@@ -495,7 +495,7 @@ export async function POST(req: NextRequest) {
       followUps,
       sources: sourcesPayload,
       cached: false,
-      rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() },
+      ...(rl !== null ? { rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() } } : {}),
       ...(guestQueriesRemaining !== null ? { guestQueriesRemaining } : {}),
     });
   }
@@ -622,7 +622,7 @@ export async function POST(req: NextRequest) {
             followUps,
             sources: sourcesPayload,
             cached: false,
-            rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() },
+            ...(rl !== null ? { rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() } } : {}),
             ...(guestQueriesRemaining !== null ? { guestQueriesRemaining } : {}),
           }),
         );

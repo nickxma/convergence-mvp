@@ -6,10 +6,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { verifyRequest } from '@/lib/privy-auth';
 import { isPassHolder } from '@/lib/token-gate';
-import { checkRateLimit, isDuplicateContent, buildRateLimitError } from '@/lib/rate-limit';
+import { checkRateLimitWithFallback, checkRateLimit, isDuplicateContent, buildRateLimitError, getClientIp, isInternalRequest, MINUTE_MS } from '@/lib/rate-limit';
 import { getFeedCache, setFeedCache, invalidateFeedCache } from '@/lib/feed-cache';
 
 const PAGE_SIZE = 20;
+const FEED_RL_AUTHED = 120; // authenticated requests per minute
+const FEED_RL_ANON   = 30;  // unauthenticated requests per minute
+const POST_RL_AUTHED = 10;  // new posts per minute per user
 
 function errorResponse(status: number, code: string, message: string): NextResponse {
   return NextResponse.json({ error: { code, message } }, { status });
@@ -18,6 +21,21 @@ function errorResponse(status: number, code: string, message: string): NextRespo
 // ── GET /api/community/posts ───────────────────────────────────────────────
 
 export async function GET(req: NextRequest) {
+  // Rate limit — bypass for internal/agent calls
+  if (!isInternalRequest(req)) {
+    const ip = getClientIp(req);
+    // Use IP-keyed limit for GET to avoid the latency cost of Privy JWT verification.
+    // Authenticated clients still benefit from the cache hit path above.
+    const rl = await checkRateLimitWithFallback(`community:feed:${ip}`, FEED_RL_ANON, MINUTE_MS);
+    if (!rl.allowed) {
+      const retryAfterSec = Math.ceil((rl.resetAt - Date.now()) / 1000);
+      return NextResponse.json(
+        { error: 'Rate limit exceeded', retryAfter: retryAfterSec },
+        { status: 429, headers: { 'Retry-After': String(retryAfterSec) } },
+      );
+    }
+  }
+
   const { searchParams } = new URL(req.url);
   const page = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10));
 
@@ -116,14 +134,16 @@ export async function POST(req: NextRequest) {
     return errorResponse(403, 'NOT_PASS_HOLDER', 'An Acceptance Pass is required to post.');
   }
 
-  // 3. Rate limit — 10 posts per hour per wallet
-  const rl = checkRateLimit(`community:post:${auth.walletAddress}`, 10);
-  if (!rl.allowed) {
-    const rle = buildRateLimitError(rl.resetAt, 'Max 10 posts per hour. Please wait.');
-    return NextResponse.json(rle.error, {
-      status: rle.status,
-      headers: { 'Retry-After': String(rle.retryAfterSec) },
-    });
+  // 3. Rate limit — 10 posts per minute per user (bypass for internal calls)
+  if (!isInternalRequest(req)) {
+    const rl = checkRateLimit(`community:post:${auth.userId}`, POST_RL_AUTHED, MINUTE_MS);
+    if (!rl.allowed) {
+      const rle = buildRateLimitError(rl.resetAt, 'Max 10 posts per minute. Please wait.');
+      return NextResponse.json(rle.error, {
+        status: rle.status,
+        headers: { 'Retry-After': String(rle.retryAfterSec) },
+      });
+    }
   }
 
   // 4. Parse body

@@ -6,6 +6,8 @@
  */
 import crypto from 'node:crypto';
 
+export const MINUTE_MS = 60_000;
+
 interface RateLimitEntry {
   timestamps: number[];
 }
@@ -14,6 +16,28 @@ const store = new Map<string, RateLimitEntry>();
 const contentHashStore = new Map<string, number>(); // key → last-seen epoch ms
 
 const HOUR_MS = 3_600_000;
+
+/**
+ * Extract the best available client IP from request headers.
+ * Works with NextRequest and any object that exposes a `headers.get()` method.
+ */
+export function getClientIp(req: { headers: { get(name: string): string | null } }): string {
+  const forwarded = req.headers.get('x-forwarded-for');
+  if (forwarded) return forwarded.split(',')[0].trim();
+  return req.headers.get('x-real-ip') ?? 'unknown';
+}
+
+/**
+ * Returns true when the request carries a valid internal bypass token.
+ * Set INTERNAL_API_TOKEN in the environment and pass `X-Internal-Token: <token>`
+ * to skip rate limiting on agent/internal calls.
+ */
+export function isInternalRequest(req: { headers: { get(name: string): string | null } }): boolean {
+  const expected = process.env.INTERNAL_API_TOKEN;
+  if (!expected) return false;
+  const provided = req.headers.get('x-internal-token');
+  return provided === expected;
+}
 
 // Prune expired entries every 5 minutes to prevent unbounded memory growth
 setInterval(() => {
