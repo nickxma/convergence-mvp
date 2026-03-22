@@ -43,3 +43,6 @@ next-env.d.ts
 
 # Lighthouse CI output
 .lighthouseci/
+
+# Semantic chunk intermediate output (large, regenerable via pnpm segment:corpus)
+/data/semantic-chunks/

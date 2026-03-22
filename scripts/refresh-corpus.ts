@@ -26,10 +26,11 @@
  */
 
 import { createHash } from 'node:crypto';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
+import type { SegmentFile } from './semantic-segment';
 
 // ── Load .env.local ────────────────────────────────────────────────────────────
 
@@ -68,11 +69,18 @@ const EMBED_MODEL = 'text-embedding-3-small';
 const PINECONE_NAMESPACE = 'waking-up';
 const BATCH_SIZE = 100; // chunks per OpenAI embed call and Pinecone upsert
 
-// Token approximation: 1 token ≈ 4 characters
+// Semantic chunk sizing (token approximation: 1 token ≈ 4 characters)
+const MIN_CHUNK_CHARS = 400;  // ~100 tokens — merge smaller adjacent same-topic segments
+const MAX_CHUNK_CHARS = 2000; // ~500 tokens — sub-split larger segments at sentence boundaries
+
+// Fallback sentence-based chunker config (used when no semantic segments exist)
 const TARGET_CHUNK_TOKENS = 300;
 const OVERLAP_TOKENS = 50;
 const TARGET_CHUNK_CHARS = TARGET_CHUNK_TOKENS * 4; // 1200
 const OVERLAP_CHARS = OVERLAP_TOKENS * 4; // 200
+
+// Directory where semantic-segment.ts writes its JSON output
+const DATA_DIR = resolve(process.cwd(), 'data/semantic-chunks');
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -81,6 +89,8 @@ interface Chunk {
   text: string;
   source_file: string;
   chunk_index: number;
+  speaker?: string;
+  topic?: string;
 }
 
 interface ManifestRow {
@@ -90,7 +100,109 @@ interface ManifestRow {
   embedded_at: string;
 }
 
-// ── Sentence-aware chunker ────────────────────────────────────────────────────
+// ── Semantic chunker (primary) ─────────────────────────────────────────────────
+
+/**
+ * Splits text at sentence boundaries up to maxChars per part.
+ * Used to sub-split oversized semantic segments.
+ */
+function splitAtSentences(text: string, maxChars: number): string[] {
+  const sentences = text.split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter((s) => s.length > 0);
+  const parts: string[] = [];
+  let current = '';
+  for (const sentence of sentences) {
+    const candidate = current ? `${current} ${sentence}` : sentence;
+    if (candidate.length <= maxChars) {
+      current = candidate;
+    } else {
+      if (current) parts.push(current);
+      current = sentence;
+    }
+  }
+  if (current) parts.push(current);
+  return parts;
+}
+
+/**
+ * Loads pre-computed semantic segments from data/semantic-chunks/{filename}.json,
+ * applies size guardrails, prepends context headers, and returns Chunk[].
+ *
+ * Falls back to sentence-based chunkText() if no segment file exists.
+ */
+function loadSemanticChunks(filename: string, content: string): Chunk[] {
+  const segmentPath = join(DATA_DIR, `${filename}.json`);
+  if (!existsSync(segmentPath)) {
+    console.warn(`  [warn] No semantic segments for ${filename} — using fallback chunker`);
+    return chunkText(content, filename);
+  }
+
+  let segmentFile: SegmentFile;
+  try {
+    segmentFile = JSON.parse(readFileSync(segmentPath, 'utf-8')) as SegmentFile;
+    if (!Array.isArray(segmentFile.segments) || segmentFile.segments.length === 0) {
+      throw new Error('Empty segments array');
+    }
+  } catch (err) {
+    console.warn(`  [warn] Bad segment file for ${filename}: ${(err as Error).message} — using fallback chunker`);
+    return chunkText(content, filename);
+  }
+
+  const filenameHash = createHash('sha256').update(filename).digest('hex').slice(0, 12);
+
+  // Merge small adjacent same-speaker+topic segments
+  const merged: SegmentFile['segments'] = [];
+  let pending: SegmentFile['segments'][number] | null = null;
+  for (const seg of segmentFile.segments) {
+    if (!pending) {
+      pending = { ...seg };
+      continue;
+    }
+    if (
+      pending.text.length < MIN_CHUNK_CHARS &&
+      pending.speaker === seg.speaker &&
+      pending.topic === seg.topic
+    ) {
+      pending = { ...pending, text: `${pending.text} ${seg.text}` };
+    } else {
+      merged.push(pending);
+      pending = { ...seg };
+    }
+  }
+  if (pending) merged.push(pending);
+
+  // Build chunks: prepend context header, sub-split if oversized
+  const chunks: Chunk[] = [];
+  for (const seg of merged) {
+    const header = `${seg.speaker} on ${seg.topic}: `;
+    const maxContent = MAX_CHUNK_CHARS - header.length;
+
+    if (seg.text.length <= maxContent) {
+      chunks.push({
+        id: `wu-${filenameHash}-s${chunks.length}`,
+        text: header + seg.text,
+        source_file: filename,
+        chunk_index: chunks.length,
+        speaker: seg.speaker,
+        topic: seg.topic,
+      });
+    } else {
+      for (const part of splitAtSentences(seg.text, maxContent)) {
+        chunks.push({
+          id: `wu-${filenameHash}-s${chunks.length}`,
+          text: header + part,
+          source_file: filename,
+          chunk_index: chunks.length,
+          speaker: seg.speaker,
+          topic: seg.topic,
+        });
+      }
+    }
+  }
+
+  return chunks;
+}
+
+// ── Sentence-aware chunker (fallback) ─────────────────────────────────────────
 
 /**
  * Splits text into chunks of approximately TARGET_CHUNK_CHARS characters,
@@ -250,7 +362,7 @@ async function main() {
 
   for (const file of toProcess) {
     console.log(`\nProcessing: ${file.filename}`);
-    const chunks = chunkText(file.content, file.filename);
+    const chunks = loadSemanticChunks(file.filename, file.content);
     console.log(`  ${chunks.length} chunks`);
 
     let fileChunksUpserted = 0;
@@ -267,6 +379,8 @@ async function main() {
           text: chunk.text,
           source_file: chunk.source_file,
           chunk_index: chunk.chunk_index,
+          ...(chunk.speaker ? { speaker: chunk.speaker } : {}),
+          ...(chunk.topic ? { topic: chunk.topic } : {}),
         },
       }));
       await ns.upsert({ records: vectors });
