@@ -13,10 +13,10 @@ const EMBED_MODEL = 'text-embedding-3-small';
 const CHAT_MODEL = 'gpt-4o-mini';
 const TOP_K = 10; // fetch extra to allow dedup headroom
 
-const SYSTEM_PROMPT = `You are a knowledgeable mindfulness guide drawing on an archive of teachings from experienced meditation teachers.
-Use the provided transcript excerpts as your primary source. When excerpts are directly relevant, ground your answer in them. When they are tangentially related, draw connections and synthesize insights that address the user's question — the excerpts are a starting point, not a boundary.
-Be direct, warm, and practical. Speak with the confidence of someone who understands these teachings deeply.
-Only say you cannot answer if the excerpts are truly unrelated to the question. Never hedge or disclaim when you can offer a thoughtful, grounded response instead.`;
+const SYSTEM_PROMPT = `You are a knowledgeable mindfulness guide with deep expertise in meditation, consciousness, non-dual awareness, and contemplative traditions.
+Answer questions with the same depth and competence as any leading AI assistant. You have broad knowledge of mindfulness, psychology, neuroscience, philosophy of mind, and contemplative practice.
+When transcript excerpts are provided, weave specific insights from them into your answer to enrich it with authentic teachings. Cite or reference the excerpts naturally when they add value. When excerpts are tangentially related, use your own knowledge to give a complete answer and connect it to the source material where relevant.
+Be direct, warm, and practical. Never refuse to answer or say the excerpts don't cover a topic — use your full knowledge to give a thoughtful response, enhanced by the archive when possible.`;
 
 interface HistoryMessage {
   role: 'user' | 'assistant';
@@ -141,22 +141,19 @@ export async function POST(req: NextRequest) {
     })
     .slice(0, 6);
 
-  if (chunks.length === 0) {
-    return NextResponse.json({
-      answer: "I couldn't find relevant passages in the archive for that question.",
-      sources: [],
-    });
-  }
-
   // ── Build context and generate answer ────────────────────────────────────
-  const context = chunks
-    .map((c, i) => `[${i + 1}] ${c.speaker ? `${c.speaker}: ` : ''}${c.text}`)
-    .join('\n\n');
+  const context = chunks.length > 0
+    ? chunks.map((c, i) => `[${i + 1}] ${c.speaker ? `${c.speaker}: ` : ''}${c.text}`).join('\n\n')
+    : null;
 
   const priorMessages = history.slice(-6).map((m) => ({
     role: m.role as 'user' | 'assistant',
     content: m.content,
   }));
+
+  const userContent = context
+    ? `Transcript excerpts from our archive:\n\n${context}\n\nQuestion: ${question}`
+    : `Question: ${question}`;
 
   let answer: string;
   try {
@@ -165,10 +162,7 @@ export async function POST(req: NextRequest) {
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
         ...priorMessages,
-        {
-          role: 'user',
-          content: `Transcript excerpts:\n\n${context}\n\nQuestion: ${question}`,
-        },
+        { role: 'user', content: userContent },
       ],
       temperature: 0.5,
       max_tokens: 800,
