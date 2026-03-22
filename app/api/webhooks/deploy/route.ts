@@ -19,9 +19,9 @@
  *   URL: https://convergence-mvp.vercel.app/api/webhooks/deploy
  *   Events: deployment.succeeded, deployment.error, deployment.canceled
  */
-import { createHmac, timingSafeEqual } from 'crypto';
 import { Resend } from 'resend';
 import { NextRequest, NextResponse } from 'next/server';
+import { verifyVercelSignature } from '@/lib/webhook-verify';
 
 // ── Vercel webhook payload (partial) ─────────────────────────────────────────
 
@@ -44,17 +44,6 @@ interface VercelWebhookPayload {
     target?: string; // "production" | "preview" | undefined
     error?: { message?: string; code?: string };
   };
-}
-
-// ── Signature validation ──────────────────────────────────────────────────────
-
-function isValidSignature(rawBody: string, signature: string, secret: string): boolean {
-  const expected = createHmac('sha1', secret).update(rawBody).digest('hex');
-  try {
-    return timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
-  } catch {
-    return false;
-  }
 }
 
 // ── Notification helpers ──────────────────────────────────────────────────────
@@ -89,14 +78,16 @@ async function notifyEmail(subject: string, html: string): Promise<void> {
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const secret = process.env.VERCEL_WEBHOOK_SECRET;
+  if (!secret) {
+    console.error('[deploy-webhook] VERCEL_WEBHOOK_SECRET is not configured');
+    return NextResponse.json({ error: 'Webhook not configured' }, { status: 500 });
+  }
+
   const rawBody = await req.text();
 
-  // Validate signature when secret is configured
-  if (secret) {
-    const signature = req.headers.get('x-vercel-signature') ?? '';
-    if (!isValidSignature(rawBody, signature, secret)) {
-      return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
-    }
+  const signature = req.headers.get('x-vercel-signature') ?? '';
+  if (!verifyVercelSignature(rawBody, signature, secret)) {
+    return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
   }
 
   let event: VercelWebhookPayload;
