@@ -12,8 +12,17 @@ import {
   TokenGateError,
 } from '@/lib/community';
 import { VoteButton } from '@/components/vote-button';
-import { CreatePostModal } from '@/components/create-post-modal';
-import { OnboardingModal, hasSeenOnboarding } from '@/components/onboarding-modal';
+import dynamic from 'next/dynamic';
+import { hasSeenOnboarding } from '@/components/onboarding-modal';
+
+const CreatePostModal = dynamic(
+  () => import('@/components/create-post-modal').then((m) => m.CreatePostModal),
+  { ssr: false }
+);
+const OnboardingModal = dynamic(
+  () => import('@/components/onboarding-modal').then((m) => m.OnboardingModal),
+  { ssr: false }
+);
 import { SearchBar } from '@/components/search-bar';
 import { ErrorBoundary } from '@/components/error-boundary';
 

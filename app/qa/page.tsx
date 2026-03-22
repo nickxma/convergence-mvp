@@ -5,8 +5,16 @@ import { useAuth } from '@/lib/use-auth';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { QAInterface, type QAInterfaceActions } from '@/components/qa-interface';
 import { MeditateInterface } from '@/components/meditate-interface';
-import { ShortcutsModal } from '@/components/shortcuts-modal';
-import { CommandPalette } from '@/components/command-palette';
+import dynamic from 'next/dynamic';
+
+const ShortcutsModal = dynamic(
+  () => import('@/components/shortcuts-modal').then((m) => m.ShortcutsModal),
+  { ssr: false }
+);
+const CommandPalette = dynamic(
+  () => import('@/components/command-palette').then((m) => m.CommandPalette),
+  { ssr: false }
+);
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
 import { useTheme } from '@/lib/theme-context';
 import {
