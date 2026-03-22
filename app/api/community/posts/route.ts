@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase';
 import { verifyRequest } from '@/lib/privy-auth';
 import { isPassHolder } from '@/lib/token-gate';
 import { checkRateLimit, isDuplicateContent, buildRateLimitError } from '@/lib/rate-limit';
+import { getFeedCache, setFeedCache, invalidateFeedCache } from '@/lib/feed-cache';
 
 const PAGE_SIZE = 20;
 
@@ -19,6 +20,13 @@ function errorResponse(status: number, code: string, message: string): NextRespo
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const page = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10));
+
+  // Return cached response when available (30s TTL, shared via Redis)
+  const cached = await getFeedCache(page);
+  if (cached !== null) {
+    return NextResponse.json(cached, { headers: { 'X-Feed-Cache': 'HIT' } });
+  }
+
   const offset = (page - 1) * PAGE_SIZE;
 
   const { data, error, count } = await supabase
@@ -73,12 +81,17 @@ export async function GET(req: NextRequest) {
     myReactions: myReactionsMap.get(post.id) ?? [],
   }));
 
-  return NextResponse.json({
+  const responseBody = {
     posts: postsWithReactions,
     page,
     pageSize: PAGE_SIZE,
     total: count ?? 0,
-  });
+  };
+
+  // Cache for next 30s (non-blocking)
+  setFeedCache(page, responseBody).catch(() => {});
+
+  return NextResponse.json(responseBody, { headers: { 'X-Feed-Cache': 'MISS' } });
 }
 
 // ── POST /api/community/posts ──────────────────────────────────────────────
@@ -148,6 +161,9 @@ export async function POST(req: NextRequest) {
     console.error('[community/posts POST] insert error:', error.message);
     return errorResponse(502, 'DB_ERROR', 'Failed to create post.');
   }
+
+  // Invalidate feed cache so new post appears immediately
+  invalidateFeedCache().catch(() => {});
 
   return NextResponse.json({ post: data }, { status: 201 });
 }
