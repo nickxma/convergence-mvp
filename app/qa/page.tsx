@@ -25,6 +25,7 @@ import {
   newConversationId,
 } from '@/lib/conversations';
 import { countBookmarks } from '@/lib/bookmarks';
+import { WalletBalanceDropdown } from '@/components/wallet-balance-dropdown';
 
 type Mode = 'ask' | 'meditate';
 
@@ -400,9 +401,16 @@ function HomeInner() {
         <div className="flex items-center gap-2 sm:gap-3 ml-4">
           {authenticated ? (
             <>
-              <span className="hidden sm:block text-xs truncate max-w-[180px]" style={{ color: 'var(--text-muted)' }}>
-                {user?.email?.address}
-              </span>
+              {user?.wallet?.address ? (
+                <WalletBalanceDropdown
+                  walletAddress={user.wallet.address}
+                  getAccessToken={getAccessToken}
+                />
+              ) : (
+                <span className="hidden sm:block text-xs truncate max-w-[180px]" style={{ color: 'var(--text-muted)' }}>
+                  {user?.email?.address}
+                </span>
+              )}
               <ThemeToggle />
               <a
                 href="/bookmarks"
@@ -432,6 +440,16 @@ function HomeInner() {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" />
                 </svg>
                 Leaderboard
+              </a>
+              <a
+                href="/explore"
+                className="hidden sm:flex items-center gap-1 text-xs px-3 py-1.5 rounded-full border transition-colors flex-shrink-0"
+                style={{ borderColor: 'var(--border)', color: 'var(--sage)' }}
+              >
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 0 0-1.883 2.542l.857 6a2.25 2.25 0 0 0 2.227 1.932H19.05a2.25 2.25 0 0 0 2.227-1.932l.857-6a2.25 2.25 0 0 0-1.883-2.542m-16.5 0V6A2.25 2.25 0 0 1 6 3.75h3.879a1.5 1.5 0 0 1 1.06.44l2.122 2.12a1.5 1.5 0 0 0 1.06.44H18A2.25 2.25 0 0 1 20.25 9v.776" />
+                </svg>
+                Explore
               </a>
               <a
                 href="/topics"
