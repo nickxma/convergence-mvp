@@ -849,6 +849,8 @@ interface QAInterfaceProps {
   actionsRef?: MutableRefObject<QAInterfaceActions | null>;
 }
 
+const TEACHER_STORAGE_KEY = 'wu_teacher_filter';
+
 export function QAInterface({ initialConversation, onConversationUpdate, onNewChat, initialQuestion, actionsRef }: QAInterfaceProps) {
   const { user, login, getAccessToken } = useAuth();
   const walletAddress = user?.wallet?.address ?? null;
@@ -860,6 +862,9 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
   const [messages, setMessages] = useState<Message[]>(initialConversation?.messages ?? []);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  // Teacher filter state — null means "All Teachers"
+  const [selectedTeacher, setSelectedTeacher] = useState<string | null>(null);
+  const [teachers, setTeachers] = useState<string[]>([]);
   const [conversationId, setConversationId] = useState<string>(
     initialConversation?.id ?? newConversationId()
   );
@@ -906,6 +911,17 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
   // Determine first-visit state from localStorage (client-only)
   useEffect(() => {
     setShowOnboardingPanel(!localStorage.getItem('wu_onboarding_seen'));
+    // Restore persisted teacher filter
+    const stored = localStorage.getItem(TEACHER_STORAGE_KEY);
+    if (stored) setSelectedTeacher(stored);
+  }, []);
+
+  // Fetch available teachers
+  useEffect(() => {
+    fetch('/api/teachers')
+      .then((r) => (r.ok ? r.json() : Promise.resolve({ teachers: [] })))
+      .then((data: { teachers: string[] }) => { if (data.teachers.length > 0) setTeachers(data.teachers); })
+      .catch(() => {});
   }, []);
 
   // Auto-dismiss celebration banner after 6 seconds
@@ -1104,6 +1120,7 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
           history,
           walletAddress,
           ...(serverConversationId ? { conversationId: serverConversationId } : {}),
+          ...(selectedTeacher ? { teacher: selectedTeacher } : {}),
         }),
       });
 
@@ -1832,6 +1849,47 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
             }}
           >
             You&apos;ve used all 20 questions for this hour. Resets at {formatResetTime(rateLimit.resetAt)}.
+          </div>
+        )}
+        {/* Teacher filter pill selector */}
+        {teachers.length > 0 && (
+          <div className="max-w-2xl mx-auto mb-3 flex flex-wrap items-center gap-1.5">
+            <span className="text-xs flex-shrink-0" style={{ color: 'var(--text-faint)' }}>
+              Teacher:
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedTeacher(null);
+                localStorage.removeItem(TEACHER_STORAGE_KEY);
+              }}
+              className="text-xs px-2.5 py-1 rounded-full transition-colors flex-shrink-0"
+              style={{
+                background: selectedTeacher === null ? 'var(--sage)' : 'var(--bg-chip)',
+                color: selectedTeacher === null ? '#fff' : 'var(--text-muted)',
+                border: '1px solid transparent',
+              }}
+            >
+              All
+            </button>
+            {teachers.map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => {
+                  setSelectedTeacher(t);
+                  localStorage.setItem(TEACHER_STORAGE_KEY, t);
+                }}
+                className="text-xs px-2.5 py-1 rounded-full transition-colors flex-shrink-0"
+                style={{
+                  background: selectedTeacher === t ? 'var(--sage)' : 'var(--bg-chip)',
+                  color: selectedTeacher === t ? '#fff' : 'var(--text-muted)',
+                  border: '1px solid transparent',
+                }}
+              >
+                {t}
+              </button>
+            ))}
           </div>
         )}
         <form onSubmit={handleSubmit} className="max-w-2xl mx-auto">

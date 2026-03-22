@@ -99,6 +99,9 @@ export async function POST(req: NextRequest) {
   const question: string = typeof body?.question === 'string' ? body.question.trim() : '';
   const history: HistoryMessage[] = Array.isArray(body?.history) ? (body.history as HistoryMessage[]) : [];
   const walletAddress: string | null = typeof body?.walletAddress === 'string' ? body.walletAddress : null;
+  // Teacher filter: restricts Pinecone retrieval to a single teacher's chunks.
+  // Bypass cache when active — different teachers yield different results for the same question.
+  const teacher: string | null = typeof body?.teacher === 'string' && body.teacher.trim() ? body.teacher.trim() : null;
 
   const rawConvId = body?.conversationId;
   const isExistingConversation = isValidConversationId(rawConvId);
@@ -216,8 +219,8 @@ export async function POST(req: NextRequest) {
   const semanticThreshold = parseFloat(process.env.SEMANTIC_CACHE_THRESHOLD ?? '0.92');
   // Cache key: SHA-256 of lowercased+trimmed question (independent of questionHash in analytics).
   const cacheKey = createHash('sha256').update(question.toLowerCase()).digest('hex');
-  // Pro users always get fresh answers (bypass semantic cache).
-  const noCacheParam = req.nextUrl.searchParams.get('noCache') === '1' || isProUser;
+  // Pro users and teacher-filtered queries always get fresh answers (bypass semantic cache).
+  const noCacheParam = req.nextUrl.searchParams.get('noCache') === '1' || isProUser || teacher !== null;
   // Only cache standalone (first-turn) questions. Follow-ups depend on conversation
   // context, so caching them would return mismatched answers.
   const isFollowUp = effectiveHistory.length > 0;
@@ -365,6 +368,8 @@ export async function POST(req: NextRequest) {
   type PineconeMatch = { id: string; score?: number; metadata?: Record<string, string> };
   let rawMatches: PineconeMatch[] = [];
   let summaryMatches: PineconeMatch[] = [];
+  // When a teacher filter is active, restrict retrieval to that teacher's chunks only.
+  const pineconeFilter = teacher ? { speaker: { $eq: teacher } } : undefined;
   try {
     const index = pc.Index(pineconeIndex);
     const [rawResults, summaryResults] = await Promise.all([
@@ -372,11 +377,13 @@ export async function POST(req: NextRequest) {
         vector: queryVector,
         topK: TOP_K,
         includeMetadata: true,
+        ...(pineconeFilter ? { filter: pineconeFilter } : {}),
       }),
       index.namespace(PINECONE_SUMMARY_NAMESPACE).query({
         vector: queryVector,
         topK: TOP_K,
         includeMetadata: true,
+        ...(pineconeFilter ? { filter: pineconeFilter } : {}),
       }).catch(() => ({ matches: [] })), // graceful fallback if namespace empty
     ]);
     rawMatches = (rawResults.matches ?? []) as PineconeMatch[];
@@ -541,8 +548,8 @@ export async function POST(req: NextRequest) {
       .insert({ question_hash: questionHash, pinecone_scores: pineconeScores, latency_ms: latencyMs, model_used: CHAT_MODEL, cache_hit: false, semantic_cache_hit: false })
       .then(({ error }) => { if (error) console.warn(`[/api/ask] analytics_write_error err=${error.message}`); });
 
-    // Cache write on miss (standalone questions only, fire-and-forget)
-    if (!isFollowUp) {
+    // Cache write on miss (standalone questions only, no teacher filter, fire-and-forget)
+    if (!isFollowUp && !teacher) {
       const pineconeTop1Score = chunks[0]?.score ?? null;
       supabase
         .from('qa_cache')
@@ -666,8 +673,8 @@ export async function POST(req: NextRequest) {
           .insert({ question_hash: questionHash, pinecone_scores: pineconeScores, latency_ms: latencyMs, model_used: CHAT_MODEL, cache_hit: false, semantic_cache_hit: false })
           .then(({ error }) => { if (error) console.warn(`[/api/ask] analytics_write_error err=${error.message}`); });
 
-        // Cache write on miss (standalone questions only, fire-and-forget)
-        if (!isFollowUp) {
+        // Cache write on miss (standalone questions only, no teacher filter, fire-and-forget)
+        if (!isFollowUp && !teacher) {
           const pineconeTop1Score = chunks[0]?.score ?? null;
           supabase
             .from('qa_cache')
