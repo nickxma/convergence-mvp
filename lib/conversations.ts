@@ -14,6 +14,8 @@ export interface Message {
   followUps?: string[];
   answerId?: string;
   error?: boolean;
+  /** Transient UI state: true while SSE stream is still in progress. Never persisted. */
+  streaming?: boolean;
 }
 
 export interface Conversation {

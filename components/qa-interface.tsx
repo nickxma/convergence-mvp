@@ -397,6 +397,7 @@ function FollowUpChips({
 /**
  * Wrapper for an assistant message bubble.
  * Coordinates citation clicks → source panel open + scroll-to-source.
+ * When `streaming` is true a blinking cursor is appended after the text.
  */
 function AssistantMessage({
   content,
@@ -406,6 +407,7 @@ function AssistantMessage({
   onFollowUp,
   answerId,
   question,
+  streaming,
 }: {
   content: string;
   sources?: Source[];
@@ -414,6 +416,7 @@ function AssistantMessage({
   onFollowUp?: (q: string) => void;
   answerId?: string;
   question?: string;
+  streaming?: boolean;
 }) {
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const sourceRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -436,12 +439,28 @@ function AssistantMessage({
           border: isError ? '1px solid #f5c6c0' : 'none',
         }}
       >
-        <FormattedAnswer
-          text={content}
-          onCitationClick={(sources?.length ?? 0) > 0 ? handleCitationClick : undefined}
-        />
+        {content ? (
+          <FormattedAnswer
+            text={content}
+            onCitationClick={(sources?.length ?? 0) > 0 ? handleCitationClick : undefined}
+          />
+        ) : null}
+        {streaming && (
+          <span
+            aria-label="Generating response"
+            style={{
+              display: 'inline-block',
+              width: '2px',
+              height: '1em',
+              background: '#7d8c6e',
+              marginLeft: content ? '1px' : 0,
+              verticalAlign: 'text-bottom',
+              animation: 'blink 1s step-end infinite',
+            }}
+          />
+        )}
       </div>
-      {!isError && (
+      {!isError && !streaming && (
         <div className="px-2">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <CopyButton text={content} />
@@ -590,39 +609,113 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
 
       if (!res.ok) {
         await res.json().catch(() => null);
-        const errorMessages: Message[] = [
-          ...newMessages,
-          { role: 'assistant', content: 'Something went wrong — try again.', error: true },
-        ];
-        setMessages(errorMessages);
+        setMessages([...newMessages, { role: 'assistant', content: 'Something went wrong — try again.', error: true }]);
         return;
       }
 
-      const data = await res.json();
-      // Store the server's UUID so subsequent turns update the same Supabase session
-      if (data.conversationId && !serverConversationId) {
-        setServerConversationId(data.conversationId);
+      const contentType = res.headers.get('content-type') ?? '';
+
+      if (contentType.includes('text/event-stream') && res.body) {
+        // ── Streaming SSE path ──────────────────────────────────────────
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let streamingStarted = false;
+        let accumulatedContent = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+
+          // Parse complete SSE events separated by double newline
+          const parts = buffer.split('\n\n');
+          buffer = parts.pop() ?? '';
+
+          for (const part of parts) {
+            const line = part.trim();
+            if (!line.startsWith('data: ')) continue;
+            let event: Record<string, unknown>;
+            try {
+              event = JSON.parse(line.slice(6)) as Record<string, unknown>;
+            } catch {
+              continue;
+            }
+
+            if (typeof event.delta === 'string') {
+              accumulatedContent += event.delta;
+              if (!streamingStarted) {
+                streamingStarted = true;
+                setLoading(false);
+                setMessages([...newMessages, { role: 'assistant', content: accumulatedContent, streaming: true }]);
+              } else {
+                setMessages((prev) => {
+                  const msgs = [...prev];
+                  const last = msgs[msgs.length - 1];
+                  if (last?.role === 'assistant' && last.streaming) {
+                    msgs[msgs.length - 1] = { ...last, content: accumulatedContent };
+                  }
+                  return msgs;
+                });
+              }
+            } else if (event.done === true) {
+              const convId = typeof event.conversationId === 'string' ? event.conversationId : null;
+              if (convId && !serverConversationId) setServerConversationId(convId);
+
+              const finalMessages: Message[] = [
+                ...newMessages,
+                {
+                  role: 'assistant',
+                  content: accumulatedContent,
+                  sources: Array.isArray(event.sources) ? (event.sources as Source[]) : [],
+                  followUps: Array.isArray(event.followUps) ? (event.followUps as string[]) : [],
+                  answerId: typeof event.answerId === 'string' ? event.answerId : undefined,
+                },
+              ];
+              setMessages(finalMessages);
+              persistConversation(finalMessages, conversationId);
+            } else if (typeof event.error === 'string') {
+              setMessages([...newMessages, { role: 'assistant', content: event.error, error: true }]);
+            }
+          }
+        }
+
+        // If stream ended with no done event (unexpected close), finalize with what we have
+        if (streamingStarted && accumulatedContent) {
+          setMessages((prev) => {
+            const msgs = [...prev];
+            const last = msgs[msgs.length - 1];
+            if (last?.role === 'assistant' && last.streaming) {
+              msgs[msgs.length - 1] = { ...last, streaming: undefined };
+              persistConversation(msgs, conversationId);
+            }
+            return msgs;
+          });
+        }
+      } else {
+        // ── Non-streaming JSON fallback ─────────────────────────────────
+        const data = await res.json();
+        if (data.conversationId && !serverConversationId) {
+          setServerConversationId(data.conversationId);
+        }
+        const finalMessages: Message[] = [
+          ...newMessages,
+          {
+            role: 'assistant',
+            content: data.answer ?? '',
+            sources: data.sources ?? [],
+            followUps: data.followUps ?? [],
+            answerId: data.answerId ?? undefined,
+          },
+        ];
+        setMessages(finalMessages);
+        persistConversation(finalMessages, conversationId);
       }
-      const finalMessages: Message[] = [
-        ...newMessages,
-        {
-          role: 'assistant',
-          content: data.answer ?? '',
-          sources: data.sources ?? [],
-          followUps: data.followUps ?? [],
-          answerId: data.answerId ?? undefined,
-        },
-      ];
-      setMessages(finalMessages);
-      persistConversation(finalMessages, conversationId);
     } catch {
       setMessages((prev) => [
         ...prev,
-        {
-          role: 'assistant',
-          content: 'Something went wrong — try again.',
-          error: true,
-        },
+        { role: 'assistant', content: 'Something went wrong — try again.', error: true },
       ]);
     } finally {
       setLoading(false);
@@ -746,11 +839,12 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
                   <AssistantMessage
                     content={msg.content}
                     sources={msg.sources}
-                    followUps={loading ? [] : msg.followUps}
+                    followUps={loading || msg.streaming ? [] : msg.followUps}
                     isError={msg.error}
                     onFollowUp={submit}
                     answerId={msg.answerId}
                     question={messages[i - 1]?.role === 'user' ? messages[i - 1].content : undefined}
+                    streaming={msg.streaming}
                   />
                 </div>
               )}
@@ -830,6 +924,10 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
         @keyframes shimmer {
           0%, 100% { opacity: 0.4; }
           50% { opacity: 1; }
+        }
+        @keyframes blink {
+          0%, 49% { opacity: 1; }
+          50%, 100% { opacity: 0; }
         }
       `}</style>
     </div>
