@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { Suspense, useState, useEffect, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { searchPosts, type SearchResult, truncateWallet } from '@/lib/community';
 
@@ -23,6 +23,27 @@ function highlightMatch(text: string, query: string): React.ReactNode {
 }
 
 export default function SearchPage() {
+  return (
+    <Suspense fallback={<SearchPageSkeleton />}>
+      <SearchPageInner />
+    </Suspense>
+  );
+}
+
+function SearchPageSkeleton() {
+  return (
+    <div className="flex flex-col min-h-full" style={{ background: '#faf8f3' }}>
+      <header className="flex items-center gap-3 px-5 py-3 border-b" style={{ borderColor: '#e0d8cc', background: '#faf8f3' }}>
+        <span className="text-sm font-semibold" style={{ color: '#3d4f38' }}>Search</span>
+      </header>
+      <main className="flex-1 max-w-2xl w-full mx-auto px-4 py-6">
+        <div className="h-10 rounded-xl mb-6 animate-pulse" style={{ background: '#e8e0d5' }} />
+      </main>
+    </div>
+  );
+}
+
+function SearchPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const initialQ = searchParams.get('q') ?? '';
