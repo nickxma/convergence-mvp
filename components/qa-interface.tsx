@@ -104,9 +104,10 @@ function ResponseSkeleton() {
 interface QAInterfaceProps {
   initialConversation?: Conversation | null;
   onConversationUpdate?: (conversation: Conversation) => void;
+  onNewChat?: () => void;
 }
 
-export function QAInterface({ initialConversation, onConversationUpdate }: QAInterfaceProps) {
+export function QAInterface({ initialConversation, onConversationUpdate, onNewChat }: QAInterfaceProps) {
   const { user } = usePrivy();
   const walletAddress = user?.wallet?.address ?? null;
   const userId = user?.id ?? null;
@@ -118,6 +119,8 @@ export function QAInterface({ initialConversation, onConversationUpdate }: QAInt
   const [conversationId, setConversationId] = useState<string>(
     initialConversation?.id ?? newConversationId()
   );
+  // Server-generated UUID for Supabase session continuity across turns
+  const [serverConversationId, setServerConversationId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -130,6 +133,7 @@ export function QAInterface({ initialConversation, onConversationUpdate }: QAInt
       setMessages([]);
       setConversationId(newConversationId());
     }
+    setServerConversationId(null);
   }, [initialConversation?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -173,7 +177,12 @@ export function QAInterface({ initialConversation, onConversationUpdate }: QAInt
       const res = await fetch('/api/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question, history, walletAddress }),
+        body: JSON.stringify({
+          question,
+          history,
+          walletAddress,
+          ...(serverConversationId ? { conversationId: serverConversationId } : {}),
+        }),
       });
 
       if (!res.ok) {
@@ -187,6 +196,10 @@ export function QAInterface({ initialConversation, onConversationUpdate }: QAInt
       }
 
       const data = await res.json();
+      // Store the server's UUID so subsequent turns update the same Supabase session
+      if (data.conversationId && !serverConversationId) {
+        setServerConversationId(data.conversationId);
+      }
       const finalMessages: Message[] = [
         ...newMessages,
         {
@@ -223,10 +236,38 @@ export function QAInterface({ initialConversation, onConversationUpdate }: QAInt
     submit();
   }
 
+  function handleClear() {
+    setMessages([]);
+    setConversationId(newConversationId());
+    setServerConversationId(null);
+    setInput('');
+    onNewChat?.();
+  }
+
   const isEmpty = messages.length === 0 && !loading;
 
   return (
     <div className="flex flex-col h-full" style={{ background: '#faf8f3' }}>
+      {/* Thread header — only visible when conversation has content */}
+      {!isEmpty && (
+        <div
+          className="flex items-center justify-end px-4 py-2 border-b flex-shrink-0"
+          style={{ borderColor: '#e0d8cc', background: '#faf8f3' }}
+        >
+          <button
+            onClick={handleClear}
+            disabled={loading}
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border transition-colors disabled:opacity-40"
+            style={{ borderColor: '#e0d8cc', color: '#9c9080' }}
+            aria-label="Clear conversation"
+          >
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+            </svg>
+            New conversation
+          </button>
+        </div>
+      )}
       {/* Conversation thread */}
       <div className="flex-1 overflow-y-auto px-4 py-6">
         <div className="max-w-2xl mx-auto space-y-6">

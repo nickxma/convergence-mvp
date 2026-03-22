@@ -328,6 +328,7 @@ export default function Home() {
             <QAInterface
               initialConversation={activeConversation}
               onConversationUpdate={handleConversationUpdate}
+              onNewChat={handleNewChat}
             />
           ) : (
             <MeditateInterface />

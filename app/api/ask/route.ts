@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI, {
   APIConnectionTimeoutError,
@@ -51,6 +51,7 @@ function errorResponse(
 }
 
 export async function POST(req: NextRequest) {
+  const requestStart = Date.now();
   const ip = getClientIp(req);
   const authenticated = isAuthenticated(req);
   const rateLimit = authenticated ? 60 : 10;
@@ -205,6 +206,25 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     return handleOpenAIError(err, 'chat', logCtx);
   }
+
+  // ── Persist analytics (best-effort, non-blocking) ─────────────────────────
+  const latencyMs = Date.now() - requestStart;
+  const questionHash = createHash('sha256').update(question).digest('hex');
+  const pineconeScores = chunks.slice(0, 3).map((c) => c.score);
+
+  supabase
+    .from('qa_analytics')
+    .insert({
+      question_hash: questionHash,
+      pinecone_scores: pineconeScores,
+      latency_ms: latencyMs,
+      model_used: CHAT_MODEL,
+    })
+    .then(({ error }) => {
+      if (error) {
+        console.warn(`[/api/ask] analytics_write_error err=${error.message}`);
+      }
+    });
 
   // ── Persist conversation session to Supabase (best-effort, non-blocking) ──
   const updatedHistory = appendTurn(effectiveHistory, question, answer);
