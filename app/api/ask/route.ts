@@ -8,7 +8,8 @@ import OpenAI, {
   InternalServerError as OpenAIServerError,
 } from 'openai';
 import { Pinecone } from '@pinecone-database/pinecone';
-import { checkRateLimit } from '@/lib/rate-limit';
+import { checkRateLimitWithFallback } from '@/lib/rate-limit';
+import { verifyRequest } from '@/lib/privy-auth';
 import { supabase } from '@/lib/supabase';
 import { isValidConversationId, buildQueryText, appendTurn } from '@/lib/conversation-session';
 import type { HistoryMessage } from '@/lib/conversation-session';
@@ -34,12 +35,6 @@ function getClientIp(req: NextRequest): string {
   return req.headers.get('x-real-ip') ?? 'unknown';
 }
 
-/** True when the request carries a Bearer auth token (Privy JWT). */
-function isAuthenticated(req: NextRequest): boolean {
-  const auth = req.headers.get('authorization') ?? '';
-  return auth.toLowerCase().startsWith('bearer ');
-}
-
 /** Structured error response helper. */
 function errorResponse(
   status: number,
@@ -50,21 +45,25 @@ function errorResponse(
   return NextResponse.json({ error: { code, message } }, { status, headers });
 }
 
+const RATE_LIMIT_PER_USER = 20; // requests per hour
+
 export async function POST(req: NextRequest) {
   const requestStart = Date.now();
   const ip = getClientIp(req);
-  const authenticated = isAuthenticated(req);
-  const rateLimit = authenticated ? 60 : 10;
-  const rateLimitLabel = authenticated ? 'auth' : 'anon';
 
-  // ── Rate limiting ──────────────────────────────────────────────────────────
-  const rl = checkRateLimit(`ask:${rateLimitLabel}:${ip}`, rateLimit);
+  // ── Identify caller and rate limit ────────────────────────────────────────
+  // Verify Privy JWT to get a stable per-user key; fall back to IP for anon.
+  const authResult = await verifyRequest(req);
+  const userId = authResult?.userId ?? null;
+  const rateLimitKey = userId ? `ask:user:${userId}` : `ask:anon:${ip}`;
+
+  const rl = await checkRateLimitWithFallback(rateLimitKey, RATE_LIMIT_PER_USER);
   if (!rl.allowed) {
     const retryAfterSec = Math.ceil((rl.resetAt - Date.now()) / 1000);
-    console.warn(`[/api/ask] rate_limit ip=${ip} auth=${authenticated}`);
+    console.warn(`[/api/ask] rate_limit ip=${ip} userId=${userId ?? 'anon'} store=${rl.store}`);
     return errorResponse(429, 'RATE_LIMIT_EXCEEDED', 'Too many requests — please wait before trying again.', {
       'Retry-After': String(retryAfterSec),
-      'X-RateLimit-Limit': String(rateLimit),
+      'X-RateLimit-Limit': String(RATE_LIMIT_PER_USER),
       'X-RateLimit-Remaining': '0',
       'X-RateLimit-Reset': String(Math.ceil(rl.resetAt / 1000)),
     });
@@ -104,7 +103,7 @@ export async function POST(req: NextRequest) {
   const oai = new OpenAI({ apiKey: openaiKey });
   const pc = new Pinecone({ apiKey: pineconeKey });
 
-  const logCtx = `ip=${ip} auth=${authenticated} wallet=${walletAddress ?? 'none'} conv=${conversationId} q="${question.slice(0, 80)}"`;
+  const logCtx = `ip=${ip} userId=${userId ?? 'anon'} wallet=${walletAddress ?? 'none'} conv=${conversationId} q="${question.slice(0, 80)}"`;
 
   // ── Load server-side history if conversationId provided but client sent no history ──
   let effectiveHistory = history;
@@ -278,6 +277,10 @@ export async function POST(req: NextRequest) {
       source: c.source,
       score: Math.round(c.score * 100) / 100,
     })),
+    rateLimit: {
+      remaining: rl.remaining,
+      resetAt: new Date(rl.resetAt).toISOString(),
+    },
   });
 }
 

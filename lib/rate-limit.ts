@@ -1,9 +1,8 @@
 /**
- * In-memory sliding window rate limiter + duplicate content detector.
+ * Sliding window rate limiter + duplicate content detector.
  *
- * NOTE: This works within a single Node.js process instance. On Vercel serverless
- * functions, state is not shared across concurrent invocations. For production
- * multi-instance rate limiting, replace the store with Upstash Redis or similar.
+ * Primary store: Upstash Redis (when UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN are set).
+ * Fallback store: in-memory (single Node.js process — not shared across Vercel invocations).
  */
 import crypto from 'node:crypto';
 
@@ -38,6 +37,69 @@ export interface RateLimitError {
   status: 429;
   retryAfterSec: number;
   error: { code: 'RATE_LIMIT_EXCEEDED'; message: string };
+}
+
+export interface RateLimitResultExtended extends RateLimitResult {
+  store: 'redis' | 'memory';
+}
+
+async function tryRedisRateLimit(
+  key: string,
+  limit: number,
+  windowMs: number,
+): Promise<RateLimitResultExtended | null> {
+  const restUrl = process.env.UPSTASH_REDIS_REST_URL;
+  const restToken = process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!restUrl || !restToken) return null;
+
+  const windowSec = Math.ceil(windowMs / 1000);
+  const redisKey = `rl:${key}`;
+
+  try {
+    // Pipeline: INCR + EXPIRE NX (set TTL only if none exists — requires Redis 7+)
+    const pipeRes = await fetch(`${restUrl}/pipeline`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${restToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify([
+        ['INCR', redisKey],
+        ['EXPIRE', redisKey, windowSec, 'NX'],
+      ]),
+    });
+
+    if (!pipeRes.ok) {
+      console.warn(`[rate-limit] redis_error status=${pipeRes.status}`);
+      return null;
+    }
+
+    const results = (await pipeRes.json()) as Array<{ result: number }>;
+    const count = results[0]?.result ?? limit + 1;
+    const resetAt = Date.now() + windowMs;
+
+    if (count > limit) {
+      return { allowed: false, remaining: 0, resetAt, store: 'redis' };
+    }
+    return { allowed: true, remaining: limit - count, resetAt, store: 'redis' };
+  } catch (err) {
+    console.warn(`[rate-limit] redis_fallback err=${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
+}
+
+/**
+ * Rate limit check that prefers Upstash Redis when configured,
+ * falling back to in-memory on errors or when Redis env vars are absent.
+ */
+export async function checkRateLimitWithFallback(
+  key: string,
+  limit: number,
+  windowMs = HOUR_MS,
+): Promise<RateLimitResultExtended> {
+  const redisResult = await tryRedisRateLimit(key, limit, windowMs);
+  if (redisResult !== null) return redisResult;
+  return { ...checkRateLimit(key, limit, windowMs), store: 'memory' };
 }
 
 /**
