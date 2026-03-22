@@ -12,6 +12,10 @@ export interface QuestionHashRow {
   question_hash: string;
 }
 
+export interface TimestampRow {
+  created_at: string;
+}
+
 /** Average latency across all rows. Returns null for empty input. */
 export function calcAvgLatency(rows: AnalyticsRow[]): number | null {
   if (rows.length === 0) return null;
@@ -40,4 +44,52 @@ export function topQuestionsByFrequency(
     .sort((a, b) => b[1] - a[1])
     .slice(0, limit)
     .map(([hash, count]) => ({ hash, count }));
+}
+
+/**
+ * Returns daily query counts for the last `days` days (default 7), inclusive of today.
+ * Days with no queries get count: 0. Dates are YYYY-MM-DD UTC.
+ */
+export function calcDailyCounts(
+  rows: TimestampRow[],
+  days = 7,
+): Array<{ date: string; count: number }> {
+  const now = new Date();
+  const result: Array<{ date: string; count: number }> = [];
+
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(now);
+    d.setUTCDate(d.getUTCDate() - i);
+    result.push({ date: d.toISOString().slice(0, 10), count: 0 });
+  }
+
+  for (const row of rows) {
+    const date = new Date(row.created_at).toISOString().slice(0, 10);
+    const bucket = result.find((r) => r.date === date);
+    if (bucket) bucket.count++;
+  }
+
+  return result;
+}
+
+/**
+ * Buckets top-1 Pinecone scores into 10 bands: 0.0–0.1, 0.1–0.2, …, 0.9–1.0.
+ * Rows with empty pinecone_scores are skipped.
+ */
+export function calcScoreDistribution(
+  rows: AnalyticsRow[],
+): Array<{ bucket: string; count: number }> {
+  const buckets = Array.from({ length: 10 }, (_, i) => ({
+    bucket: `${(i / 10).toFixed(1)}–${((i + 1) / 10).toFixed(1)}`,
+    count: 0,
+  }));
+
+  for (const row of rows) {
+    if (!Array.isArray(row.pinecone_scores) || row.pinecone_scores.length === 0) continue;
+    const score = row.pinecone_scores[0];
+    const idx = Math.min(Math.floor(score * 10), 9);
+    buckets[idx].count++;
+  }
+
+  return buckets;
 }

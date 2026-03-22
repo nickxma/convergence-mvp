@@ -2,7 +2,13 @@
  * Unit tests for Q&A analytics aggregation helpers.
  */
 import { describe, it, expect } from 'vitest';
-import { calcAvgLatency, calcAvgTopScore, topQuestionsByFrequency } from '../lib/qa-analytics';
+import {
+  calcAvgLatency,
+  calcAvgTopScore,
+  calcDailyCounts,
+  calcScoreDistribution,
+  topQuestionsByFrequency,
+} from '../lib/qa-analytics';
 
 // ── calcAvgLatency ────────────────────────────────────────────────────────────
 
@@ -120,5 +126,96 @@ describe('topQuestionsByFrequency', () => {
   it('returns all when fewer than limit', () => {
     const rows = [{ question_hash: 'x' }, { question_hash: 'y' }];
     expect(topQuestionsByFrequency(rows, 20)).toHaveLength(2);
+  });
+});
+
+// ── calcDailyCounts ───────────────────────────────────────────────────────────
+
+describe('calcDailyCounts', () => {
+  it('returns 7 entries by default', () => {
+    const result = calcDailyCounts([]);
+    expect(result).toHaveLength(7);
+  });
+
+  it('returns all zeros for empty input', () => {
+    const result = calcDailyCounts([]);
+    expect(result.every((d) => d.count === 0)).toBe(true);
+  });
+
+  it('counts rows falling within their UTC date', () => {
+    const now = new Date();
+    const todayStr = now.toISOString().slice(0, 10);
+    const rows = [
+      { created_at: now.toISOString() },
+      { created_at: now.toISOString() },
+    ];
+    const result = calcDailyCounts(rows);
+    const today = result.find((d) => d.date === todayStr);
+    expect(today?.count).toBe(2);
+  });
+
+  it('ignores rows outside the window', () => {
+    const old = new Date();
+    old.setUTCDate(old.getUTCDate() - 30);
+    const result = calcDailyCounts([{ created_at: old.toISOString() }]);
+    expect(result.every((d) => d.count === 0)).toBe(true);
+  });
+
+  it('dates are in ascending order', () => {
+    const result = calcDailyCounts([]);
+    for (let i = 1; i < result.length; i++) {
+      expect(result[i].date > result[i - 1].date).toBe(true);
+    }
+  });
+
+  it('respects a custom days parameter', () => {
+    const result = calcDailyCounts([], 3);
+    expect(result).toHaveLength(3);
+  });
+});
+
+// ── calcScoreDistribution ─────────────────────────────────────────────────────
+
+describe('calcScoreDistribution', () => {
+  it('returns 10 buckets', () => {
+    expect(calcScoreDistribution([])).toHaveLength(10);
+  });
+
+  it('returns all zeros for empty input', () => {
+    const result = calcScoreDistribution([]);
+    expect(result.every((b) => b.count === 0)).toBe(true);
+  });
+
+  it('skips rows with empty scores', () => {
+    const rows = [{ latency_ms: 100, pinecone_scores: [] }];
+    const result = calcScoreDistribution(rows);
+    expect(result.every((b) => b.count === 0)).toBe(true);
+  });
+
+  it('places score 0.85 in the 0.8–0.9 bucket', () => {
+    const rows = [{ latency_ms: 100, pinecone_scores: [0.85, 0.5] }];
+    const result = calcScoreDistribution(rows);
+    const bucket = result.find((b) => b.bucket === '0.8–0.9');
+    expect(bucket?.count).toBe(1);
+  });
+
+  it('clamps score of 1.0 to the last bucket', () => {
+    const rows = [{ latency_ms: 100, pinecone_scores: [1.0] }];
+    const result = calcScoreDistribution(rows);
+    const last = result[result.length - 1];
+    expect(last.count).toBe(1);
+  });
+
+  it('uses only the top-1 score per row', () => {
+    const rows = [
+      { latency_ms: 100, pinecone_scores: [0.15, 0.55, 0.75] },
+    ];
+    const result = calcScoreDistribution(rows);
+    // score 0.15 → bucket index 1 ("0.1–0.2")
+    const bucket = result.find((b) => b.bucket === '0.1–0.2');
+    expect(bucket?.count).toBe(1);
+    // total across all buckets must be 1
+    const total = result.reduce((s, b) => s + b.count, 0);
+    expect(total).toBe(1);
   });
 });
