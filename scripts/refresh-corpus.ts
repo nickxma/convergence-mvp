@@ -30,7 +30,7 @@ import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
-import type { SegmentFile } from './semantic-segment';
+import type { SegmentFile, SessionType } from './semantic-segment';
 
 // ── Load .env.local ────────────────────────────────────────────────────────────
 
@@ -65,9 +65,15 @@ const TRANSCRIPT_DIR = join(
   'Library/Mobile Documents/com~apple~CloudDocs/Documents/Transcripts (via Waking Up)/Text files/*Everything',
 );
 
-const EMBED_MODEL = 'text-embedding-3-small';
+// Upgraded to text-embedding-3-large for better semantic quality.
+// Using dimensions=1536 to stay compatible with existing Pinecone index.
+// Run with --reindex to force full re-index after a model change.
+const EMBED_MODEL = 'text-embedding-3-large';
+const EMBED_DIMENSIONS = 1536;
 const PINECONE_NAMESPACE = 'waking-up';
+const PINECONE_SUMMARY_NAMESPACE = 'waking-up-summaries';
 const BATCH_SIZE = 100; // chunks per OpenAI embed call and Pinecone upsert
+const SUMMARY_BATCH_SIZE = 10; // chunks per GPT summary call
 
 // Semantic chunk sizing (token approximation: 1 token ≈ 4 characters)
 const MIN_CHUNK_CHARS = 400;  // ~100 tokens — merge smaller adjacent same-topic segments
@@ -91,6 +97,8 @@ interface Chunk {
   chunk_index: number;
   speaker?: string;
   topic?: string;
+  session_type?: SessionType;
+  concepts?: string[];
 }
 
 interface ManifestRow {
@@ -160,9 +168,12 @@ function loadSemanticChunks(filename: string, content: string): Chunk[] {
     if (
       pending.text.length < MIN_CHUNK_CHARS &&
       pending.speaker === seg.speaker &&
-      pending.topic === seg.topic
+      pending.topic === seg.topic &&
+      pending.session_type === seg.session_type
     ) {
-      pending = { ...pending, text: `${pending.text} ${seg.text}` };
+      // Merge concepts arrays (deduplicated)
+      const mergedConcepts: string[] = Array.from(new Set([...(pending.concepts ?? []), ...(seg.concepts ?? [])]));
+      pending = { ...pending, text: `${pending.text} ${seg.text}`, concepts: mergedConcepts };
     } else {
       merged.push(pending);
       pending = { ...seg };
@@ -184,6 +195,8 @@ function loadSemanticChunks(filename: string, content: string): Chunk[] {
         chunk_index: chunks.length,
         speaker: seg.speaker,
         topic: seg.topic,
+        session_type: seg.session_type,
+        concepts: seg.concepts,
       });
     } else {
       for (const part of splitAtSentences(seg.text, maxContent)) {
@@ -194,6 +207,8 @@ function loadSemanticChunks(filename: string, content: string): Chunk[] {
           chunk_index: chunks.length,
           speaker: seg.speaker,
           topic: seg.topic,
+          session_type: seg.session_type,
+          concepts: seg.concepts,
         });
       }
     }
@@ -273,13 +288,70 @@ function chunkText(text: string, sourceFile: string): Chunk[] {
 // ── Embed helper ──────────────────────────────────────────────────────────────
 
 async function embedTexts(oai: OpenAI, texts: string[]): Promise<number[][]> {
-  const resp = await oai.embeddings.create({ model: EMBED_MODEL, input: texts });
+  const resp = await oai.embeddings.create({ model: EMBED_MODEL, input: texts, dimensions: EMBED_DIMENSIONS });
   return resp.data.map((item) => item.embedding);
+}
+
+// ── Summary generation ────────────────────────────────────────────────────────
+
+const SUMMARY_SYSTEM_PROMPT = `You are a concise summarizer of mindfulness and meditation content.
+Given a numbered list of transcript excerpts, return a JSON object with a "summaries" array.
+Each summary is 1-2 sentences capturing the core teaching or insight of the corresponding excerpt.
+Match the index — summary[0] corresponds to excerpt [0], etc. Preserve the conceptual meaning but not the exact wording.`;
+
+async function generateSummaries(oai: OpenAI, chunks: Chunk[]): Promise<string[]> {
+  const summaries: string[] = new Array(chunks.length).fill('');
+
+  // Process in batches of SUMMARY_BATCH_SIZE
+  for (let i = 0; i < chunks.length; i += SUMMARY_BATCH_SIZE) {
+    const batch = chunks.slice(i, i + SUMMARY_BATCH_SIZE);
+    const numbered = batch.map((c, j) => `[${j}] ${c.text.slice(0, 800)}`).join('\n\n');
+
+    let attempt = 0;
+    while (attempt < 3) {
+      try {
+        const resp = await oai.chat.completions.create({
+          model: 'gpt-4o-mini',
+          response_format: { type: 'json_object' },
+          messages: [
+            { role: 'system', content: SUMMARY_SYSTEM_PROMPT },
+            { role: 'user', content: `Summarize these excerpts:\n\n${numbered}` },
+          ],
+          temperature: 0.1,
+        });
+        const raw = resp.choices[0]?.message?.content ?? '{}';
+        const parsed = JSON.parse(raw) as { summaries?: unknown };
+        const result = Array.isArray(parsed.summaries) ? parsed.summaries : [];
+        for (let j = 0; j < batch.length; j++) {
+          summaries[i + j] = String(result[j] ?? batch[j].text.slice(0, 200)).trim();
+        }
+        break;
+      } catch (err) {
+        attempt++;
+        if (attempt >= 3) {
+          // Fall back to first 200 chars of chunk text
+          for (let j = 0; j < batch.length; j++) {
+            summaries[i + j] = batch[j].text.slice(0, 200);
+          }
+        } else {
+          await new Promise((r) => setTimeout(r, 1000 * attempt));
+        }
+      }
+    }
+  }
+
+  return summaries;
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
+  // --reindex: clear the manifest and force full re-embed (use after model changes)
+  const forceReindex = process.argv.includes('--reindex');
+  if (forceReindex) {
+    console.log('⚠️  --reindex: manifest will be cleared, all files will be re-embedded.');
+  }
+
   const requiredEnv = [
     'PINECONE_API_KEY',
     'OPENAI_API_KEY',
@@ -315,20 +387,23 @@ async function main() {
   console.log(`Found ${txFiles.length} .txt files.`);
 
   // ── Load manifest ─────────────────────────────────────────────────────────
-  const { data: manifestRows, error: manifestErr } = await sb
-    .from('corpus_manifest')
-    .select('filename, file_hash');
-  if (manifestErr) {
-    console.error('ERROR: Failed to query corpus_manifest:', manifestErr.message);
-    process.exit(1);
+  let manifest = new Map<string, string>();
+  if (!forceReindex) {
+    const { data: manifestRows, error: manifestErr } = await sb
+      .from('corpus_manifest')
+      .select('filename, file_hash');
+    if (manifestErr) {
+      console.error('ERROR: Failed to query corpus_manifest:', manifestErr.message);
+      process.exit(1);
+    }
+    manifest = new Map<string, string>(
+      (manifestRows as Pick<ManifestRow, 'filename' | 'file_hash'>[]).map((r) => [
+        r.filename,
+        r.file_hash,
+      ]),
+    );
   }
-  const manifest = new Map<string, string>(
-    (manifestRows as Pick<ManifestRow, 'filename' | 'file_hash'>[]).map((r) => [
-      r.filename,
-      r.file_hash,
-    ]),
-  );
-  console.log(`Manifest: ${manifest.size} files already embedded.`);
+  console.log(forceReindex ? 'Manifest: skipped (--reindex)' : `Manifest: ${manifest.size} files already embedded.`);
 
   // ── Identify new/changed files ────────────────────────────────────────────
   const toProcess: { path: string; filename: string; hash: string; content: string }[] = [];
@@ -351,7 +426,9 @@ async function main() {
     console.log(`\n── Run Report ─────────────────────────────────────────`);
     console.log(`  New files found:  0`);
     console.log(`  Chunks added:     0`);
+    console.log(`  Embed model:      ${EMBED_MODEL} @ ${EMBED_DIMENSIONS}d`);
     console.log(`  Total corpus:     ${total.toLocaleString()} vectors (namespace: ${PINECONE_NAMESPACE})`);
+    console.log(`  Tip: run with --reindex to force full re-embed after model changes`);
     console.log(`───────────────────────────────────────────────────────\n`);
     return;
   }
@@ -359,41 +436,73 @@ async function main() {
   // ── Chunk, embed, upsert ──────────────────────────────────────────────────
   let totalChunksAdded = 0;
   const ns = index.namespace(PINECONE_NAMESPACE);
+  const nsSummary = index.namespace(PINECONE_SUMMARY_NAMESPACE);
 
   for (const file of toProcess) {
     console.log(`\nProcessing: ${file.filename}`);
     const chunks = loadSemanticChunks(file.filename, file.content);
     console.log(`  ${chunks.length} chunks`);
 
+    // Generate LLM summaries for dual embedding
+    console.log(`  Generating summaries...`);
+    const summaries = await generateSummaries(oai, chunks);
+
     let fileChunksUpserted = 0;
     let batchTexts: string[] = [];
+    let batchSummaryTexts: string[] = [];
     let batchChunks: Chunk[] = [];
 
     const flush = async () => {
       if (batchTexts.length === 0) return;
-      const embeddings = await embedTexts(oai, batchTexts);
-      const vectors = batchChunks.map((chunk, i) => ({
+
+      // Embed raw chunk text and summaries in parallel
+      const [rawEmbeddings, summaryEmbeddings] = await Promise.all([
+        embedTexts(oai, batchTexts),
+        embedTexts(oai, batchSummaryTexts),
+      ]);
+
+      const sharedMeta = (chunk: Chunk) => ({
+        text: chunk.text,
+        source_file: chunk.source_file,
+        chunk_index: chunk.chunk_index,
+        ...(chunk.speaker ? { speaker: chunk.speaker } : {}),
+        ...(chunk.topic ? { topic: chunk.topic } : {}),
+        ...(chunk.session_type ? { session_type: chunk.session_type } : {}),
+        ...(chunk.concepts?.length ? { concepts: chunk.concepts.join(',') } : {}),
+      });
+
+      // Upsert raw vectors to primary namespace
+      const rawVectors = batchChunks.map((chunk, i) => ({
         id: chunk.id,
-        values: embeddings[i],
+        values: rawEmbeddings[i],
+        metadata: sharedMeta(chunk),
+      }));
+      await ns.upsert({ records: rawVectors });
+
+      // Upsert summary vectors to summary namespace (same id prefix + "-sum")
+      const summaryVectors = batchChunks.map((chunk, i) => ({
+        id: `${chunk.id}-sum`,
+        values: summaryEmbeddings[i],
         metadata: {
-          text: chunk.text,
-          source_file: chunk.source_file,
-          chunk_index: chunk.chunk_index,
-          ...(chunk.speaker ? { speaker: chunk.speaker } : {}),
-          ...(chunk.topic ? { topic: chunk.topic } : {}),
+          ...sharedMeta(chunk),
+          chunk_ref: chunk.id, // pointer back to raw chunk
+          summary_text: batchSummaryTexts[i],
         },
       }));
-      await ns.upsert({ records: vectors });
-      fileChunksUpserted += vectors.length;
-      totalChunksAdded += vectors.length;
+      await nsSummary.upsert({ records: summaryVectors });
+
+      fileChunksUpserted += rawVectors.length;
+      totalChunksAdded += rawVectors.length;
       process.stdout.write(`  Upserted ${fileChunksUpserted}/${chunks.length}...\r`);
       batchTexts = [];
+      batchSummaryTexts = [];
       batchChunks = [];
     };
 
-    for (const chunk of chunks) {
-      batchTexts.push(chunk.text);
-      batchChunks.push(chunk);
+    for (let i = 0; i < chunks.length; i++) {
+      batchTexts.push(chunks[i].text);
+      batchSummaryTexts.push(summaries[i]);
+      batchChunks.push(chunks[i]);
       if (batchTexts.length >= BATCH_SIZE) {
         await flush();
       }
@@ -425,8 +534,11 @@ async function main() {
 
   console.log(`\n── Run Report ─────────────────────────────────────────`);
   console.log(`  New files found:  ${toProcess.length}`);
-  console.log(`  Chunks added:     ${totalChunksAdded.toLocaleString()}`);
+  console.log(`  Chunks added:     ${totalChunksAdded.toLocaleString()} (raw + summary dual embeddings)`);
+  console.log(`  Embed model:      ${EMBED_MODEL} @ ${EMBED_DIMENSIONS}d`);
+  console.log(`  Namespaces:       ${PINECONE_NAMESPACE} (raw), ${PINECONE_SUMMARY_NAMESPACE} (summaries)`);
   console.log(`  Total corpus:     ${total.toLocaleString()} vectors (namespace: ${PINECONE_NAMESPACE})`);
+  console.log(`  Tip: run with --reindex to force full re-embed after model changes`);
   console.log(`───────────────────────────────────────────────────────\n`);
 }
 

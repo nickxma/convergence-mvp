@@ -16,10 +16,14 @@ import { isValidConversationId, buildQueryText, appendTurn } from '@/lib/convers
 import type { HistoryMessage } from '@/lib/conversation-session';
 import { monitoredQuery } from '@/lib/db-monitor';
 import { logOpenAIUsage } from '@/lib/openai-usage';
+import { embedOne } from '@/lib/embeddings';
 
-const EMBED_MODEL = 'text-embedding-3-small';
+const EMBED_MODEL = 'text-embedding-3-large';
+const EMBED_DIMENSIONS = 1536;
 const CHAT_MODEL = 'gpt-4o-mini';
-const TOP_K = 10; // fetch extra to allow dedup headroom
+const PINECONE_NAMESPACE = 'waking-up';
+const PINECONE_SUMMARY_NAMESPACE = 'waking-up-summaries';
+const TOP_K = 8; // fetch per namespace; merged result has headroom for dedup
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
@@ -285,12 +289,7 @@ export async function POST(req: NextRequest) {
 
   let queryVector: number[];
   try {
-    const embedResp = await oai.embeddings.create({
-      model: EMBED_MODEL,
-      input: embedInput,
-    });
-    queryVector = embedResp.data[0].embedding;
-    logOpenAIUsage({ model: EMBED_MODEL, endpoint: 'embedding', promptTokens: embedResp.usage.total_tokens });
+    queryVector = await embedOne(embedInput, { model: EMBED_MODEL, dimensions: EMBED_DIMENSIONS, client: oai });
   } catch (err) {
     return handleOpenAIError(err, 'embeddings', logCtx);
   }
@@ -357,37 +356,60 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ── Retrieve from Pinecone ────────────────────────────────────────────────
-  let results: Awaited<ReturnType<ReturnType<typeof pc.Index>['query']>>;
+  // ── Retrieve from Pinecone (dual-namespace) ───────────────────────────────
+  // Query both raw and summary namespaces in parallel, then merge by chunk text.
+  // Summary vectors capture semantic meaning; raw vectors capture exact terminology.
+  type PineconeMatch = { id: string; score?: number; metadata?: Record<string, string> };
+  let rawMatches: PineconeMatch[] = [];
+  let summaryMatches: PineconeMatch[] = [];
   try {
     const index = pc.Index(pineconeIndex);
-    results = await index.query({
-      vector: queryVector,
-      topK: TOP_K,
-      includeMetadata: true,
-    });
+    const [rawResults, summaryResults] = await Promise.all([
+      index.namespace(PINECONE_NAMESPACE).query({
+        vector: queryVector,
+        topK: TOP_K,
+        includeMetadata: true,
+      }),
+      index.namespace(PINECONE_SUMMARY_NAMESPACE).query({
+        vector: queryVector,
+        topK: TOP_K,
+        includeMetadata: true,
+      }).catch(() => ({ matches: [] })), // graceful fallback if namespace empty
+    ]);
+    rawMatches = (rawResults.matches ?? []) as PineconeMatch[];
+    summaryMatches = (summaryResults.matches ?? []) as PineconeMatch[];
   } catch (err) {
     return handlePineconeError(err, logCtx);
   }
 
-  // ── Deduplicate and filter chunks ─────────────────────────────────────────
-  const seenTexts = new Set<string>();
-  const chunks = results.matches
-    .filter((m) => m.score && m.score > 0.4)
-    .map((m) => {
-      const meta = m.metadata as Record<string, string> | undefined;
-      return {
-        text: meta?.text ?? '',
-        speaker: meta?.speaker ?? '',
-        source: meta?.source_file ?? '',
-        score: m.score ?? 0,
-      };
-    })
-    .filter((c) => {
-      if (seenTexts.has(c.text)) return false;
-      seenTexts.add(c.text);
-      return true;
-    })
+  // ── Merge and deduplicate chunks ──────────────────────────────────────────
+  // Summary matches resolve to their raw chunk text; raw matches are used directly.
+  // Deduplicate by chunk text; take the higher score when both namespaces return the same chunk.
+  const chunkScores = new Map<string, { text: string; speaker: string; source: string; score: number }>();
+
+  for (const m of rawMatches) {
+    const meta = m.metadata ?? {};
+    const text = meta.text ?? '';
+    if (!text || (m.score ?? 0) < 0.4) continue;
+    const existing = chunkScores.get(text);
+    if (!existing || (m.score ?? 0) > existing.score) {
+      chunkScores.set(text, { text, speaker: meta.speaker ?? '', source: meta.source_file ?? '', score: m.score ?? 0 });
+    }
+  }
+
+  for (const m of summaryMatches) {
+    const meta = m.metadata ?? {};
+    // Summary records carry the full raw chunk text in their metadata
+    const text = meta.text ?? '';
+    if (!text || (m.score ?? 0) < 0.4) continue;
+    const existing = chunkScores.get(text);
+    if (!existing || (m.score ?? 0) > existing.score) {
+      chunkScores.set(text, { text, speaker: meta.speaker ?? '', source: meta.source_file ?? '', score: m.score ?? 0 });
+    }
+  }
+
+  const chunks = Array.from(chunkScores.values())
+    .sort((a, b) => b.score - a.score)
     .slice(0, 6);
 
   // ── Build context ─────────────────────────────────────────────────────────

@@ -69,10 +69,14 @@ const CONCURRENCY = 5;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+export type SessionType = 'lesson' | 'guided_meditation' | 'conversation' | 'qa' | 'theory_talk' | 'other';
+
 export interface Segment {
   text: string;
   topic: string;
   speaker: string;
+  session_type: SessionType;
+  concepts: string[];
 }
 
 export interface SegmentFile {
@@ -92,12 +96,15 @@ Return a JSON object with a "segments" array. Each segment object has:
 - "text": the verbatim text of this idea unit (preserve exact wording)
 - "topic": 2-5 word description of the main concept in this segment
 - "speaker": the teacher's first name (infer from context; use "Unknown" if unclear)
+- "session_type": one of "lesson", "guided_meditation", "conversation", "qa", "theory_talk", "other" — classify the style of this segment
+- "concepts": array of 3-5 short concept tags (e.g. ["non-self", "awareness", "suffering", "free will"])
 
 Rules:
 - Each segment = one complete thought, instruction, analogy, story, or concept
 - Aim for 2-8 sentences per segment
 - Do NOT skip, alter, or reorder any text — all content must appear in segments
-- Be consistent with speaker name across all segments from the same file`;
+- Be consistent with speaker name across all segments from the same file
+- Concept tags should be lowercase, 1-3 words, specific to contemplative/mindfulness domain`;
 
 async function segmentChunk(oai: OpenAI, text: string): Promise<Segment[]> {
   let attempt = 0;
@@ -121,12 +128,24 @@ async function segmentChunk(oai: OpenAI, text: string): Promise<Segment[]> {
         throw new Error('Empty or invalid segments array from API');
       }
 
+      const VALID_SESSION_TYPES = new Set<string>([
+        'lesson', 'guided_meditation', 'conversation', 'qa', 'theory_talk', 'other',
+      ]);
       return segments.map((seg: unknown) => {
         const s = seg as Record<string, unknown>;
+        const rawType = String(s.session_type ?? 'other').trim().toLowerCase();
+        const session_type = VALID_SESSION_TYPES.has(rawType) ? rawType as SessionType : 'other';
+        const rawConcepts = Array.isArray(s.concepts) ? s.concepts : [];
+        const concepts = rawConcepts
+          .map((c: unknown) => String(c).trim().toLowerCase())
+          .filter((c) => c.length > 0)
+          .slice(0, 5);
         return {
           text: String(s.text ?? '').trim(),
           topic: String(s.topic ?? 'general').trim(),
           speaker: String(s.speaker ?? 'Unknown').trim(),
+          session_type,
+          concepts,
         };
       }).filter((s) => s.text.length > 0);
     } catch (err) {
