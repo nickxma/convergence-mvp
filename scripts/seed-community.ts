@@ -226,9 +226,9 @@ The pointing-out instruction emphasis in some secular approaches feels closer to
     votes: 15,
     replies: [
       {
-        body: `Mostly (c). The core phenomenological pointing — look for the looker, find that awareness has no location, recognize that the sense of self is a construction — is substantially the same across Advaita, Dzogchen, and Sam's secular framing. The vocabulary differs but the finger is pointing at the same moon.
+        body: `Mostly (c). The core phenomenological pointing — look for the looker, find that awareness has no location, recognize that the sense of self is a construction — is substantially the same across Advaita, Dzogchen, and secular non-dual framing. The vocabulary differs but the finger is pointing at the same moon.
 
-Where I find genuine differences: the relationship to tradition, lineage, and ritual (Sam decouples completely); the handling of ethics (Sam treats it as largely separable from insight, which is contested in Buddhist traditions); and the role of the teacher-student relationship (Sam minimizes it, traditional systems foreground it).
+Where I find genuine differences: the relationship to tradition, lineage, and ritual (secular approaches decouple completely); the handling of ethics (some teachers treat it as largely separable from insight, which is contested in Buddhist traditions); and the role of the teacher-student relationship (secular frameworks minimize it, traditional systems foreground it).
 
 None of these are purely rhetorical. They reflect actual choices about what the practice is for and how it works.`,
         author_wallet: SEED_AUTHORS[0],
@@ -236,13 +236,13 @@ None of these are purely rhetorical. They reflect actual choices about what the 
       {
         body: `The Theravada tradition does de-emphasize the "direct recognition" approach and focuses more on gradual cultivation through stages (jhanas, the progress of insight). That's a real methodological difference, not just framing.
 
-Sam's approach is more aligned with non-dual traditions (Advaita, Dzogchen, Zen) that emphasize direct recognition of the nature of awareness as a starting point rather than an endpoint. This can produce faster results for some people and miss others entirely — it depends heavily on whether the pointing lands.
+The secular non-dual approach is more aligned with traditions like Advaita, Dzogchen, and Zen that emphasize direct recognition of the nature of awareness as a starting point rather than an endpoint. This can produce faster results for some people and miss others entirely — it depends heavily on whether the pointing lands.
 
 The secular framing removes a lot of cultural scaffolding that helps some practitioners and confuses others. That's also a substantive choice, not just packaging.`,
         author_wallet: SEED_AUTHORS[1],
       },
       {
-        body: `Worth noting: Sam's treatment of psychedelics as legitimate tools for insight and his openness about AI and consciousness are pretty unusual among mainstream meditation teachers. These feel like genuine differences in worldview, not just style.
+        body: `Worth noting: the treatment of psychedelics as legitimate tools for insight and openness about AI and consciousness are pretty unusual among mainstream meditation teachers. These feel like genuine differences in worldview, not just style.
 
 Also the emphasis on skeptical epistemology — being willing to apply the same standards of evidence to meditation claims as to anything else — is distinctive and not universally appreciated in traditional contexts.
 

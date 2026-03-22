@@ -153,7 +153,7 @@ export async function POST(req: NextRequest) {
         { role: 'system', content: MEDITATION_SYSTEM_PROMPT },
         {
           role: 'user',
-          content: `Corpus excerpts:\n\n${context}\n\nTopic: ${topic}`,
+          content: `Source excerpts:\n\n${context}\n\nTopic: ${topic}`,
         },
       ],
       temperature: 0.7,

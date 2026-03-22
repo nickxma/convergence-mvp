@@ -155,7 +155,7 @@ components:
           type: string
           minLength: 1
           maxLength: 5000
-          example: "Great question! In Sam's framework…"
+          example: "Great question! In the non-dual framework…"
         votes:
           type: integer
           example: 12
@@ -578,7 +578,7 @@ paths:
                   minLength: 1
                   maxLength: 5000
                   description: Reply text (markdown supported)
-                  example: "Great question! In Sam's framework this refers to…"
+                  example: "Great question! In the non-dual framework this refers to…"
       responses:
         "201":
           description: Reply created successfully

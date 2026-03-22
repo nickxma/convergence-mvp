@@ -1,6 +1,6 @@
 # Convergence MVP
 
-A crypto-native mindfulness knowledge platform. Ask questions sourced from the Waking Up corpus (~760 hours of transcripts). On-chain from day one.
+A crypto-native mindfulness knowledge platform. Ask questions sourced from 760+ hours of guided meditations, teachings, and conversations. On-chain from day one.
 
 ## Stack
 
