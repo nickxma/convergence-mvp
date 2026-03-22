@@ -27,7 +27,7 @@ function errorResponse(status: number, code: string, message: string): NextRespo
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
   if (!isAdminRequest(req)) {
-    return errorResponse(403, 'FORBIDDEN', 'Admin access required.');
+    return errorResponse(401, 'UNAUTHORIZED', 'Admin access required.');
   }
 
   const now = new Date();
