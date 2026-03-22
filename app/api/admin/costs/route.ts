@@ -9,7 +9,7 @@
  * Response:
  *   period        — requested period string
  *   totalUsd      — total cost across the period
- *   byModel       — cost grouped by model { model, totalUsd, promptTokens, completionTokens }[]
+ *   byModel       — cost grouped by model { model, totalUsd, promptTokens, completionTokens, cachedTokens, cacheHitRate }[]
  *   byDay         — daily cost breakdown [{ date: 'YYYY-MM-DD', totalUsd }]
  */
 import { NextRequest, NextResponse } from 'next/server';
@@ -37,7 +37,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
   const { data, error } = await supabase
     .from('openai_usage')
-    .select('model, endpoint, prompt_tokens, completion_tokens, estimated_cost_usd, created_at')
+    .select('model, endpoint, prompt_tokens, completion_tokens, cached_tokens, estimated_cost_usd, created_at')
     .gte('created_at', since.toISOString())
     .order('created_at', { ascending: true });
 
@@ -52,15 +52,20 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const totalUsd = rows.reduce((sum, r) => sum + Number(r.estimated_cost_usd ?? 0), 0);
 
   // Group by model
-  const modelMap = new Map<string, { totalUsd: number; promptTokens: number; completionTokens: number }>();
+  const modelMap = new Map<string, { totalUsd: number; promptTokens: number; completionTokens: number; cachedTokens: number }>();
   for (const r of rows) {
-    const entry = modelMap.get(r.model) ?? { totalUsd: 0, promptTokens: 0, completionTokens: 0 };
+    const entry = modelMap.get(r.model) ?? { totalUsd: 0, promptTokens: 0, completionTokens: 0, cachedTokens: 0 };
     entry.totalUsd += Number(r.estimated_cost_usd ?? 0);
     entry.promptTokens += r.prompt_tokens ?? 0;
     entry.completionTokens += r.completion_tokens ?? 0;
+    entry.cachedTokens += r.cached_tokens ?? 0;
     modelMap.set(r.model, entry);
   }
-  const byModel = Array.from(modelMap.entries()).map(([model, v]) => ({ model, ...v }));
+  const byModel = Array.from(modelMap.entries()).map(([model, v]) => ({
+    model,
+    ...v,
+    cacheHitRate: v.promptTokens > 0 ? Math.round((v.cachedTokens / v.promptTokens) * 10000) / 100 : 0,
+  }));
 
   // Group by day (UTC date string)
   const dayMap = new Map<string, number>();

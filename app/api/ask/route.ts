@@ -430,8 +430,8 @@ export async function POST(req: NextRequest) {
           max_tokens: 150,
         }),
       ]);
-      logOpenAIUsage({ model: CHAT_MODEL, endpoint: 'completion', promptTokens: chatResp.usage?.prompt_tokens ?? 0, completionTokens: chatResp.usage?.completion_tokens ?? 0 });
-      logOpenAIUsage({ model: CHAT_MODEL, endpoint: 'completion', promptTokens: followUpsResp.usage?.prompt_tokens ?? 0, completionTokens: followUpsResp.usage?.completion_tokens ?? 0 });
+      logOpenAIUsage({ model: CHAT_MODEL, endpoint: 'completion', promptTokens: chatResp.usage?.prompt_tokens ?? 0, completionTokens: chatResp.usage?.completion_tokens ?? 0, cachedTokens: chatResp.usage?.prompt_tokens_details?.cached_tokens ?? 0 });
+      logOpenAIUsage({ model: CHAT_MODEL, endpoint: 'completion', promptTokens: followUpsResp.usage?.prompt_tokens ?? 0, completionTokens: followUpsResp.usage?.completion_tokens ?? 0, cachedTokens: followUpsResp.usage?.prompt_tokens_details?.cached_tokens ?? 0 });
       answer = chatResp.choices[0]?.message?.content ?? '';
       try {
         const raw = followUpsResp.choices[0]?.message?.content ?? '[]';
@@ -518,7 +518,7 @@ export async function POST(req: NextRequest) {
   const followUpsPromise: Promise<string[]> = oai.chat.completions
     .create({ model: CHAT_MODEL, messages: followUpMessages, temperature: 0.7, max_tokens: 150 })
     .then((r) => {
-      logOpenAIUsage({ model: CHAT_MODEL, endpoint: 'completion', promptTokens: r.usage?.prompt_tokens ?? 0, completionTokens: r.usage?.completion_tokens ?? 0 });
+      logOpenAIUsage({ model: CHAT_MODEL, endpoint: 'completion', promptTokens: r.usage?.prompt_tokens ?? 0, completionTokens: r.usage?.completion_tokens ?? 0, cachedTokens: r.usage?.prompt_tokens_details?.cached_tokens ?? 0 });
       try {
         const raw = r.choices[0]?.message?.content ?? '[]';
         const parsed = JSON.parse(raw);
@@ -562,7 +562,7 @@ export async function POST(req: NextRequest) {
             controller.enqueue(sseEvent({ delta }));
           }
           if (chunk.usage) {
-            logOpenAIUsage({ model: CHAT_MODEL, endpoint: 'completion', promptTokens: chunk.usage.prompt_tokens, completionTokens: chunk.usage.completion_tokens });
+            logOpenAIUsage({ model: CHAT_MODEL, endpoint: 'completion', promptTokens: chunk.usage.prompt_tokens, completionTokens: chunk.usage.completion_tokens, cachedTokens: chunk.usage.prompt_tokens_details?.cached_tokens ?? 0 });
           }
         }
 

@@ -31,22 +31,25 @@ function calcCostUsd(
  * @param endpoint        'embedding' or 'completion'
  * @param promptTokens    Input/prompt token count (total_tokens for embeddings)
  * @param completionTokens Output token count (0 for embeddings)
+ * @param cachedTokens    Prompt tokens served from OpenAI's prompt cache (0 if no cache hit)
  */
 export function logOpenAIUsage({
   model,
   endpoint,
   promptTokens,
   completionTokens = 0,
+  cachedTokens = 0,
 }: {
   model: string;
   endpoint: OpenAIEndpoint;
   promptTokens: number;
   completionTokens?: number;
+  cachedTokens?: number;
 }): void {
   const estimatedCostUsd = calcCostUsd(model, endpoint, promptTokens, completionTokens);
   supabase
     .from('openai_usage')
-    .insert({ model, endpoint, prompt_tokens: promptTokens, completion_tokens: completionTokens, estimated_cost_usd: estimatedCostUsd })
+    .insert({ model, endpoint, prompt_tokens: promptTokens, completion_tokens: completionTokens, estimated_cost_usd: estimatedCostUsd, cached_tokens: cachedTokens })
     .then(({ error }) => {
       if (error) {
         console.warn(`[openai-usage] insert_error model=${model} endpoint=${endpoint} err=${error.message}`);
