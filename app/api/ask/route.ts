@@ -37,14 +37,27 @@ interface CacheChunk {
   score: number;
 }
 
-const SYSTEM_PROMPT = `You are a knowledgeable mindfulness guide with deep expertise in meditation, consciousness, non-dual awareness, and contemplative traditions.
+const SYSTEM_PROMPT_BASE = `You are a knowledgeable mindfulness guide with deep expertise in meditation, consciousness, non-dual awareness, and contemplative traditions.
 Answer any question with your full knowledge — mindfulness, psychology, neuroscience, philosophy of mind, contemplative practice. When transcript excerpts are provided, weave their insights naturally into your answer as enrichment.
 Rules:
-- Keep answers concise: 2-4 short paragraphs max. No walls of text.
 - Be warm, direct, and conversational — like a wise friend, not a textbook.
 - Never name specific teachers, authors, or brands. Refer to "teachers in this tradition" or "contemplative traditions" instead.
 - Never refuse to answer. If excerpts are sparse, rely on your own knowledge.
 - No numbered lists or academic structure unless the user asks for it.`;
+
+const SYSTEM_PROMPTS: Record<string, string> = {
+  detailed: `${SYSTEM_PROMPT_BASE}
+- Keep answers concise: 2-4 short paragraphs max. No walls of text.
+- Use inline citations like [1], [2] when weaving in specific passage insights.`,
+  brief: `${SYSTEM_PROMPT_BASE}
+- Keep answers very concise: 2-3 short paragraphs max.
+- Do not include inline citation markers — synthesize insights seamlessly without referencing specific sources.`,
+  citations_first: `${SYSTEM_PROMPT_BASE}
+- Structure your answer in two parts:
+  1. Key insights: 2-3 brief pull-quotes or paraphrases from the provided excerpts (one per line, introduced with a dash). Each should stand alone and be clearly attributed with its citation number e.g. [1].
+  2. Synthesis: 1-2 paragraphs weaving the insights together with your own knowledge.
+- If excerpts are sparse, skip Part 1 and answer directly.`,
+};
 
 /** Structured error response helper. */
 function errorResponse(
@@ -99,6 +112,10 @@ export async function POST(req: NextRequest) {
   const question: string = typeof body?.question === 'string' ? body.question.trim() : '';
   const history: HistoryMessage[] = Array.isArray(body?.history) ? (body.history as HistoryMessage[]) : [];
   const walletAddress: string | null = typeof body?.walletAddress === 'string' ? body.walletAddress : null;
+  // Answer style — controls which system prompt variant is used. Unauthenticated users always get 'detailed'.
+  const rawStyle = typeof body?.answerStyle === 'string' ? body.answerStyle : 'detailed';
+  const answerStyle: string = userId && rawStyle in SYSTEM_PROMPTS ? rawStyle : 'detailed';
+  const activeSystemPrompt = SYSTEM_PROMPTS[answerStyle] ?? SYSTEM_PROMPTS.detailed;
   // Teacher filter: restricts Pinecone retrieval to a single teacher's chunks.
   // Bypass cache when active — different teachers yield different results for the same question.
   const teacher: string | null = typeof body?.teacher === 'string' && body.teacher.trim() ? body.teacher.trim() : null;
@@ -243,7 +260,8 @@ export async function POST(req: NextRequest) {
   // Cache key: SHA-256 of lowercased+trimmed question (independent of questionHash in analytics).
   const cacheKey = createHash('sha256').update(question.toLowerCase()).digest('hex');
   // Pro users and teacher-filtered queries always get fresh answers (bypass semantic cache).
-  const noCacheParam = req.nextUrl.searchParams.get('noCache') === '1' || isProUser || teacher !== null;
+  // Bypass cache when answer style is non-default — cached answers were generated with the 'detailed' prompt.
+  const noCacheParam = req.nextUrl.searchParams.get('noCache') === '1' || isProUser || teacher !== null || answerStyle !== 'detailed';
   // Only cache standalone (first-turn) questions. Follow-ups depend on conversation
   // context, so caching them would return mismatched answers.
   const isFollowUp = effectiveHistory.length > 0;
@@ -534,7 +552,7 @@ export async function POST(req: NextRequest) {
         oai.chat.completions.create({
           model: CHAT_MODEL,
           messages: [
-            { role: 'system', content: SYSTEM_PROMPT },
+            { role: 'system', content: activeSystemPrompt },
             ...priorMessages,
             { role: 'user', content: userContent },
           ],
@@ -662,7 +680,7 @@ export async function POST(req: NextRequest) {
           {
             model: CHAT_MODEL,
             messages: [
-              { role: 'system', content: SYSTEM_PROMPT },
+              { role: 'system', content: activeSystemPrompt },
               ...priorMessages,
               { role: 'user', content: userContent },
             ],

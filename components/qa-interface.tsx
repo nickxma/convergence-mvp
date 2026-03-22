@@ -982,6 +982,41 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
   const [freeTierLimitReached, setFreeTierLimitReached] = useState(false);
   const [upgradeFeature, setUpgradeFeature] = useState<string | null>(null);
 
+  // Answer style preference — loaded from API for authenticated users, localStorage for others
+  type AnswerStyle = 'brief' | 'detailed' | 'citations_first';
+  const ANSWER_STYLE_KEY = 'wu_answer_style';
+  const [answerStyle, setAnswerStyleState] = useState<AnswerStyle>('detailed');
+
+  // Load answer style on mount/auth change
+  useEffect(() => {
+    if (userId) {
+      fetch('/api/user/preferences')
+        .then((r) => r.ok ? r.json() : null)
+        .then((data) => {
+          if (data?.answer_style) setAnswerStyleState(data.answer_style as AnswerStyle);
+        })
+        .catch(() => {});
+    } else {
+      const stored = localStorage.getItem(ANSWER_STYLE_KEY) as AnswerStyle | null;
+      if (stored && ['brief', 'detailed', 'citations_first'].includes(stored)) {
+        setAnswerStyleState(stored);
+      }
+    }
+  }, [userId]);
+
+  function setAnswerStyle(style: AnswerStyle) {
+    setAnswerStyleState(style);
+    if (userId) {
+      fetch('/api/user/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ answer_style: style }),
+      }).catch(() => {});
+    } else {
+      localStorage.setItem(ANSWER_STYLE_KEY, style);
+    }
+  }
+
   // Suggestion dropdown state
   interface Suggestion { question: string; count: number; }
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
@@ -1215,6 +1250,7 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
           walletAddress,
           ...(serverConversationId ? { conversationId: serverConversationId } : {}),
           ...(selectedTeacher ? { teacher: selectedTeacher } : {}),
+          ...(answerStyle !== 'detailed' ? { answerStyle } : {}),
         }),
       });
 
@@ -2029,6 +2065,30 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
               </div>
             </div>
           )}
+          {/* Answer style segmented control */}
+          <div className="flex items-center gap-1 mb-2 px-1">
+            <span className="text-xs mr-1" style={{ color: 'var(--text-faint)' }}>Style:</span>
+            {([
+              { value: 'brief', label: 'Brief' },
+              { value: 'detailed', label: 'Detailed' },
+              { value: 'citations_first', label: 'Sources first' },
+            ] as { value: AnswerStyle; label: string }[]).map(({ value, label }) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setAnswerStyle(value)}
+                className="text-xs px-2.5 py-1 rounded-full transition-colors"
+                style={
+                  answerStyle === value
+                    ? { background: 'var(--sage)', color: '#fff', border: '1px solid transparent' }
+                    : { background: 'transparent', color: 'var(--text-muted)', border: '1px solid var(--border-subtle)' }
+                }
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
           <div style={{ position: 'relative' }}>
             <div
               className="flex items-end gap-2 rounded-2xl px-4 py-3"
