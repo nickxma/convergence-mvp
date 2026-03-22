@@ -12,6 +12,7 @@ export interface Message {
   content: string;
   sources?: Source[];
   followUps?: string[];
+  answerId?: string;
   error?: boolean;
 }
 

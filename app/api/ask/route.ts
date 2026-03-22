@@ -248,6 +248,35 @@ export async function POST(req: NextRequest) {
       }
     });
 
+  // ── Persist shareable answer (best-effort, non-blocking) ──────────────────
+  const answerSources = chunks.slice(0, 3).map((c) => ({
+    text: c.text.slice(0, 200),
+    speaker: c.speaker,
+    source: c.source,
+    score: Math.round(c.score * 100) / 100,
+  }));
+  let answerId: string | null = null;
+  try {
+    const { data: answerRow, error: answerError } = await supabase
+      .from('qa_answers')
+      .insert({
+        question,
+        answer,
+        sources: answerSources,
+        conversation_id: conversationId,
+      })
+      .select('id')
+      .single();
+    if (answerError) {
+      console.warn(`[/api/ask] qa_answer_write_error err=${answerError.message}`);
+    } else {
+      answerId = answerRow?.id ?? null;
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[/api/ask] qa_answer_exception err=${msg}`);
+  }
+
   // ── Persist conversation session to Supabase (best-effort, non-blocking) ──
   const updatedHistory = appendTurn(effectiveHistory, question, answer);
 
@@ -269,6 +298,7 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     answer,
+    answerId,
     conversationId,
     followUps,
     sources: chunks.map((c) => ({

@@ -220,6 +220,74 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
+// ── Share link button ─────────────────────────────────────────────────────────
+
+function ShareLinkButton({ answerId }: { answerId: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopy() {
+    try {
+      const url = `${window.location.origin}/qa/${answerId}`;
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard API unavailable — silently skip
+    }
+  }
+
+  return (
+    <button
+      onClick={handleCopy}
+      title="Copy link to this answer"
+      className="flex items-center gap-1 text-xs transition-colors mt-2"
+      style={{ color: copied ? '#7d8c6e' : '#b0a898' }}
+    >
+      {copied ? (
+        <>
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+          </svg>
+          Link copied!
+        </>
+      ) : (
+        <>
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" />
+          </svg>
+          Copy link
+        </>
+      )}
+    </button>
+  );
+}
+
+// ── Twitter share button ──────────────────────────────────────────────────────
+
+function TwitterShareButton({ question, answer, answerId }: { question: string; answer: string; answerId: string }) {
+  function handleShare() {
+    const url = `${window.location.origin}/qa/${answerId}`;
+    const excerpt = answer.replace(/\n+/g, ' ').trim().slice(0, 100);
+    const text = `${question}\n\n"${excerpt}…"\n\n${url}`;
+    const intentUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`;
+    window.open(intentUrl, '_blank', 'noopener,noreferrer');
+  }
+
+  return (
+    <button
+      onClick={handleShare}
+      title="Share on Twitter / X"
+      className="flex items-center gap-1 text-xs transition-colors mt-2"
+      style={{ color: '#b0a898' }}
+    >
+      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+      </svg>
+      Share
+    </button>
+  );
+}
+
 // ── Follow-up chips ───────────────────────────────────────────────────────────
 
 function FollowUpChips({
@@ -256,12 +324,16 @@ function AssistantMessage({
   followUps,
   isError,
   onFollowUp,
+  answerId,
+  question,
 }: {
   content: string;
   sources?: Source[];
   followUps?: string[];
   isError?: boolean;
   onFollowUp?: (q: string) => void;
+  answerId?: string;
+  question?: string;
 }) {
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const sourceRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -291,7 +363,13 @@ function AssistantMessage({
       </div>
       {!isError && (
         <div className="px-2">
-          <CopyButton text={content} />
+          <div className="flex items-center gap-3">
+            <CopyButton text={content} />
+            {answerId && <ShareLinkButton answerId={answerId} />}
+            {answerId && question && (
+              <TwitterShareButton question={question} answer={content} answerId={answerId} />
+            )}
+          </div>
           {sources && sources.length > 0 && (
             <SourceList
               sources={sources}
@@ -451,6 +529,7 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
           content: data.answer ?? '',
           sources: data.sources ?? [],
           followUps: data.followUps ?? [],
+          answerId: data.answerId ?? undefined,
         },
       ];
       setMessages(finalMessages);
@@ -589,6 +668,8 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
                     followUps={loading ? [] : msg.followUps}
                     isError={msg.error}
                     onFollowUp={submit}
+                    answerId={msg.answerId}
+                    question={messages[i - 1]?.role === 'user' ? messages[i - 1].content : undefined}
                   />
                 </div>
               )}
