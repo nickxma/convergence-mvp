@@ -9,10 +9,12 @@ import { LandingPage } from '@/components/landing-page';
 import { useTheme } from '@/lib/theme-context';
 import {
   type Conversation,
+  type Message,
   loadConversations,
   deleteConversation,
   newConversationId,
 } from '@/lib/conversations';
+import { countBookmarks } from '@/lib/bookmarks';
 
 type Mode = 'ask' | 'meditate';
 
@@ -181,12 +183,22 @@ function HomeInner() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversation, setActiveConversation] = useState<Conversation | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [bookmarkCount, setBookmarkCount] = useState(0);
 
   // Load conversations when user is available
   useEffect(() => {
     if (userId) {
       setConversations(loadConversations(userId));
     }
+  }, [userId]);
+
+  // Keep bookmark badge in sync
+  useEffect(() => {
+    if (!userId) return;
+    setBookmarkCount(countBookmarks(userId));
+    const handler = () => setBookmarkCount(countBookmarks(userId));
+    window.addEventListener('bookmark-change', handler);
+    return () => window.removeEventListener('bookmark-change', handler);
   }, [userId]);
 
   const handleConversationUpdate = useCallback(
@@ -302,6 +314,25 @@ function HomeInner() {
             {user?.email?.address}
           </span>
           <ThemeToggle />
+          <a
+            href="/bookmarks"
+            className="hidden sm:flex items-center gap-1 text-xs px-3 py-1.5 rounded-full border transition-colors flex-shrink-0 relative"
+            style={{ borderColor: 'var(--border)', color: 'var(--sage)' }}
+            aria-label={`Bookmarks${bookmarkCount > 0 ? ` (${bookmarkCount})` : ''}`}
+          >
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" />
+            </svg>
+            Bookmarks
+            {bookmarkCount > 0 && (
+              <span
+                className="ml-1 text-xs font-medium px-1 rounded-full"
+                style={{ background: 'var(--sage)', color: '#fff', fontSize: '0.6rem', lineHeight: '1.4' }}
+              >
+                {bookmarkCount > 9 ? '9+' : bookmarkCount}
+              </span>
+            )}
+          </a>
           <a
             href="/leaderboard"
             className="hidden sm:flex items-center gap-1 text-xs px-3 py-1.5 rounded-full border transition-colors flex-shrink-0"

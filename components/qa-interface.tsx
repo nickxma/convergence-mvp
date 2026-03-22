@@ -5,10 +5,12 @@ import { usePrivy } from '@privy-io/react-auth';
 import {
   type Message,
   type Conversation,
+  loadConversations,
   saveConversation,
   newConversationId,
   titleFromQuestion,
 } from '@/lib/conversations';
+import { addBookmark, removeBookmark, isBookmarked } from '@/lib/bookmarks';
 
 export type { Message };
 
@@ -300,6 +302,70 @@ function FeedbackButtons({ answerId }: { answerId: string }) {
   );
 }
 
+
+// ── Bookmark button ───────────────────────────────────────────────────────────
+
+function BookmarkButton({
+  answerId,
+  question,
+  answer,
+}: {
+  answerId: string;
+  question: string;
+  answer: string;
+}) {
+  const { user } = usePrivy();
+  const userId = user?.id ?? null;
+  const [bookmarked, setBookmarked] = useState(() => {
+    if (!userId || typeof window === 'undefined') return false;
+    return isBookmarked(userId, answerId);
+  });
+
+  if (!userId) return null;
+
+  function toggle() {
+    if (!userId) return;
+    if (bookmarked) {
+      removeBookmark(userId, answerId);
+      setBookmarked(false);
+    } else {
+      addBookmark(userId, {
+        answerId,
+        question,
+        excerpt: answer.slice(0, 200),
+        createdAt: Date.now(),
+      });
+      setBookmarked(true);
+    }
+  }
+
+  return (
+    <button
+      onClick={toggle}
+      title={bookmarked ? 'Remove bookmark' : 'Bookmark answer'}
+      aria-label={bookmarked ? 'Remove bookmark' : 'Bookmark answer'}
+      aria-pressed={bookmarked}
+      className="flex items-center gap-1 text-xs transition-colors mt-2"
+      style={{ color: bookmarked ? 'var(--sage)' : 'var(--text-faint)' }}
+    >
+      <svg
+        className="w-3.5 h-3.5"
+        fill={bookmarked ? 'currentColor' : 'none'}
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        strokeWidth={2}
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z"
+        />
+      </svg>
+      {bookmarked ? 'Saved' : 'Save'}
+    </button>
+  );
+}
+
 // ── Share link button ─────────────────────────────────────────────────────────
 
 function ShareLinkButton({ answerId }: { answerId: string }) {
@@ -469,6 +535,9 @@ function AssistantMessage({
               <TwitterShareButton question={question} answer={content} answerId={answerId} />
             )}
             {answerId && <FeedbackButtons answerId={answerId} />}
+            {answerId && question && (
+              <BookmarkButton answerId={answerId} question={question} answer={content} />
+            )}
           </div>
           {sources && sources.length > 0 && (
             <SourceList
@@ -613,15 +682,17 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
   }, [input]);
 
-  function persistConversation(msgs: Message[], cid: string) {
+  function persistConversation(msgs: Message[], cid: string, serverConvId?: string | null) {
     if (!userId) return;
     const firstQuestion = msgs.find((m) => m.role === 'user')?.content ?? 'Untitled';
+    const existing = loadConversations(userId).find((c) => c.id === cid);
     const conversation: Conversation = {
       id: cid,
+      ...(serverConvId ? { serverConversationId: serverConvId } : (existing?.serverConversationId ? { serverConversationId: existing.serverConversationId } : {})),
       userId,
       title: titleFromQuestion(firstQuestion),
       messages: msgs,
-      createdAt: Date.now(),
+      createdAt: existing?.createdAt ?? Date.now(),
       updatedAt: Date.now(),
     };
     saveConversation(userId, conversation);
@@ -729,7 +800,7 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
                 },
               ];
               setMessages(finalMessages);
-              persistConversation(finalMessages, conversationId);
+              persistConversation(finalMessages, conversationId, convId ?? serverConversationId);
               if (event.rateLimit && typeof event.rateLimit === 'object') {
                 const rl = event.rateLimit as { remaining?: unknown; resetAt?: unknown };
                 if (typeof rl.remaining === 'number' && typeof rl.resetAt === 'string') {
@@ -754,7 +825,7 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
             const last = msgs[msgs.length - 1];
             if (last?.role === 'assistant' && last.streaming) {
               msgs[msgs.length - 1] = { ...last, streaming: undefined };
-              persistConversation(msgs, conversationId);
+              persistConversation(msgs, conversationId, serverConversationId);
             }
             return msgs;
           });
@@ -762,8 +833,9 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
       } else {
         // ── Non-streaming JSON fallback ─────────────────────────────────
         const data = await res.json();
-        if (data.conversationId && !serverConversationId) {
-          setServerConversationId(data.conversationId);
+        const newServerConvId = data.conversationId ?? null;
+        if (newServerConvId && !serverConversationId) {
+          setServerConversationId(newServerConvId);
         }
         const finalMessages: Message[] = [
           ...newMessages,
@@ -776,7 +848,7 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
           },
         ];
         setMessages(finalMessages);
-        persistConversation(finalMessages, conversationId);
+        persistConversation(finalMessages, conversationId, newServerConvId ?? serverConversationId);
         if (data.rateLimit && typeof data.rateLimit.remaining === 'number' && typeof data.rateLimit.resetAt === 'string') {
           setRateLimit({ remaining: data.rateLimit.remaining, resetAt: data.rateLimit.resetAt });
         }
