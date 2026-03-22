@@ -162,12 +162,13 @@ export default function AdminPage() {
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [lowQualityAnswers, setLowQualityAnswers] = useState<LowQualityAnswer[] | null>(null);
   const [markingForRefresh, setMarkingForRefresh] = useState<Set<string>>(new Set());
+  const [pendingSubmissions, setPendingSubmissions] = useState<number | null>(null);
 
   const fetchAnalytics = useCallback(async (wallet: string) => {
     setLoading(true);
     setError(null);
     try {
-      const [analyticsRes, lowQualityRes, costsRes] = await Promise.all([
+      const [analyticsRes, lowQualityRes, costsRes, submissionsRes] = await Promise.all([
         fetch('/api/admin/qa-analytics', {
           headers: { Authorization: `Bearer ${wallet}` },
           cache: 'no-store',
@@ -177,6 +178,10 @@ export default function AdminPage() {
           cache: 'no-store',
         }),
         fetch('/api/admin/costs?period=7d', {
+          headers: { Authorization: `Bearer ${wallet}` },
+          cache: 'no-store',
+        }),
+        fetch('/api/admin/submissions?status=pending&limit=1', {
           headers: { Authorization: `Bearer ${wallet}` },
           cache: 'no-store',
         }),
@@ -199,6 +204,10 @@ export default function AdminPage() {
       }
       if (costsRes.ok) {
         setCosts(await costsRes.json());
+      }
+      if (submissionsRes.ok) {
+        const subData = await submissionsRes.json();
+        setPendingSubmissions(subData.pendingCount ?? 0);
       }
       setLastRefresh(new Date());
     } catch {
@@ -286,6 +295,28 @@ export default function AdminPage() {
           <span className="text-sm font-semibold tracking-tight" style={{ color: '#3d4f38' }}>
             Admin Analytics
           </span>
+          <a
+            href="/admin/submissions"
+            className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full transition-colors"
+            style={{ background: '#f5f1e8', color: '#7d8c6e', border: '1px solid #e0d8cc' }}
+          >
+            Submissions
+            {pendingSubmissions != null && pendingSubmissions > 0 && (
+              <span
+                className="inline-flex items-center justify-center rounded-full text-xs font-semibold"
+                style={{ background: '#a07020', color: '#fff', minWidth: '16px', height: '16px', padding: '0 4px', fontSize: '0.6rem' }}
+              >
+                {pendingSubmissions}
+              </span>
+            )}
+          </a>
+          <a
+            href="/admin/corpus"
+            className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full transition-colors"
+            style={{ background: '#f5f1e8', color: '#7d8c6e', border: '1px solid #e0d8cc' }}
+          >
+            Corpus gaps
+          </a>
         </div>
         <div className="flex items-center gap-3">
           {lastRefresh && (
