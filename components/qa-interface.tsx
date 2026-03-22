@@ -765,6 +765,13 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
   const [guestQueriesRemaining, setGuestQueriesRemaining] = useState<number | null>(null);
   const [guestLimitReached, setGuestLimitReached] = useState(false);
 
+  // Suggestion dropdown state
+  interface Suggestion { question: string; count: number; }
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [suggestionIndex, setSuggestionIndex] = useState(-1);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const suggestDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Determine first-visit state from localStorage (client-only)
   useEffect(() => {
     setShowOnboardingPanel(!localStorage.getItem('wu_onboarding_seen'));
@@ -807,6 +814,8 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
       setServerConversationId(null);
     }
     setGuestLimitReached(false);
+    setSuggestions([]);
+    setShowSuggestions(false);
   }, [initialConversation?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Pre-fill input from leaderboard "Ask this" link (?q=...)
@@ -827,6 +836,29 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
     if (!el) return;
     el.style.height = 'auto';
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  }, [input]);
+
+  // Debounced suggestion fetch
+  useEffect(() => {
+    if (suggestDebounceRef.current) clearTimeout(suggestDebounceRef.current);
+    if (input.length < 3) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+    suggestDebounceRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/questions/suggest?q=${encodeURIComponent(input)}`);
+        if (!res.ok) return;
+        const json = await res.json();
+        setSuggestions(json.suggestions ?? []);
+        setShowSuggestions((json.suggestions ?? []).length > 0);
+        setSuggestionIndex(-1);
+      } catch {
+        // silently ignore network errors for suggestions
+      }
+    }, 300);
+    return () => { if (suggestDebounceRef.current) clearTimeout(suggestDebounceRef.current); };
   }, [input]);
 
   function persistConversation(msgs: Message[], cid: string, serverConvId?: string | null) {
@@ -1027,6 +1059,33 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (showSuggestions && suggestions.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSuggestionIndex((i) => Math.min(i + 1, suggestions.length - 1));
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSuggestionIndex((i) => Math.max(i - 1, -1));
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setShowSuggestions(false);
+        setSuggestionIndex(-1);
+        return;
+      }
+      if (e.key === 'Enter' && !e.shiftKey && suggestionIndex >= 0) {
+        e.preventDefault();
+        const selected = suggestions[suggestionIndex];
+        setInput(selected.question);
+        setShowSuggestions(false);
+        setSuggestionIndex(-1);
+        void submit(selected.question);
+        return;
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       void submit();
@@ -1035,6 +1094,7 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    setShowSuggestions(false);
     void submit();
   }
 
@@ -1302,43 +1362,88 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
           </div>
         )}
         <form onSubmit={handleSubmit} className="max-w-2xl mx-auto">
-          <div
-            className="flex items-end gap-2 rounded-2xl px-4 py-3"
-            style={{
-              background: 'var(--bg-input)',
-              border: '1px solid var(--border)',
-              boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
-            }}
-          >
-            <textarea
-              ref={textareaRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value.slice(0, MAX_CHARS))}
-              onKeyDown={handleKeyDown}
-              placeholder="Ask a question…"
-              rows={1}
-              disabled={loading || rateLimit?.remaining === 0}
-              maxLength={MAX_CHARS}
-              className="flex-1 resize-none bg-transparent text-sm leading-relaxed outline-none placeholder-zinc-400 disabled:opacity-50"
-              style={{ color: 'var(--text)', minHeight: '24px' }}
-            />
-            <button
-              type="submit"
-              title="Submit (Enter or Ctrl+Enter)"
-              disabled={!input.trim() || loading || rateLimit?.remaining === 0 || guestLimitReached}
-              className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-opacity disabled:opacity-30"
-              style={{ background: 'var(--sage)' }}
+          <div style={{ position: 'relative' }}>
+            <div
+              className="flex items-end gap-2 rounded-2xl px-4 py-3"
+              style={{
+                background: 'var(--bg-input)',
+                border: '1px solid var(--border)',
+                boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+              }}
             >
-              <svg
-                className="w-4 h-4 text-white"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
+              <textarea
+                ref={textareaRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value.slice(0, MAX_CHARS))}
+                onKeyDown={handleKeyDown}
+                onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+                onFocus={() => { if (suggestions.length > 0 && input.length >= 3) setShowSuggestions(true); }}
+                placeholder="Ask a question…"
+                rows={1}
+                disabled={loading || rateLimit?.remaining === 0}
+                maxLength={MAX_CHARS}
+                className="flex-1 resize-none bg-transparent text-sm leading-relaxed outline-none placeholder-zinc-400 disabled:opacity-50"
+                style={{ color: 'var(--text)', minHeight: '24px' }}
+              />
+              <button
+                type="submit"
+                title="Submit (Enter or Ctrl+Enter)"
+                disabled={!input.trim() || loading || rateLimit?.remaining === 0 || guestLimitReached}
+                className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-opacity disabled:opacity-30"
+                style={{ background: 'var(--sage)' }}
               >
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 10.5 12 3m0 0 7.5 7.5M12 3v18" />
-              </svg>
-            </button>
+                <svg
+                  className="w-4 h-4 text-white"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 10.5 12 3m0 0 7.5 7.5M12 3v18" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Suggestion dropdown */}
+            {showSuggestions && suggestions.length > 0 && (
+              <div
+                role="listbox"
+                aria-label="Popular questions"
+                className="absolute left-0 right-0 rounded-xl py-1 shadow-lg z-30"
+                style={{
+                  top: 'calc(100% + 4px)',
+                  background: 'var(--bg-surface)',
+                  border: '1px solid var(--border)',
+                }}
+              >
+                {suggestions.map((s, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    role="option"
+                    aria-selected={i === suggestionIndex}
+                    onMouseDown={(e) => {
+                      e.preventDefault(); // prevent blur from firing before click
+                      setInput(s.question);
+                      setShowSuggestions(false);
+                      setSuggestionIndex(-1);
+                      void submit(s.question);
+                    }}
+                    onMouseEnter={() => setSuggestionIndex(i)}
+                    className="w-full text-left px-4 py-2.5 text-sm flex items-center justify-between gap-3 transition-colors"
+                    style={{
+                      color: 'var(--text)',
+                      background: i === suggestionIndex ? 'var(--bg-chip)' : 'transparent',
+                    }}
+                  >
+                    <span className="truncate">{s.question}</span>
+                    <span className="flex-shrink-0 text-xs" style={{ color: 'var(--text-muted)' }}>
+                      asked {s.count}×
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           <div className="flex justify-between items-center mt-2 px-1">
             {rateLimit !== null && rateLimit.remaining <= 5 && rateLimit.remaining > 0 ? (
