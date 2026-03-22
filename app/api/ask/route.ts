@@ -210,7 +210,7 @@ export async function POST(req: NextRequest) {
         try {
           const { data: ar, error: ae } = await supabase
             .from('qa_answers')
-            .insert({ question, answer: cachedAnswer, sources: answerSources, conversation_id: conversationId })
+            .insert({ question, answer: cachedAnswer, sources: answerSources, conversation_id: conversationId, cache_hash: cacheKey })
             .select('id').single();
           if (ae) console.warn(`[/api/ask] qa_answer_write_error err=${ae.message}`);
           else answerId = ar?.id ?? null;
@@ -288,7 +288,7 @@ export async function POST(req: NextRequest) {
         try {
           const { data: ar, error: ae } = await supabase
             .from('qa_answers')
-            .insert({ question, answer: cachedAnswer, sources: answerSources, conversation_id: conversationId })
+            .insert({ question, answer: cachedAnswer, sources: answerSources, conversation_id: conversationId, cache_hash: cacheKey })
             .select('id').single();
           if (ae) console.warn(`[/api/ask] qa_answer_write_error err=${ae.message}`);
           else answerId = ar?.id ?? null;
@@ -442,9 +442,10 @@ export async function POST(req: NextRequest) {
 
     // Cache write on miss (standalone questions only, fire-and-forget)
     if (!isFollowUp) {
+      const pineconeTop1Score = chunks[0]?.score ?? null;
       supabase
         .from('qa_cache')
-        .insert({ hash: cacheKey, question, answer, follow_ups: followUps, chunks_json: chunks, question_embedding: queryVector })
+        .insert({ hash: cacheKey, question, answer, follow_ups: followUps, chunks_json: chunks, question_embedding: queryVector, pinecone_top1_score: pineconeTop1Score })
         .then(({ error }) => {
           if (error && error.code !== '23505') {
             console.warn(`[/api/ask] cache_write_error err=${error.message}`);
@@ -456,7 +457,7 @@ export async function POST(req: NextRequest) {
     try {
       const { data: answerRow, error: answerError } = await supabase
         .from('qa_answers')
-        .insert({ question, answer, sources: answerSources, conversation_id: conversationId })
+        .insert({ question, answer, sources: answerSources, conversation_id: conversationId, cache_hash: isFollowUp ? null : cacheKey })
         .select('id')
         .single();
       if (answerError) {
@@ -561,9 +562,10 @@ export async function POST(req: NextRequest) {
 
         // Cache write on miss (standalone questions only, fire-and-forget)
         if (!isFollowUp) {
+          const pineconeTop1Score = chunks[0]?.score ?? null;
           supabase
             .from('qa_cache')
-            .insert({ hash: cacheKey, question, answer: fullAnswer, follow_ups: followUps, chunks_json: chunks, question_embedding: queryVector })
+            .insert({ hash: cacheKey, question, answer: fullAnswer, follow_ups: followUps, chunks_json: chunks, question_embedding: queryVector, pinecone_top1_score: pineconeTop1Score })
             .then(({ error }) => {
               if (error && error.code !== '23505') {
                 console.warn(`[/api/ask] cache_write_error err=${error.message}`);
@@ -576,7 +578,7 @@ export async function POST(req: NextRequest) {
         try {
           const { data: answerRow, error: answerError } = await supabase
             .from('qa_answers')
-            .insert({ question, answer: fullAnswer, sources: answerSources, conversation_id: conversationId })
+            .insert({ question, answer: fullAnswer, sources: answerSources, conversation_id: conversationId, cache_hash: isFollowUp ? null : cacheKey })
             .select('id')
             .single();
           if (answerError) {
