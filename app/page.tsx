@@ -1,10 +1,13 @@
 'use client';
 
-import { useState, useEffect, useCallback, Suspense } from 'react';
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
-import { useSearchParams } from 'next/navigation';
-import { QAInterface } from '@/components/qa-interface';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { QAInterface, type QAInterfaceActions } from '@/components/qa-interface';
 import { MeditateInterface } from '@/components/meditate-interface';
+import { ShortcutsModal } from '@/components/shortcuts-modal';
+import { CommandPalette } from '@/components/command-palette';
+import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
 import { useTheme } from '@/lib/theme-context';
 import {
   type Conversation,
@@ -174,6 +177,7 @@ function ConversationSidebar({
 
 function HomeInner() {
   const { ready, authenticated, logout, login, user, getAccessToken } = usePrivy();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const initialQuestion = searchParams?.get('q') ?? undefined;
   const userId = user?.id ?? null;
@@ -183,6 +187,23 @@ function HomeInner() {
   const [activeConversation, setActiveConversation] = useState<Conversation | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [bookmarkCount, setBookmarkCount] = useState(0);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+
+  const qaActionsRef = useRef<QAInterfaceActions | null>(null);
+
+  useKeyboardShortcuts({
+    focusInput: () => qaActionsRef.current?.focusInput(),
+    newConversation: handleNewChat,
+    openBookmarks: () => router.push('/bookmarks'),
+    openShortcuts: () => setShortcutsOpen(true),
+    openCommandPalette: () => setCommandPaletteOpen(true),
+    closeAll: () => {
+      setShortcutsOpen(false);
+      setCommandPaletteOpen(false);
+      setSidebarOpen(false);
+    },
+  });
 
   // Load local conversations immediately, then merge with Supabase history for cross-device support
   useEffect(() => {
@@ -482,6 +503,7 @@ function HomeInner() {
               onConversationUpdate={handleConversationUpdate}
               onNewChat={handleNewChat}
               initialQuestion={initialQuestion}
+              actionsRef={qaActionsRef}
             />
           ) : (
             <MeditateInterface />
@@ -498,6 +520,16 @@ function HomeInner() {
           Convergence · Paradox of Acceptance
         </span>
       </footer>
+
+      {/* Keyboard shortcut overlays */}
+      {shortcutsOpen && <ShortcutsModal onClose={() => setShortcutsOpen(false)} />}
+      {commandPaletteOpen && (
+        <CommandPalette
+          onClose={() => setCommandPaletteOpen(false)}
+          onNewConversation={handleNewChat}
+          onFocusInput={() => qaActionsRef.current?.focusInput()}
+        />
+      )}
     </div>
   );
 }

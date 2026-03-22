@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback, type RefObject, FormEvent, KeyboardEvent } from 'react';
+import { useState, useRef, useEffect, useCallback, type RefObject, type MutableRefObject, FormEvent, KeyboardEvent } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
 import {
   type Message,
@@ -598,14 +598,20 @@ const STARTER_QUESTIONS = [
   'What does it mean to be fully present?',
 ] as const;
 
+export interface QAInterfaceActions {
+  focusInput: () => void;
+  clear: () => void;
+}
+
 interface QAInterfaceProps {
   initialConversation?: Conversation | null;
   onConversationUpdate?: (conversation: Conversation) => void;
   onNewChat?: () => void;
   initialQuestion?: string;
+  actionsRef?: MutableRefObject<QAInterfaceActions | null>;
 }
 
-export function QAInterface({ initialConversation, onConversationUpdate, onNewChat, initialQuestion }: QAInterfaceProps) {
+export function QAInterface({ initialConversation, onConversationUpdate, onNewChat, initialQuestion, actionsRef }: QAInterfaceProps) {
   const { user, login } = usePrivy();
   const walletAddress = user?.wallet?.address ?? null;
   const userId = user?.id ?? null;
@@ -910,6 +916,16 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
     onNewChat?.();
   }
 
+  // Expose imperative actions to parent (for keyboard shortcuts)
+  useEffect(() => {
+    if (!actionsRef) return;
+    actionsRef.current = {
+      focusInput: () => textareaRef.current?.focus(),
+      clear: handleClear,
+    };
+    return () => { actionsRef.current = null; };
+  }); // intentionally no dep array — always sync latest handleClear
+
   const isEmpty = messages.length === 0 && !loading;
 
   return (
@@ -1177,6 +1193,7 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
             />
             <button
               type="submit"
+              title="Submit (Enter or Ctrl+Enter)"
               disabled={!input.trim() || loading || rateLimit?.remaining === 0 || guestLimitReached}
               className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-opacity disabled:opacity-30"
               style={{ background: 'var(--sage)' }}
