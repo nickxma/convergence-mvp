@@ -106,7 +106,7 @@ export default async function QAAnswerPage({ params }: Props) {
         style={{ borderColor: '#e0d8cc', background: '#faf8f3' }}
       >
         <a
-          href="/"
+          href="/qa"
           className="flex items-center gap-1.5 text-xs font-medium"
           style={{ color: '#7d8c6e' }}
         >
@@ -189,7 +189,7 @@ export default async function QAAnswerPage({ params }: Props) {
             Ask anything — sourced from 760+ hours of guided meditations and conversations.
           </p>
           <a
-            href="/"
+            href="/qa"
             className="inline-flex items-center gap-1.5 text-xs px-4 py-2 rounded-full font-medium"
             style={{ background: '#7d8c6e', color: '#fff' }}
           >
