@@ -253,7 +253,7 @@ export async function POST(req: NextRequest) {
         try {
           const { data: ar, error: ae } = await supabase
             .from('qa_answers')
-            .insert({ question, answer: cachedAnswer, sources: answerSources, conversation_id: conversationId, cache_hash: cacheKey })
+            .insert({ question, answer: cachedAnswer, sources: answerSources, conversation_id: conversationId, cache_hash: cacheKey, ...(userId ? { user_id: userId } : {}) })
             .select('id').single();
           if (ae) console.warn(`[/api/ask] qa_answer_write_error err=${ae.message}`);
           else answerId = ar?.id ?? null;
@@ -330,7 +330,7 @@ export async function POST(req: NextRequest) {
         try {
           const { data: ar, error: ae } = await supabase
             .from('qa_answers')
-            .insert({ question, answer: cachedAnswer, sources: answerSources, conversation_id: conversationId, cache_hash: cacheKey })
+            .insert({ question, answer: cachedAnswer, sources: answerSources, conversation_id: conversationId, cache_hash: cacheKey, ...(userId ? { user_id: userId } : {}) })
             .select('id').single();
           if (ae) console.warn(`[/api/ask] qa_answer_write_error err=${ae.message}`);
           else answerId = ar?.id ?? null;
@@ -565,7 +565,7 @@ export async function POST(req: NextRequest) {
     try {
       const { data: answerRow, error: answerError } = await supabase
         .from('qa_answers')
-        .insert({ question, answer, sources: answerSources, conversation_id: conversationId, cache_hash: isFollowUp ? null : cacheKey })
+        .insert({ question, answer, sources: answerSources, conversation_id: conversationId, cache_hash: isFollowUp ? null : cacheKey, ...(userId ? { user_id: userId } : {}) })
         .select('id')
         .single();
       if (answerError) {
@@ -691,7 +691,7 @@ export async function POST(req: NextRequest) {
         try {
           const { data: answerRow, error: answerError } = await supabase
             .from('qa_answers')
-            .insert({ question, answer: fullAnswer, sources: answerSources, conversation_id: conversationId, cache_hash: isFollowUp ? null : cacheKey })
+            .insert({ question, answer: fullAnswer, sources: answerSources, conversation_id: conversationId, cache_hash: isFollowUp ? null : cacheKey, ...(userId ? { user_id: userId } : {}) })
             .select('id')
             .single();
           if (answerError) {
