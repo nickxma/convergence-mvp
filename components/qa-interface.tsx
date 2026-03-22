@@ -512,6 +512,14 @@ function ResponseSkeleton() {
   );
 }
 
+const STARTER_QUESTIONS = [
+  'What is the self?',
+  'How do I stop overthinking?',
+  'What is the relationship between mindfulness and free will?',
+  'How can mindfulness reduce suffering?',
+  'What does it mean to be fully present?',
+] as const;
+
 interface QAInterfaceProps {
   initialConversation?: Conversation | null;
   onConversationUpdate?: (conversation: Conversation) => void;
@@ -534,6 +542,22 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
   const [serverConversationId, setServerConversationId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // null = not yet determined (avoids flash on mount)
+  const [showOnboardingPanel, setShowOnboardingPanel] = useState<boolean | null>(null);
+  const [showCelebration, setShowCelebration] = useState(false);
+
+  // Determine first-visit state from localStorage (client-only)
+  useEffect(() => {
+    setShowOnboardingPanel(!localStorage.getItem('wu_onboarding_seen'));
+  }, []);
+
+  // Auto-dismiss celebration banner after 6 seconds
+  useEffect(() => {
+    if (!showCelebration) return;
+    const t = setTimeout(() => setShowCelebration(false), 6000);
+    return () => clearTimeout(t);
+  }, [showCelebration]);
 
   // Track current conversationId in a ref so the effect below can read it without
   // adding it to its dependency array (which would cause spurious resets).
@@ -588,6 +612,9 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
   async function submit(questionOverride?: string) {
     const question = (questionOverride ?? input).trim();
     if (!question || loading) return;
+
+    // Capture before state changes — used to trigger first-answer celebration
+    const wasFirstEver = messages.length === 0 && !localStorage.getItem('wu_onboarding_seen');
 
     setInput('');
     const newMessages: Message[] = [...messages, { role: 'user', content: question }];
@@ -675,6 +702,11 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
               ];
               setMessages(finalMessages);
               persistConversation(finalMessages, conversationId);
+              if (wasFirstEver) {
+                localStorage.setItem('wu_onboarding_seen', '1');
+                setShowOnboardingPanel(false);
+                setShowCelebration(true);
+              }
             } else if (typeof event.error === 'string') {
               setMessages([...newMessages, { role: 'assistant', content: event.error, error: true }]);
             }
@@ -711,6 +743,11 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
         ];
         setMessages(finalMessages);
         persistConversation(finalMessages, conversationId);
+        if (wasFirstEver) {
+          localStorage.setItem('wu_onboarding_seen', '1');
+          setShowOnboardingPanel(false);
+          setShowCelebration(true);
+        }
       }
     } catch {
       setMessages((prev) => [
@@ -766,17 +803,44 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
           </button>
         </div>
       )}
+
+      {/* First-answer celebration banner */}
+      {showCelebration && (
+        <div
+          className="flex items-center justify-between px-4 py-2.5 flex-shrink-0 text-sm"
+          style={{ background: '#ddf0d5', borderBottom: '1px solid #c8e4bb' }}
+        >
+          <span style={{ color: '#3d5c38' }}>
+            Nice! Your conversation is saved.{' '}
+            <a href="/community" style={{ textDecoration: 'underline', color: '#3d5c38' }}>
+              Explore the Community
+            </a>{' '}
+            or ask a follow-up.
+          </span>
+          <button
+            onClick={() => setShowCelebration(false)}
+            aria-label="Dismiss"
+            style={{ color: '#5a7a52', marginLeft: '12px', flexShrink: 0 }}
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      )}
+
       {/* Conversation thread */}
       <div className="flex-1 overflow-y-auto px-4 py-6">
         <div className="max-w-2xl mx-auto space-y-6">
-          {isEmpty && (
-            <div className="flex flex-col items-center justify-center h-64 text-center">
+          {isEmpty && showOnboardingPanel === true && (
+            /* First-time user: full onboarding welcome panel */
+            <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
               <div
-                className="w-12 h-12 rounded-full flex items-center justify-center mb-4"
+                className="w-14 h-14 rounded-full flex items-center justify-center mb-5"
                 style={{ background: '#e8e0d5' }}
               >
                 <svg
-                  className="w-6 h-6"
+                  className="w-7 h-7"
                   style={{ color: '#7d8c6e' }}
                   fill="none"
                   viewBox="0 0 24 24"
@@ -790,19 +854,54 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
                   />
                 </svg>
               </div>
-              <p className="font-medium text-sm" style={{ color: '#5c5248' }}>
+              <h2 className="font-semibold text-base mb-1" style={{ color: '#3d4f38' }}>
+                Ask anything about mindfulness
+              </h2>
+              <p className="text-xs mb-4 max-w-xs" style={{ color: '#9c9080' }}>
+                Answers drawn from 760+ hours of Waking Up content — talks, guided meditations, and conversations.
+              </p>
+              {!walletAddress && (
+                <p
+                  className="text-xs mb-5 px-3 py-2 rounded-lg max-w-xs"
+                  style={{ background: '#f0ece3', color: '#7d8c6e' }}
+                >
+                  Connect a wallet in your{' '}
+                  <a href="/profile" style={{ textDecoration: 'underline' }}>
+                    profile
+                  </a>{' '}
+                  to save your conversation history.
+                </p>
+              )}
+              <div className="flex flex-col gap-2 w-full max-w-sm">
+                {STARTER_QUESTIONS.map((prompt) => (
+                  <button
+                    key={prompt}
+                    onClick={() => setInput(prompt)}
+                    className="text-left rounded-xl px-4 py-3 text-sm transition-colors"
+                    style={{
+                      background: '#f0ece3',
+                      color: '#5c5248',
+                      border: '1px solid #ddd5c8',
+                    }}
+                  >
+                    {prompt}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {isEmpty && showOnboardingPanel === false && (
+            /* Returning user: minimal empty state */
+            <div className="flex flex-col items-center justify-center h-64 text-center">
+              <p className="text-sm font-medium" style={{ color: '#5c5248' }}>
                 Ask a question to explore mindfulness teachings
               </p>
               <p className="text-xs mt-1 mb-5" style={{ color: '#9c9080' }}>
                 Sourced from 760+ hours of mindfulness content
               </p>
               <div className="flex flex-wrap justify-center gap-2 max-w-md">
-                {[
-                  'What is the nature of consciousness?',
-                  'How do I start a meditation practice?',
-                  'What is the relationship between mindfulness and free will?',
-                  'How can mindfulness reduce suffering?',
-                ].map((prompt) => (
+                {STARTER_QUESTIONS.map((prompt) => (
                   <button
                     key={prompt}
                     onClick={() => setInput(prompt)}
