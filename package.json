@@ -14,7 +14,9 @@
     "seed:community": "tsx scripts/seed-community.ts",
     "verify-migrations": "tsx scripts/verify-migrations.ts",
     "refresh:corpus": "tsx scripts/refresh-corpus.ts",
-    "cluster:questions": "tsx scripts/cluster-questions.ts"
+    "cluster:questions": "tsx scripts/cluster-questions.ts",
+    "backup:db": "tsx scripts/backup-db.ts",
+    "export:subscribers": "tsx scripts/export-subscribers.ts"
   },
   "dependencies": {
     "@pinecone-database/pinecone": "^7.1.0",

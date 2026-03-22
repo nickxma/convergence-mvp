@@ -29,6 +29,8 @@ Copy `.env.example` to `.env.local` and fill in each value.
 | `UPSTASH_REDIS_REST_URL` | Optional. console.upstash.com → Redis → REST API | Rate limiting falls back to in-memory (single process only) |
 | `UPSTASH_REDIS_REST_TOKEN` | Optional. Same dashboard | Same as above |
 | `ENABLE_COMMUNITY_RAG` | `"true"` to enable community posts in RAG pipeline | Community posts excluded from Q&A answers (default: `false`) |
+| `RESEND_API_KEY` | resend.com → API Keys | `pnpm export:subscribers` fails |
+| `RESEND_AUDIENCE_ID` | resend.com → Audiences → copy ID | `pnpm export:subscribers` fails |
 
 Vercel auto-injects `NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA` and `NEXT_PUBLIC_VERCEL_ENV` — do not set manually.
 
@@ -94,7 +96,7 @@ Supabase does not have built-in rollbacks. To undo:
 | `005_schema_fixes.sql` | Schema corrections |
 | `006_community_indexes.sql` | Community query indexes |
 | `007_posts_fts.sql` | Full-text search on posts |
-| `008_soft_delete.sql` | Soft delete support |
+| `008_soft_delete.sql` | Soft delete (`deleted_at`) for posts and replies |
 | `009_search_replies_fts.sql` | FTS on replies |
 | `010_wallet_indexes.sql` | Wallet address lookup indexes |
 | `011_conversation_sessions.sql` | Conversation session tracking |
@@ -109,10 +111,95 @@ Supabase does not have built-in rollbacks. To undo:
 | `020_question_clusters.sql` | Topic cluster assignments |
 | `021_semantic_cache.sql` | Extended semantic cache |
 | `022_performance_indexes.sql` | Performance tuning indexes |
+| `023_rls_policies.sql` | Row-level security policies |
+| `024_soft_deletes.sql` | Soft delete (`deleted_at`) for conversation_sessions |
 
 ---
 
-## 4. Pinecone Corpus Refresh
+## 4. Backups and Data Recovery
+
+### Supabase daily backups (automatic)
+
+Supabase runs daily backups automatically on all plans.
+
+- **Free tier**: retained for 7 days. Restore via Supabase dashboard → Settings → Database → Backups → Restore.
+- **Pro + PITR add-on ($25/mo)**: point-in-time recovery to any second in the last 7 days.
+
+To verify backups are enabled: Supabase dashboard → Settings → Database → Backups. Confirm the list shows recent daily snapshots.
+
+### Manual SQL dump (on-demand)
+
+Creates a timestamped `.sql.gz` dump in `backups/`.
+
+```bash
+pnpm backup:db
+# or directly:
+tsx scripts/backup-db.ts
+```
+
+**Requires:**
+- Supabase CLI installed (`npm i -g supabase` or `brew install supabase/tap/supabase`)
+- Project linked: `supabase link --project-ref <ref>`
+
+What it does:
+1. Runs `supabase db dump --linked` to export full SQL.
+2. Gzip-compresses (level 9) the output.
+3. Writes `backups/YYYY-MM-DD.sql.gz`.
+
+The `backups/` directory is gitignored. Safe to re-run — same-day files are overwritten.
+
+### Emergency subscriber export
+
+Exports the Resend audience to `exports/subscribers-YYYY-MM-DD.csv` as a fallback if Resend becomes unavailable.
+
+```bash
+pnpm export:subscribers
+# or directly:
+tsx scripts/export-subscribers.ts
+```
+
+**Requires:** `RESEND_API_KEY` and `RESEND_AUDIENCE_ID` in `.env.local`.
+
+CSV columns: `email, first_name, last_name, subscribed, created_at`.
+
+**Schedule:** Run once a month. Add a calendar reminder. Store the CSV off-site (e.g., encrypted S3 bucket or local encrypted drive).
+
+### Restore procedure (staging validation)
+
+Always test a restore on staging before applying to production.
+
+1. **Get the dump**: download from Supabase dashboard, or use a `backups/*.sql.gz` local file.
+
+2. **Spin up a staging Supabase project** (free tier is fine).
+
+3. **Restore**:
+   ```bash
+   # From a local .sql.gz
+   gunzip -c backups/YYYY-MM-DD.sql.gz | psql "<staging-db-url>"
+
+   # From the Supabase dashboard backup:
+   # Settings → Database → Backups → select backup → Restore to new project
+   ```
+
+4. **Validate**: check row counts against production.
+   ```sql
+   SELECT 'posts' AS tbl, count(*) FROM posts
+   UNION ALL SELECT 'replies', count(*) FROM replies
+   UNION ALL SELECT 'subscribers', count(*) FROM subscribers;
+   ```
+
+5. **Promote to prod** only after validation passes.
+
+### Recovery contacts
+
+| Who | Role | Contact |
+|---|---|---|
+| Supabase support | Database restore help | support.supabase.com |
+| Resend support | Audience/email recovery | resend.com/support |
+
+---
+
+## 5. Pinecone Corpus Refresh
 
 Embeds new or changed Waking Up transcripts into Pinecone. Skips files already in the corpus manifest.
 
@@ -135,7 +222,7 @@ Safe to re-run at any time — idempotent.
 
 ---
 
-## 5. Topic Re-Clustering
+## 6. Topic Re-Clustering
 
 Groups Q&A questions into topic clusters using k-means on embeddings. Safe to re-run — idempotent.
 
@@ -158,7 +245,7 @@ Run after accumulating significant new Q&A data, or when topic labels feel stale
 
 ---
 
-## 6. Admin Access
+## 7. Admin Access
 
 Admin routes are under `/api/community/admin/*`.
 
@@ -173,7 +260,7 @@ To grant admin access to another wallet, update `ADMIN_WALLET` in Vercel → Env
 
 ---
 
-## 7. Monitoring
+## 8. Monitoring
 
 | System | Where to look |
 |---|---|
@@ -192,7 +279,7 @@ Returns JSON with `status: ok | degraded | down` for each dependency. Use this a
 
 ---
 
-## 8. Common Issues
+## 9. Common Issues
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
