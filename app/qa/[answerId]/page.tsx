@@ -118,7 +118,7 @@ export default async function QAAnswerPage({ params }: Props) {
         <span className="text-xs" style={{ color: '#b0a898' }}>Mindfulness Q&amp;A</span>
       </header>
 
-      <main className="flex-1 max-w-2xl w-full mx-auto px-4 py-8">
+      <main id="main-content" className="flex-1 max-w-2xl w-full mx-auto px-4 py-8">
         {/* Question */}
         <div className="mb-6">
           <p className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: '#9c9080' }}>

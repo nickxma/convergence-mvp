@@ -36,7 +36,7 @@ function SearchPageSkeleton() {
       <header className="flex items-center gap-3 px-5 py-3 border-b" style={{ borderColor: '#e0d8cc', background: '#faf8f3' }}>
         <span className="text-sm font-semibold" style={{ color: '#3d4f38' }}>Search</span>
       </header>
-      <main className="flex-1 max-w-2xl w-full mx-auto px-4 py-6">
+      <main id="main-content" className="flex-1 max-w-2xl w-full mx-auto px-4 py-6">
         <div className="h-10 rounded-xl mb-6 animate-pulse" style={{ background: '#e8e0d5' }} />
       </main>
     </div>
@@ -123,7 +123,7 @@ function SearchPageInner() {
         style={{ borderColor: '#e0d8cc', background: '#faf8f3' }}
       >
         <a href="/community" className="flex items-center gap-1.5 text-xs" style={{ color: '#7d8c6e' }}>
-          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <svg aria-hidden="true" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
           </svg>
           Community
@@ -132,13 +132,13 @@ function SearchPageInner() {
         <h1 className="text-sm font-semibold" style={{ color: '#3d4f38' }}>Search</h1>
       </header>
 
-      <main className="flex-1 max-w-2xl w-full mx-auto px-4 py-6">
+      <main id="main-content" className="flex-1 max-w-2xl w-full mx-auto px-4 py-6">
         {/* Search input */}
         <div
           className="flex items-center gap-2 px-3 py-2.5 rounded-xl mb-6"
           style={{ border: '1px solid #b8ccb0', background: '#fff' }}
         >
-          <svg
+          <svg aria-hidden="true"
             className="w-4 h-4 flex-shrink-0"
             style={{ color: '#b0a898' }}
             fill="none"
@@ -162,7 +162,7 @@ function SearchPageInner() {
             style={{ color: '#3d4f38' }}
           />
           {loading && (
-            <svg
+            <svg aria-hidden="true"
               className="w-4 h-4 animate-spin flex-shrink-0"
               style={{ color: '#b0a898' }}
               fill="none"
@@ -181,7 +181,7 @@ function SearchPageInner() {
               className="w-12 h-12 rounded-full flex items-center justify-center mb-4"
               style={{ background: '#e8e0d5' }}
             >
-              <svg className="w-6 h-6" style={{ color: '#7d8c6e' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <svg aria-hidden="true" className="w-6 h-6" style={{ color: '#7d8c6e' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
               </svg>
             </div>
@@ -206,7 +206,7 @@ function SearchPageInner() {
               className="w-12 h-12 rounded-full flex items-center justify-center mb-4"
               style={{ background: '#e8e0d5' }}
             >
-              <svg className="w-6 h-6" style={{ color: '#7d8c6e' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <svg aria-hidden="true" className="w-6 h-6" style={{ color: '#7d8c6e' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
               </svg>
             </div>

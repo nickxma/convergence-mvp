@@ -137,7 +137,7 @@ function PostCard({ post }: { post: Post }) {
           </p>
         </div>
         <div className="flex-shrink-0 flex flex-col items-center gap-0.5 pt-0.5">
-          <svg className="w-3.5 h-3.5" style={{ color: '#7d8c6e' }} fill="currentColor" viewBox="0 0 24 24">
+          <svg aria-hidden="true" className="w-3.5 h-3.5" style={{ color: '#7d8c6e' }} fill="currentColor" viewBox="0 0 24 24">
             <path d="M12 4l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6L12 4z" />
           </svg>
           <span className="text-xs font-semibold" style={{ color: '#3d4f38' }}>
@@ -218,7 +218,7 @@ export default function ContributorProfilePage({
         >
           <div className="h-3 w-8 rounded animate-pulse" style={{ background: '#e8e0d5' }} />
         </header>
-        <main className="flex-1 px-5 py-8 max-w-lg mx-auto w-full">
+        <main id="main-content" className="flex-1 px-5 py-8 max-w-lg mx-auto w-full">
           {/* Profile header skeleton */}
           <section className="flex items-start gap-4">
             <div className="w-14 h-14 rounded-full flex-shrink-0 animate-pulse" style={{ background: '#e8e0d5' }} />
@@ -271,7 +271,7 @@ export default function ContributorProfilePage({
             className="flex items-center gap-1.5 text-xs min-h-[44px]"
             style={{ color: '#7d8c6e' }}
           >
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <svg aria-hidden="true" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
             </svg>
             Back

@@ -233,7 +233,7 @@ export default function AdminPage() {
         </div>
       </header>
 
-      <main className="flex-1 px-5 py-8 max-w-3xl mx-auto w-full">
+      <main id="main-content" className="flex-1 px-5 py-8 max-w-3xl mx-auto w-full">
         {error ? (
           <div
             className="rounded-xl p-6 text-center"

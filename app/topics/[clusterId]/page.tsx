@@ -97,7 +97,7 @@ export default function TopicDetailPage() {
             className="flex items-center gap-1.5 text-xs flex-shrink-0 transition-colors"
             style={{ color: 'var(--sage)' }}
           >
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <svg aria-hidden="true" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
             </svg>
             Topics
@@ -122,7 +122,7 @@ export default function TopicDetailPage() {
       </header>
 
       {/* Content */}
-      <main className="max-w-3xl mx-auto px-4 py-8">
+      <main id="main-content" className="max-w-3xl mx-auto px-4 py-8">
         {meta && (
           <div className="mb-6">
             <h2 className="text-xl font-semibold mb-1" style={{ color: 'var(--sage-dark)' }}>
@@ -186,7 +186,7 @@ export default function TopicDetailPage() {
                     style={{ color: 'var(--sage)' }}
                   >
                     Ask this question
-                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <svg aria-hidden="true" className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
                     </svg>
                   </span>

@@ -47,7 +47,7 @@ function MeditationSkeleton() {
           className="w-10 h-10 rounded-full flex items-center justify-center"
           style={{ background: 'var(--bg-chip)' }}
         >
-          <svg
+          <svg aria-hidden="true"
             className="w-5 h-5"
             style={{ color: 'var(--sage)', animation: 'breathe 3s ease-in-out infinite' }}
             fill="none"
@@ -99,7 +99,7 @@ function SourceList({ sources }: { sources: Source[] }) {
         className="flex items-center gap-1.5 text-xs font-medium transition-colors"
         style={{ color: 'var(--sage)' }}
       >
-        <svg
+        <svg aria-hidden="true"
           className="w-3.5 h-3.5 transition-transform"
           style={{ transform: open ? 'rotate(90deg)' : 'rotate(0deg)' }}
           fill="none"
@@ -340,7 +340,7 @@ function MeditationScript({
             >
               {speaking ? (
                 <>
-                  <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                  <svg aria-hidden="true" className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
                     <rect x="6" y="4" width="4" height="16" rx="1" />
                     <rect x="14" y="4" width="4" height="16" rx="1" />
                   </svg>
@@ -348,7 +348,7 @@ function MeditationScript({
                 </>
               ) : (
                 <>
-                  <svg
+                  <svg aria-hidden="true"
                     className="w-3 h-3"
                     fill="none"
                     viewBox="0 0 24 24"
@@ -378,7 +378,7 @@ function MeditationScript({
           >
             {playMode ? (
               <>
-                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                <svg aria-hidden="true" className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
                   <rect x="6" y="4" width="4" height="16" rx="1" />
                   <rect x="14" y="4" width="4" height="16" rx="1" />
                 </svg>
@@ -386,7 +386,7 @@ function MeditationScript({
               </>
             ) : (
               <>
-                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                <svg aria-hidden="true" className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
                   <path d="M8 5.14v14l11-7-11-7z" />
                 </svg>
                 Play
@@ -551,7 +551,7 @@ export function MeditateInterface() {
                 className="w-14 h-14 rounded-full flex items-center justify-center mb-4"
                 style={{ background: 'var(--bg-chip)' }}
               >
-                <svg
+                <svg aria-hidden="true"
                   className="w-7 h-7"
                   style={{ color: 'var(--sage)' }}
                   fill="none"
@@ -648,7 +648,7 @@ export function MeditateInterface() {
                 className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-opacity disabled:opacity-30"
                 style={{ background: 'var(--sage)' }}
               >
-                <svg
+                <svg aria-hidden="true"
                   className="w-4 h-4 text-white"
                   fill="none"
                   viewBox="0 0 24 24"

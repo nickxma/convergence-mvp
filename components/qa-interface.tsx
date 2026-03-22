@@ -1382,17 +1382,24 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
                 rows={1}
                 disabled={loading || rateLimit?.remaining === 0}
                 maxLength={MAX_CHARS}
+                aria-label="Ask a question"
+                aria-controls={showSuggestions && suggestions.length > 0 ? 'suggestions-listbox' : undefined}
+                aria-activedescendant={suggestionIndex >= 0 ? `suggestion-${suggestionIndex}` : undefined}
+                aria-autocomplete="list"
+                aria-expanded={showSuggestions && suggestions.length > 0}
                 className="flex-1 resize-none bg-transparent text-sm leading-relaxed outline-none placeholder-zinc-400 disabled:opacity-50"
                 style={{ color: 'var(--text)', minHeight: '24px' }}
               />
               <button
                 type="submit"
                 title="Submit (Enter or Ctrl+Enter)"
+                aria-label="Submit question"
                 disabled={!input.trim() || loading || rateLimit?.remaining === 0 || guestLimitReached}
                 className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-opacity disabled:opacity-30"
                 style={{ background: 'var(--sage)' }}
               >
                 <svg
+                  aria-hidden="true"
                   className="w-4 h-4 text-white"
                   fill="none"
                   viewBox="0 0 24 24"
@@ -1407,6 +1414,7 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
             {/* Suggestion dropdown */}
             {showSuggestions && suggestions.length > 0 && (
               <div
+                id="suggestions-listbox"
                 role="listbox"
                 aria-label="Popular questions"
                 className="absolute left-0 right-0 rounded-xl py-1 shadow-lg z-30"
@@ -1419,6 +1427,7 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
                 {suggestions.map((s, i) => (
                   <button
                     key={i}
+                    id={`suggestion-${i}`}
                     type="button"
                     role="option"
                     aria-selected={i === suggestionIndex}

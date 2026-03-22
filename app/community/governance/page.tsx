@@ -33,7 +33,7 @@ export default function GovernancePage() {
           className="flex items-center gap-1.5 text-xs"
           style={{ color: '#7d8c6e' }}
         >
-          <svg
+          <svg aria-hidden="true"
             className="w-3.5 h-3.5"
             fill="none"
             viewBox="0 0 24 24"
@@ -56,7 +56,7 @@ export default function GovernancePage() {
         </h1>
       </header>
 
-      <main className="flex-1 max-w-3xl w-full mx-auto px-4 py-6 space-y-8">
+      <main id="main-content" className="flex-1 max-w-3xl w-full mx-auto px-4 py-6 space-y-8">
         {/* Stats cards */}
         <section>
           <h2
@@ -267,7 +267,7 @@ function PostLeaderboard({ posts }: { posts: GovernanceData['topPosts'] }) {
             className="flex-shrink-0 text-xs font-semibold tabular-nums flex items-center gap-0.5"
             style={{ color: '#7d8c6e' }}
           >
-            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+            <svg aria-hidden="true" className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
               <path d="M12 4 3 20h18L12 4z" />
             </svg>
             {post.votes}
@@ -327,7 +327,7 @@ function ContributorLeaderboard({
             className="flex-shrink-0 text-xs font-semibold tabular-nums flex items-center gap-0.5"
             style={{ color: '#7d8c6e' }}
           >
-            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+            <svg aria-hidden="true" className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
               <path d="M12 4 3 20h18L12 4z" />
             </svg>
             {c.totalVotes}
@@ -392,7 +392,7 @@ function TrendingList({ posts }: { posts: GovernanceData['trendingThisWeek'] }) 
               className="text-xs font-semibold tabular-nums flex items-center gap-0.5"
               style={{ color: '#7d8c6e' }}
             >
-              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+              <svg aria-hidden="true" className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
                 <path d="M12 4 3 20h18L12 4z" />
               </svg>
               +{post.weeklyVotes}

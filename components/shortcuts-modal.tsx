@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 
 interface ShortcutsModalProps {
   onClose: () => void;
@@ -17,12 +17,39 @@ const SHORTCUTS = [
 ];
 
 export function ShortcutsModal({ onClose }: ShortcutsModalProps) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  const handleFocusTrap = useCallback((e: React.KeyboardEvent) => {
+    if (e.key !== 'Tab') return;
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const focusable = dialog.querySelectorAll<HTMLElement>(
+      'button, [href], input, textarea, select, [tabindex]:not([tabindex="-1"])'
+    );
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (e.shiftKey) {
+      if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+    } else {
+      if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  }, []);
+
   useEffect(() => {
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const firstFocusable = dialogRef.current?.querySelector<HTMLElement>(
+      'button, [href], input, textarea, select, [tabindex]:not([tabindex="-1"])'
+    );
+    firstFocusable?.focus();
+
     function handleKey(e: KeyboardEvent) {
       if (e.key === 'Escape') onClose();
     }
     document.addEventListener('keydown', handleKey);
-    return () => document.removeEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('keydown', handleKey);
+      previouslyFocused?.focus();
+    };
   }, [onClose]);
 
   return (
@@ -32,9 +59,11 @@ export function ShortcutsModal({ onClose }: ShortcutsModalProps) {
       onClick={onClose}
     >
       <div
+        ref={dialogRef}
         className="w-full max-w-sm mx-4 rounded-2xl shadow-xl"
         style={{ background: 'var(--bg)', border: '1px solid var(--border)' }}
         onClick={(e) => e.stopPropagation()}
+        onKeyDown={handleFocusTrap}
         role="dialog"
         aria-modal="true"
         aria-label="Keyboard shortcuts"
@@ -52,7 +81,7 @@ export function ShortcutsModal({ onClose }: ShortcutsModalProps) {
             style={{ color: 'var(--text-muted)' }}
             className="p-1 rounded"
           >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <svg aria-hidden="true" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>

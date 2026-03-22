@@ -35,6 +35,7 @@ export function VoteButton({
         }}
       >
         <svg
+          aria-hidden="true"
           className={iconSize}
           fill={userVote === 'up' ? 'currentColor' : 'none'}
           viewBox="0 0 24 24"
@@ -48,6 +49,7 @@ export function VoteButton({
       {pending ? (
         <span className={`${textSize} tabular-nums font-medium min-w-[1.5rem] text-center`} style={{ color: '#9c9080' }}>
           <svg
+            aria-hidden="true"
             className={`${iconSize} animate-spin mx-auto`}
             fill="none"
             viewBox="0 0 24 24"
@@ -76,6 +78,7 @@ export function VoteButton({
         }}
       >
         <svg
+          aria-hidden="true"
           className={iconSize}
           fill={userVote === 'down' ? 'currentColor' : 'none'}
           viewBox="0 0 24 24"

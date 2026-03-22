@@ -40,7 +40,7 @@ export default function LeaderboardPage() {
             style={{ color: '#7d8c6e' }}
             aria-label="Back to home"
           >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <svg aria-hidden="true" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
             </svg>
           </Link>
@@ -60,7 +60,7 @@ export default function LeaderboardPage() {
       </header>
 
       {/* Content */}
-      <main className="max-w-2xl mx-auto px-5 py-10">
+      <main id="main-content" className="max-w-2xl mx-auto px-5 py-10">
         <div className="mb-8">
           <h1 className="text-xl font-semibold mb-1" style={{ color: '#3d4f38' }}>
             Most-Asked Questions

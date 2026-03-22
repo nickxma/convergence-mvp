@@ -38,7 +38,7 @@ export default function TopicsPage() {
             className="flex items-center gap-1.5 text-xs transition-colors"
             style={{ color: 'var(--sage)' }}
           >
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <svg aria-hidden="true" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
             </svg>
             Convergence
@@ -51,7 +51,7 @@ export default function TopicsPage() {
       </header>
 
       {/* Content */}
-      <main className="max-w-4xl mx-auto px-4 py-8">
+      <main id="main-content" className="max-w-4xl mx-auto px-4 py-8">
         <div className="mb-8">
           <h2 className="text-xl font-semibold mb-2" style={{ color: 'var(--sage-dark)' }}>
             Explore by theme
