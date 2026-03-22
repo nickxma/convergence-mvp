@@ -1,8 +1,9 @@
 /**
  * GET /api/questions/suggest?q=<prefix>
  *
- * Returns top 5 popular questions from qa_answers that contain the query
- * string (case-insensitive). Ranked by ask frequency. Requires q ≥ 3 chars.
+ * Returns up to 5 questions from qa_pairs whose text contains the query
+ * string (case-insensitive substring match), ordered by view_count desc.
+ * Requires q ≥ 3 chars.
  *
  * Response:
  *   suggestions — array of { question: string; count: number }
@@ -11,7 +12,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
-import { aggregateSuggestions, MIN_QUERY_LENGTH } from '@/lib/suggest';
+import { MIN_QUERY_LENGTH, MAX_RESULTS } from '@/lib/suggest';
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
   const q = req.nextUrl.searchParams.get('q')?.trim() ?? '';
@@ -20,13 +21,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ suggestions: [] });
   }
 
-  // Fetch up to 500 matching questions and aggregate in-process
   const { data, error } = await supabase
-    .from('qa_answers')
-    .select('question')
+    .from('qa_pairs')
+    .select('question, view_count')
     .ilike('question', `%${q}%`)
-    .order('created_at', { ascending: false })
-    .limit(500);
+    .order('view_count', { ascending: false })
+    .limit(MAX_RESULTS);
 
   if (error) {
     console.error('[/api/questions/suggest] db_error:', error.message);
@@ -36,6 +36,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const suggestions = aggregateSuggestions(data ?? []);
+  const suggestions = (data ?? []).map((row) => ({
+    question: row.question,
+    count: row.view_count,
+  }));
+
   return NextResponse.json({ suggestions });
 }
