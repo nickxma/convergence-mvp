@@ -8,6 +8,7 @@ import { verifyRequest } from '@/lib/privy-auth';
 import { isPassHolder } from '@/lib/token-gate';
 import { checkRateLimitWithFallback, checkRateLimit, isDuplicateContent, buildRateLimitError, getClientIp, isInternalRequest, MINUTE_MS } from '@/lib/rate-limit';
 import { getFeedCache, setFeedCache, invalidateFeedCache } from '@/lib/feed-cache';
+import { monitoredQuery } from '@/lib/db-monitor';
 
 const PAGE_SIZE = 20;
 const FEED_RL_AUTHED = 120; // authenticated requests per minute
@@ -47,13 +48,15 @@ export async function GET(req: NextRequest) {
 
   const offset = (page - 1) * PAGE_SIZE;
 
-  const { data, error, count } = await supabase
-    .from('posts')
-    .select('id, author_wallet, title, body, vote_score, created_at', { count: 'exact' })
-    .eq('hidden', false)
-    .order('vote_score', { ascending: false })
-    .order('created_at', { ascending: false })
-    .range(offset, offset + PAGE_SIZE - 1);
+  const { data, error, count } = await monitoredQuery('community_posts.feed', () =>
+    supabase
+      .from('posts')
+      .select('id, author_wallet, title, body, vote_score, created_at', { count: 'exact' })
+      .eq('hidden', false)
+      .order('vote_score', { ascending: false })
+      .order('created_at', { ascending: false })
+      .range(offset, offset + PAGE_SIZE - 1),
+  );
 
   if (error) {
     console.error('[community/posts GET] db error:', error.message);

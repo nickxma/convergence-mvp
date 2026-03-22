@@ -13,6 +13,7 @@ import { verifyRequest } from '@/lib/privy-auth';
 import { supabase } from '@/lib/supabase';
 import { isValidConversationId, buildQueryText, appendTurn } from '@/lib/conversation-session';
 import type { HistoryMessage } from '@/lib/conversation-session';
+import { monitoredQuery } from '@/lib/db-monitor';
 
 const EMBED_MODEL = 'text-embedding-3-small';
 const CHAT_MODEL = 'gpt-4o-mini';
@@ -162,12 +163,14 @@ export async function POST(req: NextRequest) {
   let effectiveHistory = history;
   if (isExistingConversation && history.length === 0) {
     try {
-      const { data } = await supabase
-        .from('conversation_sessions')
-        .select('history')
-        .eq('id', conversationId)
-        .gt('expires_at', new Date().toISOString())
-        .single();
+      const { data } = await monitoredQuery('conversation_sessions.fetch', () =>
+        supabase
+          .from('conversation_sessions')
+          .select('history')
+          .eq('id', conversationId)
+          .gt('expires_at', new Date().toISOString())
+          .single(),
+      );
       if (data?.history && Array.isArray(data.history)) {
         effectiveHistory = data.history as HistoryMessage[];
       }
@@ -267,11 +270,13 @@ export async function POST(req: NextRequest) {
   // ── Semantic cache lookup ─────────────────────────────────────────────────
   if (!noCacheParam && !isFollowUp) {
     try {
-      const { data: semanticRows } = await supabase.rpc('match_qa_cache', {
-        query_embedding: queryVector,
-        match_threshold: semanticThreshold,
-        match_count: 1,
-      });
+      const { data: semanticRows } = await monitoredQuery('qa_cache.semantic_lookup', () =>
+        supabase.rpc('match_qa_cache', {
+          query_embedding: queryVector,
+          match_threshold: semanticThreshold,
+          match_count: 1,
+        }),
+      );
 
       const semanticRow = Array.isArray(semanticRows) ? semanticRows[0] : null;
       if (semanticRow) {
