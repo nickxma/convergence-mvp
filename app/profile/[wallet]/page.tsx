@@ -60,7 +60,7 @@ const MOCK_POST_TITLES = [
   'The nature of awareness in daily practice',
   'Non-dual perspectives on the waking state',
   'How mindfulness changes default mode network activity',
-  'Thoughts on Waking Up — six months in',
+  'Thoughts on guided practice — six months in',
   'Is concentration meditation necessary?',
   'Open monitoring vs focused attention',
   'On the dissolution of the sense of self',

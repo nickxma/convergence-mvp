@@ -252,16 +252,16 @@ export function QAInterface({ initialConversation, onConversationUpdate }: QAInt
                 </svg>
               </div>
               <p className="font-medium text-sm" style={{ color: '#5c5248' }}>
-                Ask a question to explore Sam Harris&apos;s teachings
+                Ask a question to explore mindfulness teachings
               </p>
               <p className="text-xs mt-1 mb-5" style={{ color: '#9c9080' }}>
-                Sourced from the Waking Up corpus
+                Sourced from 760+ hours of mindfulness content
               </p>
               <div className="flex flex-wrap justify-center gap-2 max-w-md">
                 {[
                   'What is the nature of consciousness?',
                   'How do I start a meditation practice?',
-                  'What does Sam say about free will?',
+                  'What is the relationship between mindfulness and free will?',
                   'How can mindfulness reduce suffering?',
                 ].map((prompt) => (
                   <button

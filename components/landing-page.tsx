@@ -55,8 +55,8 @@ export function LandingPage() {
             className="text-base md:text-lg leading-relaxed max-w-md mx-auto"
             style={{ color: '#7d8c6e' }}
           >
-            Answers sourced directly from the Waking Up corpus — 760+ hours of Sam Harris
-            teachings, meditations, and conversations.
+            Answers sourced from 760+ hours of guided meditations, teachings, and conversations
+            from leading mindfulness teachers.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
             <button
@@ -91,7 +91,7 @@ export function LandingPage() {
               {
                 step: '02',
                 title: 'Ask a question',
-                desc: "Type any question about meditation, consciousness, philosophy, or Sam Harris's teachings.",
+                desc: "Type any question about meditation, consciousness, philosophy, or mindfulness practice.",
               },
               {
                 step: '03',
@@ -126,14 +126,14 @@ export function LandingPage() {
           </h2>
           <p className="text-sm leading-relaxed" style={{ color: '#5c5248' }}>
             Convergence is a knowledge tool for people who take mindfulness seriously. It uses
-            retrieval-augmented generation (RAG) to search and synthesize answers from the full
-            Waking Up transcript archive — podcasts, guided meditations, Ask Sam sessions, and
-            conversations with scientists and philosophers.
+            retrieval-augmented generation (RAG) to search and synthesize answers from a curated
+            archive of 760+ hours of content — guided meditations, teachings, and conversations
+            with scientists and philosophers.
           </p>
           <p className="text-sm leading-relaxed" style={{ color: '#5c5248' }}>
             Every answer cites its sources. You can read the exact transcript passages that
-            informed the response. No hallucinations, no invented teachings — only what Sam
-            Harris and his guests actually said.
+            informed the response. No hallucinations, no invented teachings — only what was
+            actually said.
           </p>
           <p className="text-sm leading-relaxed" style={{ color: '#5c5248' }}>
             Built by{' '}

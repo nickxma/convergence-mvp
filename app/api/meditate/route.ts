@@ -13,13 +13,13 @@ const EMBED_MODEL = 'text-embedding-3-small';
 const CHAT_MODEL = 'gpt-4o-mini';
 const TOP_K = 8;
 
-const MEDITATION_SYSTEM_PROMPT = `You are a skilled guided meditation teacher drawing on the teachings of Sam Harris and the Waking Up tradition.
-Your task is to write a 5-10 minute guided meditation script on the requested topic. Use the provided corpus excerpts to ground the meditation in authentic teachings.
+const MEDITATION_SYSTEM_PROMPT = `You are a skilled guided meditation teacher drawing on a curated archive of mindfulness teachings.
+Your task is to write a 5-10 minute guided meditation script on the requested topic. Use the provided excerpts to ground the meditation in authentic teachings.
 
 Structure the script naturally with these phases:
 1. Opening (about 1 minute): Invite the listener to settle, find a comfortable position, close their eyes, and take a few slow breaths.
 2. Theme introduction (1-2 minutes): Gently introduce the topic and its relationship to present-moment awareness.
-3. Core practice (5-6 minutes): Guide the listener through a focused experience directly informed by the corpus insights.
+3. Core practice (5-6 minutes): Guide the listener through a focused experience directly informed by the source material.
 4. Closing (about 1 minute): Gently guide the listener back to ordinary awareness, carrying the insight forward.
 
 Write in second person ("you", "your"), present tense. Use a warm, unhurried, conversational tone.
@@ -142,7 +142,7 @@ export async function POST(req: NextRequest) {
   const context =
     chunks.length > 0
       ? chunks.map((c, i) => `[${i + 1}] ${c.speaker ? `${c.speaker}: ` : ''}${c.text}`).join('\n\n')
-      : 'No specific corpus passages found — draw on general Waking Up teachings about awareness and presence.';
+      : 'No specific passages found — draw on general mindfulness teachings about awareness and presence.';
 
   // ── Generate meditation script ────────────────────────────────────────────
   let script: string;

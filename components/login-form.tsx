@@ -55,7 +55,7 @@ export function LoginForm() {
       )}
 
       <p className="text-xs" style={{ color: '#b0a898' }}>
-        Answers sourced from the Waking Up corpus
+        Answers sourced from 760+ hours of mindfulness teachings
       </p>
     </div>
   );

@@ -50,7 +50,7 @@ function MeditationSkeleton() {
           Composing your meditation…
         </p>
         <p className="text-xs" style={{ color: '#9c9080' }}>
-          Drawing from the corpus, this takes a moment
+          Drawing from the archive, this takes a moment
         </p>
       </div>
       {[85, 70, 90, 65, 75].map((w, i) => (
@@ -93,7 +93,7 @@ function SourceList({ sources }: { sources: Source[] }) {
         >
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
         </svg>
-        {sources.length} corpus source{sources.length !== 1 ? 's' : ''}
+        {sources.length} source{sources.length !== 1 ? 's' : ''}
       </button>
       {open && (
         <div className="mt-2 space-y-2">
@@ -216,7 +216,7 @@ export function MeditateInterface() {
                 Generate a guided meditation
               </p>
               <p className="text-xs mb-6" style={{ color: '#9c9080' }}>
-                Grounded in the Waking Up corpus · 5-10 minutes
+                Grounded in 760+ hours of mindfulness teachings · 5-10 minutes
               </p>
 
               {error && (

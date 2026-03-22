@@ -13,7 +13,7 @@ const EMBED_MODEL = 'text-embedding-3-small';
 const CHAT_MODEL = 'gpt-4o-mini';
 const TOP_K = 10; // fetch extra to allow dedup headroom
 
-const SYSTEM_PROMPT = `You are a knowledgeable guide to the teachings of Sam Harris and the Waking Up community.
+const SYSTEM_PROMPT = `You are a knowledgeable mindfulness guide.
 Answer questions using only the provided transcript excerpts. Be direct and clear.
 If the excerpts don't contain enough information to answer, say so honestly.
 Do not invent teachings or attribute views not present in the source material.`;
@@ -143,7 +143,7 @@ export async function POST(req: NextRequest) {
 
   if (chunks.length === 0) {
     return NextResponse.json({
-      answer: "I couldn't find relevant passages in the Waking Up corpus for that question.",
+      answer: "I couldn't find relevant passages in the archive for that question.",
       sources: [],
     });
   }

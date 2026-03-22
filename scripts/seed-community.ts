@@ -214,14 +214,14 @@ After several months of this the transition became smoother. I now use noting mo
     ],
   },
   {
-    title: "Sam Harris vs. other contemporary teachers — what's genuinely different?",
-    body: `I've spent significant time with the Waking Up app, and separately with teachers from the Vipassana and Tibetan traditions. The secular framing Sam uses is obviously different, but I'm trying to understand whether the differences are:
+    title: "Secular teachers vs. traditional lineages — what's genuinely different?",
+    body: `I've spent significant time with secular mindfulness teachers, and separately with teachers from the Vipassana and Tibetan traditions. The secular framing is obviously different, but I'm trying to understand whether the differences are:
 
 a) Mostly rhetorical/packaging (same pointing, different vocabulary)
 b) Substantively different in what they're pointing at or how they develop practice
 c) Some of both, and it depends on the specific tradition
 
-The pointing-out instruction emphasis in Waking Up feels closer to Tibetan approaches than to Theravada. But Sam's framing of ethics and the relationship between insight and behavior seems distinct from both. Curious what others have found.`,
+The pointing-out instruction emphasis in some secular approaches feels closer to Tibetan approaches than to Theravada. But the secular framing of ethics and the relationship between insight and behavior seems distinct from both. Curious what others have found.`,
     author_wallet: SEED_AUTHORS[4],
     votes: 15,
     replies: [
