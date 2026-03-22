@@ -18,7 +18,8 @@
     "cluster:questions": "tsx scripts/cluster-questions.ts",
     "backup:db": "tsx scripts/backup-db.ts",
     "export:subscribers": "tsx scripts/export-subscribers.ts",
-    "benchmark:embeddings": "tsx scripts/benchmark-embeddings.ts"
+    "benchmark:embeddings": "tsx scripts/benchmark-embeddings.ts",
+    "build:concept-graph": "tsx scripts/build-concept-graph.ts"
   },
   "dependencies": {
     "@pinecone-database/pinecone": "^7.1.0",
