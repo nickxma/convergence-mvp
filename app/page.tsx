@@ -337,6 +337,9 @@ export default function LandingPage() {
             <a href="/privacy" className="text-xs transition-colors" style={{ color: 'var(--text-muted)' }}>
               Privacy
             </a>
+            <a href="/terms" className="text-xs transition-colors" style={{ color: 'var(--text-muted)' }}>
+              Terms
+            </a>
             <a
               href="https://twitter.com/quiet_drift"
               target="_blank"
