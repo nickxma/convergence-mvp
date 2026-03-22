@@ -10,7 +10,7 @@ import {
   newConversationId,
   titleFromQuestion,
 } from '@/lib/conversations';
-import { addBookmark, removeBookmark, isBookmarked } from '@/lib/bookmarks';
+import { SaveToReadingListButton } from '@/components/save-to-reading-list-button';
 import { exportConversation, exportSingleAnswer } from '@/lib/export';
 import { track } from '@vercel/analytics';
 import { UpgradePrompt } from '@/components/upgrade-prompt';
@@ -527,68 +527,7 @@ function FeedbackButtons({ answerId }: { answerId: string }) {
 }
 
 
-// ── Bookmark button ───────────────────────────────────────────────────────────
-
-function BookmarkButton({
-  answerId,
-  question,
-  answer,
-}: {
-  answerId: string;
-  question: string;
-  answer: string;
-}) {
-  const { user } = useAuth();
-  const userId = user?.id ?? null;
-  const [bookmarked, setBookmarked] = useState(() => {
-    if (!userId || typeof window === 'undefined') return false;
-    return isBookmarked(userId, answerId);
-  });
-
-  if (!userId) return null;
-
-  function toggle() {
-    if (!userId) return;
-    if (bookmarked) {
-      removeBookmark(userId, answerId);
-      setBookmarked(false);
-    } else {
-      addBookmark(userId, {
-        answerId,
-        question,
-        excerpt: answer.slice(0, 200),
-        createdAt: Date.now(),
-      });
-      setBookmarked(true);
-    }
-  }
-
-  return (
-    <button
-      onClick={toggle}
-      title={bookmarked ? 'Remove bookmark' : 'Bookmark answer'}
-      aria-label={bookmarked ? 'Remove bookmark' : 'Bookmark answer'}
-      aria-pressed={bookmarked}
-      className="flex items-center gap-1 text-xs transition-colors mt-2"
-      style={{ color: bookmarked ? 'var(--sage)' : 'var(--text-faint)' }}
-    >
-      <svg
-        className="w-3.5 h-3.5"
-        fill={bookmarked ? 'currentColor' : 'none'}
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-        strokeWidth={2}
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z"
-        />
-      </svg>
-      {bookmarked ? 'Saved' : 'Save'}
-    </button>
-  );
-}
+// ── Bookmark button (delegates to SaveToReadingListButton) ────────────────────
 
 // ── Share link button ─────────────────────────────────────────────────────────
 
@@ -783,8 +722,8 @@ function AssistantMessage({
               <TwitterShareButton question={question} answer={content} answerId={answerId} />
             )}
             {answerId && <FeedbackButtons answerId={answerId} />}
-            {answerId && question && (
-              <BookmarkButton answerId={answerId} question={question} answer={content} />
+            {answerId && (
+              <SaveToReadingListButton answerId={answerId} />
             )}
             {question && (
               <ExportAnswerButton question={question} answer={content} sources={sources ?? []} />

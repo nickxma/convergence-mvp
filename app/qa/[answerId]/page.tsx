@@ -2,6 +2,7 @@ import { cache } from 'react';
 import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
 import { supabase } from '@/lib/supabase';
+import { SaveToReadingListButton } from '@/components/save-to-reading-list-button';
 
 interface Source {
   text: string;
@@ -139,6 +140,9 @@ export default async function QAAnswerPage({ params }: Props) {
           style={{ background: '#f0ece3', color: '#2c2c2c' }}
         >
           <FormattedAnswer text={answer.answer} />
+          <div className="mt-4 pt-3" style={{ borderTop: '1px solid #ddd5c8' }}>
+            <SaveToReadingListButton answerId={answer.id} />
+          </div>
         </div>
 
         {/* Sources */}
