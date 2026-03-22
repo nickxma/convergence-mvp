@@ -1,11 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { usePrivy } from '@privy-io/react-auth';
+import { useAuth } from '@/lib/use-auth';
 import { loadBookmarks, removeBookmark, type Bookmark } from '@/lib/bookmarks';
 
 export default function BookmarksPage() {
-  const { ready, authenticated, user } = usePrivy();
+  const { ready, authenticated, user } = useAuth();
   const userId = user?.id ?? null;
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
 

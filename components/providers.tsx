@@ -20,6 +20,8 @@ function PrivyAuthBridge({ children }: { children: React.ReactNode }) {
     authenticated: privy.authenticated,
     user: privy.user as AuthState['user'],
     getAccessToken: privy.getAccessToken,
+    login: privy.login,
+    logout: privy.logout,
   };
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
@@ -32,6 +34,8 @@ interface PrivyMock {
   authenticated?: boolean;
   user?: AuthState['user'];
   getAccessToken?: () => Promise<string | null>;
+  login?: () => void;
+  logout?: () => Promise<void>;
 }
 
 declare global {
@@ -49,6 +53,8 @@ function MockAuthBridge({ children }: { children: React.ReactNode }) {
         authenticated: m.authenticated ?? false,
         user: m.user ?? null,
         getAccessToken: m.getAccessToken ?? DEFAULT_AUTH.getAccessToken,
+        login: m.login ?? DEFAULT_AUTH.login,
+        logout: m.logout ?? DEFAULT_AUTH.logout,
       };
     }
     return DEFAULT_AUTH;
@@ -62,6 +68,8 @@ function MockAuthBridge({ children }: { children: React.ReactNode }) {
       authenticated: m.authenticated ?? false,
       user: m.user ?? null,
       getAccessToken: m.getAccessToken ?? DEFAULT_AUTH.getAccessToken,
+      login: m.login ?? DEFAULT_AUTH.login,
+      logout: m.logout ?? DEFAULT_AUTH.logout,
     });
   }, []);
 

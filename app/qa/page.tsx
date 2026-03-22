@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
-import { usePrivy } from '@privy-io/react-auth';
+import { useAuth } from '@/lib/use-auth';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { QAInterface, type QAInterfaceActions } from '@/components/qa-interface';
 import { MeditateInterface } from '@/components/meditate-interface';
@@ -176,7 +176,7 @@ function ConversationSidebar({
 }
 
 function HomeInner() {
-  const { ready, authenticated, logout, login, user, getAccessToken } = usePrivy();
+  const { ready, authenticated, logout, login, user, getAccessToken } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const initialQuestion = searchParams?.get('q') ?? undefined;

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback, type RefObject, type MutableRefObject, FormEvent, KeyboardEvent } from 'react';
-import { usePrivy } from '@privy-io/react-auth';
+import { useAuth } from '@/lib/use-auth';
 import {
   type Message,
   type Conversation,
@@ -352,7 +352,7 @@ function CopyButton({ text }: { text: string }) {
 // ── Feedback buttons ──────────────────────────────────────────────────────────
 
 function FeedbackButtons({ answerId }: { answerId: string }) {
-  const { getAccessToken } = usePrivy();
+  const { getAccessToken } = useAuth();
   const [voted, setVoted] = useState<'up' | 'down' | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -441,7 +441,7 @@ function BookmarkButton({
   question: string;
   answer: string;
 }) {
-  const { user } = usePrivy();
+  const { user } = useAuth();
   const userId = user?.id ?? null;
   const [bookmarked, setBookmarked] = useState(() => {
     if (!userId || typeof window === 'undefined') return false;
@@ -742,7 +742,7 @@ interface QAInterfaceProps {
 }
 
 export function QAInterface({ initialConversation, onConversationUpdate, onNewChat, initialQuestion, actionsRef }: QAInterfaceProps) {
-  const { user, login } = usePrivy();
+  const { user, login } = useAuth();
   const walletAddress = user?.wallet?.address ?? null;
   const userId = user?.id ?? null;
 
