@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, FormEvent, KeyboardEvent } from 'react';
+import { useState, useRef, useEffect, type RefObject, FormEvent, KeyboardEvent } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
 import {
   type Message,
@@ -19,16 +19,95 @@ interface Source {
   score: number;
 }
 
-function SourceList({ sources }: { sources: Source[] }) {
-  const [open, setOpen] = useState(false);
+/**
+ * Renders answer text with paragraph breaks and clickable [N] citation badges.
+ * Double newlines → paragraph break; single newlines → <br>.
+ * [N] markers become small superscript buttons that open the sources panel.
+ */
+function FormattedAnswer({
+  text,
+  onCitationClick,
+}: {
+  text: string;
+  onCitationClick?: (n: number) => void;
+}) {
+  const paragraphs = text.split(/\n{2,}/).map((s) => s.trim()).filter(Boolean);
+  if (paragraphs.length === 0) return <span>{text}</span>;
 
+  return (
+    <>
+      {paragraphs.map((para, pIdx) => {
+        const parts = para.split(/(\[\d+\])/);
+        return (
+          <p key={pIdx} style={{ marginTop: pIdx > 0 ? '0.65rem' : 0 }}>
+            {parts.map((part, j) => {
+              const match = part.match(/^\[(\d+)\]$/);
+              if (match && onCitationClick) {
+                const n = parseInt(match[1], 10);
+                return (
+                  <button
+                    key={j}
+                    onClick={() => onCitationClick(n)}
+                    title={`View source ${n}`}
+                    aria-label={`View source ${n}`}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      background: '#ddd5c8',
+                      color: '#5a6b52',
+                      borderRadius: '3px',
+                      padding: '0 4px',
+                      fontSize: '0.6rem',
+                      fontFamily: 'monospace',
+                      verticalAlign: 'super',
+                      lineHeight: '1.5',
+                      margin: '0 1px',
+                      cursor: 'pointer',
+                      border: 'none',
+                    }}
+                  >
+                    {n}
+                  </button>
+                );
+              }
+              return (
+                <span key={j}>
+                  {part.split('\n').map((line, k) => (
+                    <span key={k}>{k > 0 && <br />}{line}</span>
+                  ))}
+                </span>
+              );
+            })}
+          </p>
+        );
+      })}
+    </>
+  );
+}
+
+/**
+ * Numbered, collapsible source list. `open` and `onToggle` are controlled
+ * externally so the parent can open the panel when a citation is clicked.
+ */
+function SourceList({
+  sources,
+  open,
+  onToggle,
+  sourceRefs,
+}: {
+  sources: Source[];
+  open: boolean;
+  onToggle: () => void;
+  sourceRefs?: RefObject<(HTMLDivElement | null)[]>;
+}) {
   if (sources.length === 0) return null;
 
   return (
     <div className="mt-3">
       <button
-        onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 text-xs font-medium text-sage-600 hover:text-sage-800 transition-colors"
+        onClick={onToggle}
+        className="flex items-center gap-1.5 text-xs font-medium transition-colors"
         style={{ color: '#7d8c6e' }}
       >
         <svg
@@ -49,27 +128,93 @@ function SourceList({ sources }: { sources: Source[] }) {
           {sources.map((s, i) => (
             <div
               key={i}
+              ref={(el) => {
+                if (sourceRefs?.current) sourceRefs.current[i] = el;
+              }}
               className="rounded-lg p-3 text-xs"
               style={{
                 background: '#f0ece3',
                 borderLeft: '2px solid #b8ccb0',
               }}
             >
-              {s.speaker && (
-                <p className="font-semibold mb-1" style={{ color: '#5a6b52' }}>
-                  {s.speaker}
-                </p>
-              )}
-              <p className="leading-relaxed" style={{ color: '#5c5248' }}>
-                {s.text}
-              </p>
-              {s.source && (
-                <p className="mt-1 opacity-60 font-mono" style={{ color: '#7d8c6e' }}>
-                  {s.source}
-                </p>
-              )}
+              <div className="flex items-start gap-2">
+                <span
+                  className="font-mono flex-shrink-0 mt-0.5"
+                  style={{ color: '#9c9080', fontSize: '0.65rem' }}
+                >
+                  [{i + 1}]
+                </span>
+                <div className="flex-1 min-w-0">
+                  {s.speaker && (
+                    <p className="font-semibold mb-1" style={{ color: '#5a6b52' }}>
+                      {s.speaker}
+                    </p>
+                  )}
+                  <p className="leading-relaxed" style={{ color: '#5c5248' }}>
+                    {s.text}
+                  </p>
+                  {s.source && (
+                    <p className="mt-1 opacity-60 font-mono" style={{ color: '#7d8c6e' }}>
+                      {s.source}
+                    </p>
+                  )}
+                </div>
+              </div>
             </div>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Wrapper for an assistant message bubble.
+ * Coordinates citation clicks → source panel open + scroll-to-source.
+ */
+function AssistantMessage({
+  content,
+  sources,
+  isError,
+}: {
+  content: string;
+  sources?: Source[];
+  isError?: boolean;
+}) {
+  const [sourcesOpen, setSourcesOpen] = useState(false);
+  const sourceRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  function handleCitationClick(n: number) {
+    setSourcesOpen(true);
+    // Scroll to the referenced source after the panel renders
+    requestAnimationFrame(() => {
+      sourceRefs.current[n - 1]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+  }
+
+  return (
+    <div className="max-w-xl">
+      <div
+        className="rounded-2xl rounded-tl-sm px-4 py-3 text-sm leading-relaxed"
+        style={{
+          background: isError ? '#fff4f2' : '#f0ece3',
+          color: isError ? '#c0392b' : '#2c2c2c',
+          border: isError ? '1px solid #f5c6c0' : 'none',
+        }}
+      >
+        <FormattedAnswer
+          text={content}
+          onCitationClick={(sources?.length ?? 0) > 0 ? handleCitationClick : undefined}
+        />
+      </div>
+      {sources && sources.length > 0 && (
+        <div className="px-2">
+          <SourceList
+            sources={sources}
+            open={sourcesOpen}
+            onToggle={() => setSourcesOpen((v) => !v)}
+            sourceRefs={sourceRefs}
+          />
         </div>
       )}
     </div>
@@ -338,23 +483,11 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
                 </div>
               ) : (
                 <div className="flex justify-start">
-                  <div className="max-w-xl">
-                    <div
-                      className="rounded-2xl rounded-tl-sm px-4 py-3 text-sm leading-relaxed"
-                      style={{
-                        background: msg.error ? '#fff4f2' : '#f0ece3',
-                        color: msg.error ? '#c0392b' : '#2c2c2c',
-                        border: msg.error ? '1px solid #f5c6c0' : 'none',
-                      }}
-                    >
-                      {msg.content}
-                    </div>
-                    {msg.sources && msg.sources.length > 0 && (
-                      <div className="px-2">
-                        <SourceList sources={msg.sources} />
-                      </div>
-                    )}
-                  </div>
+                  <AssistantMessage
+                    content={msg.content}
+                    sources={msg.sources}
+                    isError={msg.error}
+                  />
                 </div>
               )}
             </div>
