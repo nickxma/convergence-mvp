@@ -46,7 +46,7 @@ loadEnvLocal();
 import { Pinecone } from '@pinecone-database/pinecone';
 import OpenAI from 'openai';
 import { CohereClient } from 'cohere-ai';
-import { shouldExpandQuery, expandQuery, reciprocalRankFusion } from '@/lib/query-expansion';
+import { shouldExpandQuery, expandQuery, reciprocalRankFusion, generateQueryVariants, reciprocalRankFusionByChunkId } from '@/lib/query-expansion';
 
 // ── Pipeline configs ──────────────────────────────────────────────────────────
 
@@ -104,6 +104,8 @@ const QUERIES = [
 
 const TOP_K = 20;
 const RERANK_TOP_N = 6;
+const MULTI_QUERY_TOP_K = 5;  // per-variant retrieval count
+const MULTI_QUERY_TOP_N = 7;  // final chunk count for multi-query
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -122,6 +124,7 @@ interface QueryResult {
   totalCandidates: number;
   rerankUsed: boolean;
   expansionUsed: boolean;
+  multiQueryUsed: boolean;
   phrasings?: string[];
   chunks: RetrievedChunk[];
   error?: string;
@@ -208,12 +211,17 @@ async function main() {
 
   // --expand flag enables short-query expansion with RRF (OLU-597 Fix 2)
   const useExpansion = process.argv.includes('--expand');
+  // --multi-query flag enables full multi-query retrieval for all queries (OLU-693)
+  // Generates 3 variants (different perspective, simpler, more technical) per query,
+  // retrieves top-5 per variant, deduplicates by chunkId, re-ranks with RRF, returns top-7.
+  const useMultiQuery = process.argv.includes('--multi-query');
 
   console.log(`\n═══ RAG Benchmark — ${QUERIES.length} queries ══════════════════════════════`);
-  console.log(`  Pipeline:  ${cfg.label}`);
-  console.log(`  Index:     ${indexName}`);
-  console.log(`  Re-rank:   ${cohere ? 'Cohere rerank-v3.5' : 'disabled (cosine order)'}`);
-  console.log(`  Expansion: ${useExpansion ? 'enabled (≤3-word queries → GPT-4o + RRF)' : 'disabled (use --expand to enable)'}`);
+  console.log(`  Pipeline:    ${cfg.label}`);
+  console.log(`  Index:       ${indexName}`);
+  console.log(`  Re-rank:     ${cohere ? 'Cohere rerank-v3.5' : 'disabled (cosine order)'}`);
+  console.log(`  Expansion:   ${useExpansion ? 'enabled (≤3-word queries → GPT-4o + RRF)' : 'disabled (use --expand to enable)'}`);
+  console.log(`  Multi-query: ${useMultiQuery ? 'enabled (all queries → 3 variants + chunkId RRF, top-7)' : 'disabled (use --multi-query to enable)'}`);
   console.log('─'.repeat(75));
 
   const results: QueryResult[] = [];
@@ -223,13 +231,21 @@ async function main() {
     const t0 = Date.now();
 
     try {
-      // ── Query expansion (OLU-597 Fix 2) ─────────────────────────────────
-      // For short/abstract queries (≤ 3 words), expand to multiple phrasings
-      // and fuse results with Reciprocal Rank Fusion.
+      // ── Query expansion / multi-query variant generation ─────────────────
       let phrasings: string[] = [query];
       let expansionUsed = false;
+      let multiQueryUsed = false;
 
-      if (useExpansion && shouldExpandQuery(query)) {
+      if (useMultiQuery) {
+        // Multi-query mode (OLU-693): generate 3 variants for any query length
+        const variants = await generateQueryVariants(query, oai);
+        if (variants.length > 0) {
+          phrasings = [query, ...variants];
+          multiQueryUsed = true;
+          process.stdout.write(`[mq +${variants.length}v] `);
+        }
+      } else if (useExpansion && shouldExpandQuery(query)) {
+        // Short-query expansion fallback (OLU-597)
         phrasings = await expandQuery(query, oai);
         expansionUsed = phrasings.length > 1;
         if (expansionUsed) {
@@ -237,8 +253,11 @@ async function main() {
         }
       }
 
+      const activeTopK = multiQueryUsed ? MULTI_QUERY_TOP_K : TOP_K;
+      const activeTopN = multiQueryUsed ? MULTI_QUERY_TOP_N : RERANK_TOP_N;
+
       // ── Retrieve per phrasing ────────────────────────────────────────────
-      const perPhrasingChunks: Array<Array<{ text: string; speaker: string; source: string; score: number }>> = [];
+      const perPhrasingChunks: Array<Array<{ text: string; speaker: string; source: string; score: number; chunkId?: string }>> = [];
 
       for (const phrasing of phrasings) {
         const vector = await embedQuery(oai, phrasing, cfg.embedModel, cfg.embedDimensions);
@@ -246,12 +265,12 @@ async function main() {
         let allMatches: PineconeMatch[];
         if (cfg.summaryNamespace) {
           const [raw, summary] = await Promise.all([
-            pineconeQuery(pc, indexName, vector, cfg.namespace, TOP_K),
-            pineconeQuery(pc, indexName, vector, cfg.summaryNamespace, TOP_K).catch(() => [] as PineconeMatch[]),
+            pineconeQuery(pc, indexName, vector, cfg.namespace, activeTopK),
+            pineconeQuery(pc, indexName, vector, cfg.summaryNamespace, activeTopK).catch(() => [] as PineconeMatch[]),
           ]);
           allMatches = [...raw, ...summary];
         } else {
-          allMatches = await pineconeQuery(pc, indexName, vector, cfg.namespace, TOP_K);
+          allMatches = await pineconeQuery(pc, indexName, vector, cfg.namespace, activeTopK);
         }
 
         const chunkMap = mergeChunks(allMatches);
@@ -259,8 +278,11 @@ async function main() {
       }
 
       // ── Merge: RRF (multi-phrasing) or direct sort (single phrasing) ────
-      let allChunks: Array<{ text: string; speaker: string; source: string; score: number }>;
-      if (expansionUsed && perPhrasingChunks.length > 1) {
+      // Multi-query uses chunkId-keyed RRF for accurate cross-variant dedup.
+      let allChunks: Array<{ text: string; speaker: string; source: string; score: number; chunkId?: string }>;
+      if (multiQueryUsed && perPhrasingChunks.length > 1) {
+        allChunks = reciprocalRankFusionByChunkId(perPhrasingChunks);
+      } else if (expansionUsed && perPhrasingChunks.length > 1) {
         allChunks = reciprocalRankFusion(perPhrasingChunks);
       } else {
         allChunks = perPhrasingChunks[0] ?? [];
@@ -275,16 +297,16 @@ async function main() {
             model: 'rerank-v3.5',
             query,
             documents: allChunks.map((c) => ({ text: c.text })),
-            topN: Math.min(RERANK_TOP_N, allChunks.length),
+            topN: Math.min(activeTopN, allChunks.length),
             returnDocuments: false,
           });
           finalChunks = rerankResult.results.map((r) => ({ ...allChunks[r.index], score: r.relevanceScore }));
           rerankUsed = true;
         } catch {
-          finalChunks = allChunks.slice(0, RERANK_TOP_N);
+          finalChunks = allChunks.slice(0, activeTopN);
         }
       } else {
-        finalChunks = allChunks.slice(0, RERANK_TOP_N);
+        finalChunks = allChunks.slice(0, activeTopN);
       }
 
       const latencyMs = Date.now() - t0;
@@ -295,7 +317,8 @@ async function main() {
         totalCandidates: allChunks.length,
         rerankUsed,
         expansionUsed,
-        phrasings: expansionUsed ? phrasings : undefined,
+        multiQueryUsed,
+        phrasings: (multiQueryUsed || expansionUsed) ? phrasings : undefined,
         chunks: finalChunks.map((c, i) => ({ rank: i + 1, ...c })),
       });
 
@@ -306,7 +329,7 @@ async function main() {
     } catch (err) {
       const latencyMs = Date.now() - t0;
       console.log(`ERROR: ${(err as Error).message}`);
-      results.push({ id, query, latencyMs, totalCandidates: 0, rerankUsed: false, expansionUsed: false, chunks: [], error: (err as Error).message });
+      results.push({ id, query, latencyMs, totalCandidates: 0, rerankUsed: false, expansionUsed: false, multiQueryUsed: false, chunks: [], error: (err as Error).message });
     }
 
     await new Promise((r) => setTimeout(r, 200));
@@ -336,6 +359,8 @@ async function main() {
     corpusState: { wakingUpVectors: wakingUpCount, defaultVectors: defaultCount },
     rerankEnabled: !!cohere,
     expansionEnabled: useExpansion,
+    multiQueryEnabled: useMultiQuery,
+    multiQueryConfig: useMultiQuery ? { variantsPerQuery: 3, topKPerVariant: MULTI_QUERY_TOP_K, finalTopN: MULTI_QUERY_TOP_N } : null,
     summary: { totalQueries: results.length, queriesWithResults: withResults.length, avgLatencyMs: Math.round(avgLatency), avgTopScore: Number(avgTopScore.toFixed(4)) },
     results,
   }, null, 2), 'utf-8');

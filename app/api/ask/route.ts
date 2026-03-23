@@ -21,7 +21,7 @@ import { monitoredQuery } from '@/lib/db-monitor';
 import { logOpenAIUsage } from '@/lib/openai-usage';
 import { embedOne, embedBatch } from '@/lib/embeddings';
 import { getConceptContext } from '@/lib/concept-graph';
-import { shouldExpandQuery, expandQuery, reciprocalRankFusion } from '@/lib/query-expansion';
+import { shouldExpandQuery, expandQuery, reciprocalRankFusion, generateQueryVariants, reciprocalRankFusionByChunkId } from '@/lib/query-expansion';
 import { getEssayContext, getCourseSessionContext } from '@/lib/essay-cache';
 import { RagTracer } from '@/lib/rag-tracer';
 import { buildAnswerCacheKey, getAnswerCache, setAnswerCache } from '@/lib/qa-answer-cache';
@@ -33,6 +33,8 @@ const PINECONE_NAMESPACE = 'waking-up';
 const PINECONE_SUMMARY_NAMESPACE = 'waking-up-summaries';
 const TOP_K = 20; // broad retrieval per namespace — merged result is re-ranked below
 const RERANK_TOP_N = 6; // final chunk count after Cohere re-ranking
+const MULTI_QUERY_TOP_K = 5; // per-variant retrieval count (ENABLE_MULTI_QUERY mode)
+const MULTI_QUERY_TOP_N = 7; // final chunk count for multi-query (more variants → wider coverage)
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
@@ -271,6 +273,7 @@ export async function POST(req: NextRequest) {
 
   const oai = new OpenAI({ apiKey: openaiKey });
   const pc = new Pinecone({ apiKey: pineconeKey });
+  const enableMultiQuery = process.env.ENABLE_MULTI_QUERY === 'true';
 
   const logCtx = `ip=${ip} userId=${userId ?? 'anon'} wallet=${walletAddress ?? 'none'} conv=${conversationId} q="${question.slice(0, 80)}"`;
 
@@ -485,15 +488,36 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ── Query expansion for short/abstract queries (OLU-597 Fix 2) ───────────
-  // Single-word or very short queries (≤ 3 words) match conversational fragments
-  // rather than substantive chunks. Expand to 3 richer phrasings via GPT-4o, then
-  // fuse per-phrasing retrievals with Reciprocal Rank Fusion.
-  // Only applies to standalone (non-follow-up) questions without essay/teacher context
-  // (follow-ups have richer context already; essay/teacher context changes the query).
+  // ── Query expansion / multi-query retrieval ───────────────────────────────
+  // Two modes, both gated by canExpand (standalone, no essay/teacher context):
+  //
+  // ENABLE_MULTI_QUERY=true (OLU-693): generate 3 semantically-distinct variants
+  //   for ANY query (different perspective, simpler, more technical). Retrieve top-5
+  //   per variant, deduplicate by chunkId, re-rank with RRF, return top-7.
+  //
+  // Fallback (OLU-597): for short/abstract queries (≤ 3 words), expand to 3 richer
+  //   phrasings via GPT-4o and fuse with RRF. Applies when multi-query is disabled.
+  //
+  // Follow-ups, essay context, and teacher-filtered queries skip both paths since
+  // the context already narrows the query sufficiently.
   const canExpand = !isFollowUp && !essayCtx && !teacher;
   let queryPhrasings: string[] = [embedInput];
-  if (canExpand && shouldExpandQuery(question)) {
+  let isMultiQuery = false;
+
+  if (canExpand && enableMultiQuery) {
+    // Multi-query mode: generate 3 variants for any query length
+    try {
+      const variants = await generateQueryVariants(question, oai);
+      if (variants.length > 0) {
+        queryPhrasings = [embedInput, ...variants];
+        isMultiQuery = true;
+        console.log(`[/api/ask] multi_query_expansion phrasings=${queryPhrasings.length} q="${question.slice(0, 60)}" ${logCtx}`);
+      }
+    } catch (mqErr) {
+      console.warn(`[/api/ask] multi_query_expansion_failed err=${mqErr instanceof Error ? mqErr.message : String(mqErr)}`);
+    }
+  } else if (canExpand && shouldExpandQuery(question)) {
+    // Short-query expansion fallback
     try {
       queryPhrasings = await expandQuery(question, oai);
       console.log(`[/api/ask] query_expansion phrasings=${queryPhrasings.length} q="${question.slice(0, 60)}" ${logCtx}`);
@@ -540,6 +564,10 @@ export async function POST(req: NextRequest) {
 
   const perPhrasingChunks: Array<Array<{ text: string; speaker: string; source: string; score: number; chunkId: string }>> = [];
 
+  // Use narrower per-variant topK in multi-query mode: 4 variants × 5 chunks ≈ 20
+  // candidates after RRF, which is the same pool size as single-query mode (TOP_K=20).
+  const activeTopK = isMultiQuery ? MULTI_QUERY_TOP_K : TOP_K;
+
   try {
     await tracer.trace('rag.vector_search', async () => {
       const index = pc.Index(pineconeIndex);
@@ -548,13 +576,13 @@ export async function POST(req: NextRequest) {
         const [rawResults, summaryResults] = await Promise.all([
           index.namespace(PINECONE_NAMESPACE).query({
             vector: vec,
-            topK: TOP_K,
+            topK: activeTopK,
             includeMetadata: true,
             ...(pineconeFilter ? { filter: pineconeFilter } : {}),
           }),
           index.namespace(PINECONE_SUMMARY_NAMESPACE).query({
             vector: vec,
-            topK: TOP_K,
+            topK: activeTopK,
             includeMetadata: true,
             ...(pineconeFilter ? { filter: pineconeFilter } : {}),
           }).catch(() => ({ matches: [] })), // graceful fallback if namespace empty
@@ -568,7 +596,7 @@ export async function POST(req: NextRequest) {
           try {
             const fallbackResults = await index.namespace('__default__').query({
               vector: vec,
-              topK: TOP_K,
+              topK: activeTopK,
               includeMetadata: true,
             });
             const fallbackMatches = (fallbackResults.matches ?? []) as PineconeMatch[];
@@ -593,9 +621,13 @@ export async function POST(req: NextRequest) {
     return handlePineconeError(err, logCtx);
   }
 
-  // ── Merge: RRF (multi-phrasing expansion) or direct sort (single phrasing) ─
+  // ── Merge: RRF (multi-phrasing) or direct sort (single phrasing) ───────────
+  // Multi-query mode uses chunkId-keyed RRF for more accurate cross-variant dedup.
+  // Short-query expansion falls back to text-keyed RRF (no guaranteed chunkId parity).
   const allChunks = queryVectors.length > 1 && perPhrasingChunks.length > 1
-    ? reciprocalRankFusion(perPhrasingChunks)
+    ? isMultiQuery
+      ? reciprocalRankFusionByChunkId(perPhrasingChunks)
+      : reciprocalRankFusion(perPhrasingChunks)
     : (perPhrasingChunks[0] ?? []);
 
   // ── Feedback score re-ranking boost ───────────────────────────────────────
@@ -628,10 +660,12 @@ export async function POST(req: NextRequest) {
 
   // ── Cohere re-ranking ─────────────────────────────────────────────────────
   // If COHERE_API_KEY is set, re-rank the broad retrieval set and keep top N.
-  // Falls back to cosine-score order if the key is absent or the call fails.
+  // Falls back to cosine/RRF score order if the key is absent or the call fails.
+  // Multi-query mode targets MULTI_QUERY_TOP_N (7) instead of RERANK_TOP_N (6).
   const cohereKey = process.env.COHERE_API_KEY;
+  const activeRerankTopN = isMultiQuery ? MULTI_QUERY_TOP_N : RERANK_TOP_N;
   let chunks: typeof allChunks;
-  if (cohereKey && allChunks.length > RERANK_TOP_N) {
+  if (cohereKey && allChunks.length > activeRerankTopN) {
     try {
       chunks = await tracer.trace('rag.cohere_rerank', async () => {
         const cohere = new CohereClient({ token: cohereKey });
@@ -639,21 +673,21 @@ export async function POST(req: NextRequest) {
           model: 'rerank-v3.5',
           query: question,
           documents: allChunks.map((c) => ({ text: c.text })),
-          topN: RERANK_TOP_N,
+          topN: activeRerankTopN,
           returnDocuments: false,
         });
         return rerankResult.results.map((r) => ({
           ...allChunks[r.index],
           score: r.relevanceScore,
         }));
-      }, { input_count: allChunks.length, top_n: RERANK_TOP_N });
+      }, { input_count: allChunks.length, top_n: activeRerankTopN });
       console.log(`[/api/ask] reranked ${allChunks.length} → ${chunks.length} chunks ${logCtx}`);
     } catch (err) {
       console.warn(`[/api/ask] rerank_failed fallback to cosine err=${err instanceof Error ? err.message : String(err)}`);
-      chunks = allChunks.slice(0, RERANK_TOP_N);
+      chunks = allChunks.slice(0, activeRerankTopN);
     }
   } else {
-    chunks = allChunks.slice(0, RERANK_TOP_N);
+    chunks = allChunks.slice(0, activeRerankTopN);
   }
 
   // ── Build context ─────────────────────────────────────────────────────────

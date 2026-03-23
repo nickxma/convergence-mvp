@@ -122,6 +122,92 @@ export function reciprocalRankFusion(
 }
 
 /**
+ * Multi-query variant generation for any query length (OLU-693).
+ *
+ * Produces 3 semantically-distinct reformulations:
+ *   1. Different perspective — same question reframed from another angle
+ *   2. Simpler — plain-language version a beginner would ask
+ *   3. More technical — precise meditation / Buddhist / neuroscience terminology
+ *
+ * Returns exactly 3 variant strings, or [] on error so callers can fall back
+ * to single-query retrieval gracefully.
+ */
+export async function generateQueryVariants(query: string, oai: OpenAI): Promise<string[]> {
+  const prompt = `You are improving a semantic search system over mindfulness and meditation transcripts.
+
+Original query: "${query}"
+
+Generate exactly 3 reformulations to improve retrieval coverage:
+1. Different perspective: same core question from a different angle or framing
+2. Simpler: plain-language version a beginner would ask
+3. More technical: version using precise meditation, Buddhist, or neuroscience terminology
+
+Return a JSON object: {"variants": ["different perspective version", "simpler version", "more technical version"]}`;
+
+  try {
+    const resp = await oai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.4,
+      max_tokens: 300,
+      response_format: { type: 'json_object' },
+    });
+    const raw = resp.choices[0]?.message?.content ?? '{}';
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const arr: unknown = parsed.variants ?? parsed.phrasings ?? parsed.reformulations ??
+      Object.values(parsed).find((v) => Array.isArray(v));
+    if (Array.isArray(arr) && arr.length > 0) {
+      const variants = (arr as unknown[]).slice(0, 3).map(String).filter(Boolean);
+      if (variants.length > 0) return variants;
+    }
+  } catch (err) {
+    console.warn(`[query-expansion] generate_variants_failed query="${query}" err=${err instanceof Error ? err.message : String(err)}`);
+  }
+  return [];
+}
+
+/**
+ * Reciprocal Rank Fusion keyed by chunkId rather than text (preferred for multi-query).
+ *
+ * Uses chunkId as the deduplication key so chunks retrieved by different query variants
+ * but referencing the same underlying passage are correctly merged. Falls back to text
+ * as key when chunkId is absent.
+ *
+ * Returns chunks sorted by descending RRF score, normalised to [0, 1].
+ */
+export function reciprocalRankFusionByChunkId(
+  rankings: RankedChunk[][],
+  k = 60,
+): RankedChunk[] {
+  const rrfScores = new Map<string, number>();
+  const chunkByKey = new Map<string, RankedChunk>();
+
+  for (const ranking of rankings) {
+    ranking.forEach((chunk, idx) => {
+      const key = chunk.chunkId ?? chunk.text;
+      const rank = idx + 1;
+      const prev = rrfScores.get(key) ?? 0;
+      rrfScores.set(key, prev + 1 / (k + rank));
+      if (!chunkByKey.has(key)) {
+        chunkByKey.set(key, chunk);
+      }
+    });
+  }
+
+  const sorted = Array.from(rrfScores.entries())
+    .sort((a, b) => b[1] - a[1]);
+
+  if (sorted.length === 0) return [];
+
+  const maxScore = sorted[0][1];
+
+  return sorted.map(([key, rrfScore]) => ({
+    ...chunkByKey.get(key)!,
+    score: maxScore > 0 ? rrfScore / maxScore : 0,
+  }));
+}
+
+/**
  * Full expanded retrieval pipeline for a single query.
  *
  * 1. Expand query (if short) → up to 4 phrasings
