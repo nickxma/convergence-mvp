@@ -1030,11 +1030,13 @@ interface QAInterfaceProps {
   initialQuestion?: string;
   actionsRef?: MutableRefObject<QAInterfaceActions | null>;
   essayContext?: { title: string; courseSlug: string; sessionSlug: string } | null;
+  /** When true, hides the input form — used for replay/history viewing mode. */
+  readOnly?: boolean;
 }
 
 const TEACHER_STORAGE_KEY = 'wu_teacher_filter';
 
-export function QAInterface({ initialConversation, onConversationUpdate, onNewChat, initialQuestion, actionsRef, essayContext }: QAInterfaceProps) {
+export function QAInterface({ initialConversation, onConversationUpdate, onNewChat, initialQuestion, actionsRef, essayContext, readOnly }: QAInterfaceProps) {
   const { user, login, getAccessToken } = useAuth();
   const walletAddress = user?.wallet?.address ?? null;
   const userId = user?.id ?? null;
@@ -2294,7 +2296,25 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
         </div>
       </div>
 
-      {/* Input bar */}
+      {/* Input bar — hidden in read-only replay mode */}
+      {readOnly ? (
+        <div
+          className="border-t px-4 py-3 flex items-center justify-center gap-3"
+          style={{ borderColor: 'var(--border)', background: 'var(--bg)' }}
+        >
+          <span className="text-xs" style={{ color: 'var(--text-faint)' }}>
+            Viewing session history
+          </span>
+          <button
+            type="button"
+            onClick={onNewChat}
+            className="text-xs px-3 py-1.5 rounded-full border transition-colors"
+            style={{ borderColor: 'var(--sage)', color: 'var(--sage)' }}
+          >
+            + New Chat
+          </button>
+        </div>
+      ) : (
       <div
         className="border-t px-4 py-4"
         style={{ borderColor: 'var(--border)', background: 'var(--bg)' }}
@@ -2656,6 +2676,7 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
           )}
         </form>
       </div>
+      )}{/* end readOnly conditional */}
 
         </div>{/* end left pane */}
 
