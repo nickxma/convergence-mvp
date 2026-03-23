@@ -8,6 +8,67 @@ import crypto from 'node:crypto';
 
 export const MINUTE_MS = 60_000;
 
+// ── Token-tier rate limits (requests per minute) ─────────────────────────────
+// Users with higher token balances receive more generous per-minute allowances.
+// null rateLimit means unlimited (no per-minute gate applied).
+
+export interface TokenTier {
+  name: 'unlimited' | 'high' | 'low';
+  minBalance: number;
+  rateLimit: number | null;
+}
+
+export const TOKEN_TIERS: readonly TokenTier[] = [
+  { name: 'unlimited', minBalance: 1000, rateLimit: null },
+  { name: 'high',      minBalance: 100,  rateLimit: 60 },
+  { name: 'low',       minBalance: 0,    rateLimit: 20 },
+];
+
+/** Derive the token tier for a given on-chain balance (whole units). */
+export function getTokenTier(tokenBalance: number): TokenTier {
+  return TOKEN_TIERS.find((t) => tokenBalance >= t.minBalance) ?? TOKEN_TIERS[TOKEN_TIERS.length - 1];
+}
+
+const TOKEN_BALANCE_CACHE_TTL_SEC = 5 * 60; // 5 minutes
+
+/** Read a wallet's cached token balance from Redis. Returns null on miss or error. */
+export async function getCachedTokenBalance(walletAddress: string): Promise<number | null> {
+  const restUrl = process.env.UPSTASH_REDIS_REST_URL;
+  const restToken = process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!restUrl || !restToken) return null;
+
+  try {
+    const res = await fetch(`${restUrl}/pipeline`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${restToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify([['GET', `tokenbal:${walletAddress}`]]),
+    });
+    if (!res.ok) return null;
+    const results = (await res.json()) as Array<{ result: string | null }>;
+    const val = results[0]?.result;
+    return val !== null && val !== undefined ? Number(val) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Write a wallet's token balance to Redis with a short TTL. Fire-and-forget safe. */
+export async function setCachedTokenBalance(walletAddress: string, balance: number): Promise<void> {
+  const restUrl = process.env.UPSTASH_REDIS_REST_URL;
+  const restToken = process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!restUrl || !restToken) return;
+
+  try {
+    await fetch(`${restUrl}/pipeline`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${restToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify([['SETEX', `tokenbal:${walletAddress}`, TOKEN_BALANCE_CACHE_TTL_SEC, String(balance)]]),
+    });
+  } catch {
+    // non-fatal
+  }
+}
+
 interface RateLimitEntry {
   timestamps: number[];
 }

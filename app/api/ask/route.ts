@@ -10,7 +10,7 @@ import OpenAI, {
 } from 'openai';
 import { CohereClient } from 'cohere-ai';
 import { Pinecone } from '@pinecone-database/pinecone';
-import { checkRateLimitWithFallback, checkDailyLimit, getClientIp, isInternalRequest, MINUTE_MS } from '@/lib/rate-limit';
+import { checkRateLimitWithFallback, checkDailyLimit, getClientIp, isInternalRequest, MINUTE_MS, getTokenTier, getCachedTokenBalance, setCachedTokenBalance } from '@/lib/rate-limit';
 import { verifyRequest } from '@/lib/privy-auth';
 import { supabase } from '@/lib/supabase';
 import { getUserSubscription, FREE_TIER_DAILY_LIMIT } from '@/lib/subscription';
@@ -97,11 +97,49 @@ function errorResponse(
   return NextResponse.json({ error: { code, message } }, { status, headers });
 }
 
-// Per-minute rate limits — authenticated users get 6× the budget
-const RATE_LIMIT_AUTHED = 30; // wallet-authenticated requests per minute
+// Per-minute rate limits — overridden by token tier for authenticated users
 const RATE_LIMIT_ANON = 5;    // unauthenticated requests per minute
 const GUEST_LIMIT = 3; // free questions per IP per 24h (Supabase-tracked overall cap)
 const REFERRED_GUEST_LIMIT = 5; // bumped limit for visitors arriving via referral link
+
+/** Resolve a user's token balance: Redis cache first, then Supabase, default 0. */
+async function resolveTokenBalance(walletAddress: string): Promise<number> {
+  const cached = await getCachedTokenBalance(walletAddress);
+  if (cached !== null) return cached;
+
+  const { data } = await supabase
+    .from('token_balances')
+    .select('token_balance')
+    .eq('wallet_address', walletAddress)
+    .single();
+
+  const balance = data ? Number(data.token_balance) : 0;
+  setCachedTokenBalance(walletAddress, balance).catch(() => {}); // fire-and-forget
+  return balance;
+}
+
+/** Append a rate-limit hit record to the audit table. Non-blocking. */
+function logRateLimitHit(opts: {
+  endpoint: string;
+  userId: string | null;
+  walletAddress: string | null;
+  ipHash: string;
+  tier: string;
+  tokenBalance: number | null;
+  limitApplied: number | null;
+}): void {
+  supabase.from('rate_limit_hits').insert({
+    endpoint:       opts.endpoint,
+    user_id:        opts.userId,
+    wallet_address: opts.walletAddress,
+    ip_hash:        opts.ipHash,
+    tier:           opts.tier,
+    token_balance:  opts.tokenBalance,
+    limit_applied:  opts.limitApplied,
+  }).then(({ error }) => {
+    if (error) console.warn('[/api/ask] rate_limit_hit log failed:', error.message);
+  });
+}
 
 export async function POST(req: NextRequest) {
   const requestStart = Date.now();
@@ -116,25 +154,7 @@ export async function POST(req: NextRequest) {
   const authResult = await verifyRequest(req);
   const userId = authResult?.userId ?? null;
 
-  // ── Rate limit (bypassed for internal/agent calls) ────────────────────────
-  const rateLimit = userId ? RATE_LIMIT_AUTHED : RATE_LIMIT_ANON;
-  const rateLimitKey = userId ? `ask:user:${userId}` : `ask:anon:${ip}`;
-  const rl = isInternalRequest(req)
-    ? null
-    : await checkRateLimitWithFallback(rateLimitKey, rateLimit, MINUTE_MS);
-
-  if (rl !== null && !rl.allowed) {
-    const retryAfterSec = Math.ceil((rl.resetAt - Date.now()) / 1000);
-    console.warn(`[/api/ask] rate_limit ip=${ip} userId=${userId ?? 'anon'} store=${rl.store}`);
-    return errorResponse(429, 'RATE_LIMIT_EXCEEDED', 'Too many requests — please wait before trying again.', {
-      'Retry-After': String(retryAfterSec),
-      'X-RateLimit-Limit': String(rateLimit),
-      'X-RateLimit-Remaining': '0',
-      'X-RateLimit-Reset': String(Math.ceil(rl.resetAt / 1000)),
-    });
-  }
-
-  // ── Parse body ────────────────────────────────────────────────────────────
+  // ── Parse body (needed early for wallet address → token tier lookup) ────────
   let body: Record<string, unknown> | null = null;
   try {
     body = await req.json();
@@ -145,6 +165,50 @@ export async function POST(req: NextRequest) {
   const question: string = typeof body?.question === 'string' ? body.question.trim() : '';
   const history: HistoryMessage[] = Array.isArray(body?.history) ? (body.history as HistoryMessage[]) : [];
   const walletAddress: string | null = typeof body?.walletAddress === 'string' ? body.walletAddress : null;
+
+  // ── Token-tier rate limit (bypassed for internal/agent calls) ────────────
+  // Authenticated users: per-minute limit scales with on-chain token balance.
+  // Unauthenticated users: flat 5 req/min regardless of tier.
+  const ipHash = createHash('sha256').update(ip).digest('hex');
+  let tokenBalance: number | null = null;
+  let tierName = 'anon';
+  let rateLimit: number | null = RATE_LIMIT_ANON;
+
+  if (userId) {
+    tokenBalance = walletAddress ? await resolveTokenBalance(walletAddress) : 0;
+    const tier = getTokenTier(tokenBalance);
+    tierName = tier.name;
+    rateLimit = tier.rateLimit; // null = unlimited
+  }
+
+  const rateLimitKey = userId ? `ask:user:${userId}` : `ask:anon:${ipHash}`;
+  const rl =
+    isInternalRequest(req) || rateLimit === null
+      ? null
+      : await checkRateLimitWithFallback(rateLimitKey, rateLimit, MINUTE_MS);
+
+  if (rl !== null && !rl.allowed) {
+    const retryAfterSec = Math.ceil((rl.resetAt - Date.now()) / 1000);
+    console.warn(
+      `[/api/ask] rate_limit ip=${ip} userId=${userId ?? 'anon'} tier=${tierName} balance=${tokenBalance ?? 'n/a'} store=${rl.store}`,
+    );
+    logRateLimitHit({
+      endpoint: '/api/ask',
+      userId,
+      walletAddress,
+      ipHash,
+      tier: tierName,
+      tokenBalance,
+      limitApplied: rateLimit,
+    });
+    return errorResponse(429, 'RATE_LIMIT_EXCEEDED', 'Too many requests — please wait before trying again.', {
+      'Retry-After': String(retryAfterSec),
+      'X-RateLimit-Limit': String(rateLimit),
+      'X-RateLimit-Remaining': '0',
+      'X-RateLimit-Reset': String(Math.ceil(rl.resetAt / 1000)),
+      'X-RateLimit-Tier': tierName,
+    });
+  }
   // Answer style — controls which system prompt variant is used. Unauthenticated users always get 'detailed'.
   const rawStyle = typeof body?.answerStyle === 'string' ? body.answerStyle : 'detailed';
   const answerStyle: string = userId && rawStyle in SYSTEM_PROMPTS ? rawStyle : 'detailed';
@@ -206,7 +270,6 @@ export async function POST(req: NextRequest) {
   if (!userId) {
     const hasRefCookie = Boolean(req.cookies.get('ref')?.value?.trim());
     const effectiveGuestLimit = hasRefCookie ? REFERRED_GUEST_LIMIT : GUEST_LIMIT;
-    const ipHash = createHash('sha256').update(ip).digest('hex');
     const guestRl = await checkDailyLimit(`guest:${ipHash}`, effectiveGuestLimit);
     dailyRlHeaders = {
       'X-RateLimit-Limit': String(effectiveGuestLimit),
