@@ -63,6 +63,15 @@ const SYSTEM_PROMPTS: Record<string, string> = {
 - If excerpts are sparse, skip Part 1 and answer directly.`,
 };
 
+/** Compute response-quality format metrics for qa_analytics logging. No text is stored — only counts/flags. */
+function computeFormatMetrics(text: string) {
+  const wordCount = text.trim() ? text.trim().split(/\s+/).length : 0;
+  const paragraphCount = text.split(/\n\n+/).filter((p) => p.trim().length > 0).length;
+  const hasHeaders = /^#{1,6}\s/m.test(text);
+  const hasBullets = /^[\-\*]\s/m.test(text);
+  return { word_count: wordCount, paragraph_count: paragraphCount, has_headers: hasHeaders, has_bullets: hasBullets };
+}
+
 /** Structured error response helper. */
 function errorResponse(
   status: number,
@@ -317,8 +326,9 @@ export async function POST(req: NextRequest) {
 
         const latencyMs = Date.now() - requestStart;
         const questionHash = createHash('sha256').update(question).digest('hex');
+        const fmtMetrics = computeFormatMetrics(cachedAnswer);
         supabase.from('qa_analytics')
-          .insert({ question_hash: questionHash, pinecone_scores: [], latency_ms: latencyMs, model_used: CHAT_MODEL, cache_hit: true, semantic_cache_hit: false })
+          .insert({ question_hash: questionHash, pinecone_scores: [], latency_ms: latencyMs, model_used: CHAT_MODEL, cache_hit: true, semantic_cache_hit: false, ...fmtMetrics })
           .then(({ error }) => { if (error) console.warn(`[/api/ask] analytics_write_error err=${error.message}`); });
 
         const updatedHistory = appendTurn(effectiveHistory, question, cachedAnswer);
@@ -413,8 +423,9 @@ export async function POST(req: NextRequest) {
 
         const latencyMs = Date.now() - requestStart;
         const questionHash = createHash('sha256').update(question).digest('hex');
+        const fmtMetrics = computeFormatMetrics(cachedAnswer);
         supabase.from('qa_analytics')
-          .insert({ question_hash: questionHash, pinecone_scores: [], latency_ms: latencyMs, model_used: CHAT_MODEL, cache_hit: true, semantic_cache_hit: true })
+          .insert({ question_hash: questionHash, pinecone_scores: [], latency_ms: latencyMs, model_used: CHAT_MODEL, cache_hit: true, semantic_cache_hit: true, ...fmtMetrics })
           .then(({ error }) => { if (error) console.warn(`[/api/ask] analytics_write_error err=${error.message}`); });
 
         const updatedHistory = appendTurn(effectiveHistory, question, cachedAnswer);
@@ -623,10 +634,11 @@ export async function POST(req: NextRequest) {
     const latencyMs = Date.now() - requestStart;
     const questionHash = createHash('sha256').update(question).digest('hex');
     const pineconeScores = chunks.slice(0, 3).map((c) => c.score);
+    const fmtMetrics = computeFormatMetrics(answer);
 
     supabase
       .from('qa_analytics')
-      .insert({ question_hash: questionHash, pinecone_scores: pineconeScores, latency_ms: latencyMs, model_used: CHAT_MODEL, cache_hit: false, semantic_cache_hit: false })
+      .insert({ question_hash: questionHash, pinecone_scores: pineconeScores, latency_ms: latencyMs, model_used: CHAT_MODEL, cache_hit: false, semantic_cache_hit: false, ...fmtMetrics })
       .then(({ error }) => { if (error) console.warn(`[/api/ask] analytics_write_error err=${error.message}`); });
 
     // Cache write on miss (standalone questions only, no teacher/essay filter, fire-and-forget)
@@ -754,9 +766,10 @@ export async function POST(req: NextRequest) {
         const latencyMs = Date.now() - requestStart;
         const questionHash = createHash('sha256').update(question).digest('hex');
         const pineconeScores = chunks.slice(0, 3).map((c) => c.score);
+        const fmtMetrics = computeFormatMetrics(fullAnswer);
         supabase
           .from('qa_analytics')
-          .insert({ question_hash: questionHash, pinecone_scores: pineconeScores, latency_ms: latencyMs, model_used: CHAT_MODEL, cache_hit: false, semantic_cache_hit: false })
+          .insert({ question_hash: questionHash, pinecone_scores: pineconeScores, latency_ms: latencyMs, model_used: CHAT_MODEL, cache_hit: false, semantic_cache_hit: false, ...fmtMetrics })
           .then(({ error }) => { if (error) console.warn(`[/api/ask] analytics_write_error err=${error.message}`); });
 
         // Cache write on miss (standalone questions only, no teacher filter, fire-and-forget)
