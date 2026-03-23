@@ -14,7 +14,7 @@ import { isValidConversationId, buildQueryText, appendTurn } from '@/lib/convers
 import type { HistoryMessage } from '@/lib/conversation-session';
 
 const EMBED_MODEL = 'text-embedding-3-small';
-const CHAT_MODEL = 'gpt-4o-mini';
+const CHAT_MODEL = 'gpt-4o';
 const TOP_K = 10; // fetch extra to allow dedup headroom
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 

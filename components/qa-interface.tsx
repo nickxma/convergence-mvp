@@ -281,7 +281,9 @@ export function QAInterface({ initialConversation, onConversationUpdate }: QAInt
             </div>
           )}
 
-          {messages.map((msg, i) => (
+          {messages.map((msg, i) => {
+            if (msg.role === 'assistant' && !msg.content?.trim()) return null;
+            return (
             <div key={i}>
               {msg.role === 'user' ? (
                 <div className="flex justify-end">
@@ -304,6 +306,7 @@ export function QAInterface({ initialConversation, onConversationUpdate }: QAInt
                         background: msg.error ? '#fff4f2' : '#f0ece3',
                         color: msg.error ? '#c0392b' : '#2c2c2c',
                         border: msg.error ? '1px solid #f5c6c0' : 'none',
+                        whiteSpace: 'pre-wrap',
                       }}
                     >
                       {msg.content}
@@ -317,7 +320,8 @@ export function QAInterface({ initialConversation, onConversationUpdate }: QAInt
                 </div>
               )}
             </div>
-          ))}
+            );
+          })}
 
           {loading && (
             <div className="flex justify-start">
