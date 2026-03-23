@@ -23,6 +23,9 @@
     "eval:concept-graph": "tsx scripts/eval-concept-graph.ts"
   },
   "dependencies": {
+    "@opentelemetry/exporter-metrics-otlp-http": "^0.213.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.213.0",
+    "@opentelemetry/sdk-metrics": "^2.6.0",
     "@pinecone-database/pinecone": "^7.1.0",
     "@privy-io/node": "^0.11.0",
     "@privy-io/react-auth": "^3.18.0",

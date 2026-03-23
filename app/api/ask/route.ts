@@ -96,6 +96,9 @@ export async function POST(req: NextRequest) {
   const tracer = new RagTracer();
   const ip = getClientIp(req);
 
+  // rag.query_receive — point-in-time span marking request receipt
+  tracer.trace('rag.query_receive', () => Promise.resolve()).catch(() => {});
+
   // ── Identify caller ───────────────────────────────────────────────────────
   const authResult = await verifyRequest(req);
   const userId = authResult?.userId ?? null;
@@ -294,66 +297,71 @@ export async function POST(req: NextRequest) {
 
   // ── Exact-hash cache lookup ───────────────────────────────────────────────
   if (!noCacheParam && !isFollowUp) {
+    let exact: { answer: string; follow_ups: string[] | null; chunks_json: unknown[] | null } | null = null;
     try {
-      const { data: exact } = await supabase
-        .from('qa_cache')
-        .select('answer, follow_ups, chunks_json')
-        .eq('hash', cacheKey)
-        .gt('created_at', new Date(Date.now() - CACHE_TTL_MS).toISOString())
-        .single();
-
-      if (exact) {
-        console.log(`[/api/ask] exact_cache_hit ${logCtx}`);
-        const cachedChunks = (exact.chunks_json ?? []) as CacheChunk[];
-        const cachedAnswer = exact.answer as string;
-        const cachedFollowUps = (exact.follow_ups ?? []) as string[];
-
-        supabase.rpc('increment_qa_cache_hit', { p_hash: cacheKey }).then(({ error }) => {
-          if (error) console.warn(`[/api/ask] cache_hit_increment_error err=${error.message}`);
-        });
-
-        const answerSources = cachedChunks.slice(0, 3).map((c) => ({
-          text: c.text.slice(0, 200), speaker: c.speaker, source: c.source,
-          score: Math.round(c.score * 100) / 100,
-        }));
-        let answerId: string | null = null;
-        try {
-          const { data: ar, error: ae } = await supabase
-            .from('qa_answers')
-            .insert({ question, answer: cachedAnswer, sources: answerSources, conversation_id: conversationId, cache_hash: cacheKey, ...(userId ? { user_id: userId } : {}) })
-            .select('id').single();
-          if (ae) console.warn(`[/api/ask] qa_answer_write_error err=${ae.message}`);
-          else answerId = ar?.id ?? null;
-        } catch (err) {
-          console.warn(`[/api/ask] qa_answer_exception err=${err instanceof Error ? err.message : String(err)}`);
-        }
-
-        const latencyMs = Date.now() - requestStart;
-        const questionHash = createHash('sha256').update(question).digest('hex');
-        const fmtMetrics = computeFormatMetrics(cachedAnswer);
-        supabase.from('qa_analytics')
-          .insert({ question_hash: questionHash, pinecone_scores: [], latency_ms: latencyMs, model_used: CHAT_MODEL, cache_hit: true, semantic_cache_hit: false, ...fmtMetrics })
-          .then(({ error }) => { if (error) console.warn(`[/api/ask] analytics_write_error err=${error.message}`); });
-
-        const updatedHistory = appendTurn(effectiveHistory, question, cachedAnswer);
-        supabase.from('conversation_sessions')
-          .upsert({ id: conversationId, history: updatedHistory, expires_at: new Date(Date.now() + SESSION_TTL_MS).toISOString() }, { onConflict: 'id' })
-          .then(({ error }) => { if (error) console.warn(`[/api/ask] supabase_session_error conv=${conversationId} err=${error.message}`); });
-        setConversationHistory(conversationId, updatedHistory).catch(() => {});
-        supabase.from('qa_conversations')
-          .upsert({ id: conversationId, messages: updatedHistory, updated_at: new Date().toISOString(), ...(userId ? { user_id: userId } : {}) }, { onConflict: 'id' })
-          .then(({ error }) => { if (error) console.warn(`[/api/ask] qa_conv_error conv=${conversationId} err=${error.message}`); });
-
-        return NextResponse.json({
-          answer: cachedAnswer, answerId, conversationId, followUps: cachedFollowUps, cached: true,
-          sources: cachedChunks.map((c) => ({ text: c.text.slice(0, 200), speaker: c.speaker, source: c.source, score: Math.round(c.score * 100) / 100 })),
-          ...(rl !== null ? { rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() } } : {}),
-          ...(guestQueriesRemaining !== null ? { guestQueriesRemaining } : {}),
-          ...(userQuestionsRemaining !== null ? { userQuestionsRemaining } : {}),
-        }, { headers: dailyRlHeaders });
-      }
+      exact = await tracer.trace('rag.cache_check', async () => {
+        const { data } = await supabase
+          .from('qa_cache')
+          .select('answer, follow_ups, chunks_json')
+          .eq('hash', cacheKey)
+          .gt('created_at', new Date(Date.now() - CACHE_TTL_MS).toISOString())
+          .single();
+        return data ?? null;
+      }, { type: 'exact' });
     } catch {
       // Non-fatal — fall through to live path
+    }
+
+    if (exact) {
+      console.log(`[/api/ask] exact_cache_hit ${logCtx}`);
+      const cachedChunks = (exact.chunks_json ?? []) as CacheChunk[];
+      const cachedAnswer = exact.answer as string;
+      const cachedFollowUps = (exact.follow_ups ?? []) as string[];
+
+      supabase.rpc('increment_qa_cache_hit', { p_hash: cacheKey }).then(({ error }) => {
+        if (error) console.warn(`[/api/ask] cache_hit_increment_error err=${error.message}`);
+      });
+
+      const answerSources = cachedChunks.slice(0, 3).map((c) => ({
+        text: c.text.slice(0, 200), speaker: c.speaker, source: c.source,
+        score: Math.round(c.score * 100) / 100,
+      }));
+      let answerId: string | null = null;
+      try {
+        const { data: ar, error: ae } = await supabase
+          .from('qa_answers')
+          .insert({ question, answer: cachedAnswer, sources: answerSources, conversation_id: conversationId, cache_hash: cacheKey, ...(userId ? { user_id: userId } : {}) })
+          .select('id').single();
+        if (ae) console.warn(`[/api/ask] qa_answer_write_error err=${ae.message}`);
+        else answerId = ar?.id ?? null;
+      } catch (err) {
+        console.warn(`[/api/ask] qa_answer_exception err=${err instanceof Error ? err.message : String(err)}`);
+      }
+
+      const latencyMs = Date.now() - requestStart;
+      const questionHash = createHash('sha256').update(question).digest('hex');
+      const fmtMetrics = computeFormatMetrics(cachedAnswer);
+      supabase.from('qa_analytics')
+        .insert({ question_hash: questionHash, pinecone_scores: [], latency_ms: latencyMs, model_used: CHAT_MODEL, cache_hit: true, semantic_cache_hit: false, ...fmtMetrics })
+        .then(({ error }) => { if (error) console.warn(`[/api/ask] analytics_write_error err=${error.message}`); });
+
+      const updatedHistory = appendTurn(effectiveHistory, question, cachedAnswer);
+      supabase.from('conversation_sessions')
+        .upsert({ id: conversationId, history: updatedHistory, expires_at: new Date(Date.now() + SESSION_TTL_MS).toISOString() }, { onConflict: 'id' })
+        .then(({ error }) => { if (error) console.warn(`[/api/ask] supabase_session_error conv=${conversationId} err=${error.message}`); });
+      setConversationHistory(conversationId, updatedHistory).catch(() => {});
+      supabase.from('qa_conversations')
+        .upsert({ id: conversationId, messages: updatedHistory, updated_at: new Date().toISOString(), ...(userId ? { user_id: userId } : {}) }, { onConflict: 'id' })
+        .then(({ error }) => { if (error) console.warn(`[/api/ask] qa_conv_error conv=${conversationId} err=${error.message}`); });
+
+      await tracer.trace('rag.response_send', () => Promise.resolve(), { cached: true, type: 'exact' });
+      return NextResponse.json({
+        answer: cachedAnswer, answerId, conversationId, followUps: cachedFollowUps, cached: true,
+        sources: cachedChunks.map((c) => ({ text: c.text.slice(0, 200), speaker: c.speaker, source: c.source, score: Math.round(c.score * 100) / 100 })),
+        ...(rl !== null ? { rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() } } : {}),
+        ...(guestQueriesRemaining !== null ? { guestQueriesRemaining } : {}),
+        ...(userQuestionsRemaining !== null ? { userQuestionsRemaining } : {}),
+      }, { headers: dailyRlHeaders });
     }
   }
 
@@ -391,68 +399,72 @@ export async function POST(req: NextRequest) {
 
   // ── Semantic cache lookup ─────────────────────────────────────────────────
   if (!noCacheParam && !isFollowUp) {
+    let semanticRow: { answer: string; follow_ups: string[] | null; chunks_json: unknown[] | null; similarity?: number } | null = null;
     try {
-      const { data: semanticRows } = await monitoredQuery('qa_cache.semantic_lookup', () =>
-        supabase.rpc('match_qa_cache', {
-          query_embedding: queryVector,
-          match_threshold: semanticThreshold,
-          match_count: 1,
-        }),
-      );
-
-      const semanticRow = Array.isArray(semanticRows) ? semanticRows[0] : null;
-      if (semanticRow) {
-        console.log(`[/api/ask] semantic_cache_hit similarity=${semanticRow.similarity?.toFixed(4)} ${logCtx}`);
-        const cachedChunks = (semanticRow.chunks_json ?? []) as CacheChunk[];
-        const cachedAnswer = semanticRow.answer as string;
-        const cachedFollowUps = (semanticRow.follow_ups ?? []) as string[];
-
-        supabase.rpc('increment_qa_cache_hit', { p_hash: cacheKey }).then(({ error }) => {
-          if (error) console.warn(`[/api/ask] cache_hit_increment_error err=${error.message}`);
-        });
-
-        const answerSources = cachedChunks.slice(0, 3).map((c) => ({
-          text: c.text.slice(0, 200), speaker: c.speaker, source: c.source,
-          score: Math.round(c.score * 100) / 100,
-        }));
-        let answerId: string | null = null;
-        try {
-          const { data: ar, error: ae } = await supabase
-            .from('qa_answers')
-            .insert({ question, answer: cachedAnswer, sources: answerSources, conversation_id: conversationId, cache_hash: cacheKey, ...(userId ? { user_id: userId } : {}) })
-            .select('id').single();
-          if (ae) console.warn(`[/api/ask] qa_answer_write_error err=${ae.message}`);
-          else answerId = ar?.id ?? null;
-        } catch (err) {
-          console.warn(`[/api/ask] qa_answer_exception err=${err instanceof Error ? err.message : String(err)}`);
-        }
-
-        const latencyMs = Date.now() - requestStart;
-        const questionHash = createHash('sha256').update(question).digest('hex');
-        const fmtMetrics = computeFormatMetrics(cachedAnswer);
-        supabase.from('qa_analytics')
-          .insert({ question_hash: questionHash, pinecone_scores: [], latency_ms: latencyMs, model_used: CHAT_MODEL, cache_hit: true, semantic_cache_hit: true, ...fmtMetrics })
-          .then(({ error }) => { if (error) console.warn(`[/api/ask] analytics_write_error err=${error.message}`); });
-
-        const updatedHistory = appendTurn(effectiveHistory, question, cachedAnswer);
-        supabase.from('conversation_sessions')
-          .upsert({ id: conversationId, history: updatedHistory, expires_at: new Date(Date.now() + SESSION_TTL_MS).toISOString() }, { onConflict: 'id' })
-          .then(({ error }) => { if (error) console.warn(`[/api/ask] supabase_session_error conv=${conversationId} err=${error.message}`); });
-        setConversationHistory(conversationId, updatedHistory).catch(() => {});
-        supabase.from('qa_conversations')
-          .upsert({ id: conversationId, messages: updatedHistory, updated_at: new Date().toISOString(), ...(userId ? { user_id: userId } : {}) }, { onConflict: 'id' })
-          .then(({ error }) => { if (error) console.warn(`[/api/ask] qa_conv_error conv=${conversationId} err=${error.message}`); });
-
-        return NextResponse.json({
-          answer: cachedAnswer, answerId, conversationId, followUps: cachedFollowUps, cached: true,
-          sources: cachedChunks.map((c) => ({ text: c.text.slice(0, 200), speaker: c.speaker, source: c.source, score: Math.round(c.score * 100) / 100 })),
-          ...(rl !== null ? { rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() } } : {}),
-          ...(guestQueriesRemaining !== null ? { guestQueriesRemaining } : {}),
-          ...(userQuestionsRemaining !== null ? { userQuestionsRemaining } : {}),
-        }, { headers: dailyRlHeaders });
-      }
+      semanticRow = await tracer.trace('rag.cache_check', async () => {
+        const { data: rows } = await monitoredQuery('qa_cache.semantic_lookup', () =>
+          supabase.rpc('match_qa_cache', {
+            query_embedding: queryVector,
+            match_threshold: semanticThreshold,
+            match_count: 1,
+          }),
+        );
+        return Array.isArray(rows) ? (rows[0] ?? null) : null;
+      }, { type: 'semantic', threshold: semanticThreshold });
     } catch {
       // Non-fatal — fall through to live path
+    }
+
+    if (semanticRow) {
+      console.log(`[/api/ask] semantic_cache_hit similarity=${semanticRow.similarity?.toFixed(4)} ${logCtx}`);
+      const cachedChunks = (semanticRow.chunks_json ?? []) as CacheChunk[];
+      const cachedAnswer = semanticRow.answer as string;
+      const cachedFollowUps = (semanticRow.follow_ups ?? []) as string[];
+
+      supabase.rpc('increment_qa_cache_hit', { p_hash: cacheKey }).then(({ error }) => {
+        if (error) console.warn(`[/api/ask] cache_hit_increment_error err=${error.message}`);
+      });
+
+      const answerSources = cachedChunks.slice(0, 3).map((c) => ({
+        text: c.text.slice(0, 200), speaker: c.speaker, source: c.source,
+        score: Math.round(c.score * 100) / 100,
+      }));
+      let answerId: string | null = null;
+      try {
+        const { data: ar, error: ae } = await supabase
+          .from('qa_answers')
+          .insert({ question, answer: cachedAnswer, sources: answerSources, conversation_id: conversationId, cache_hash: cacheKey, ...(userId ? { user_id: userId } : {}) })
+          .select('id').single();
+        if (ae) console.warn(`[/api/ask] qa_answer_write_error err=${ae.message}`);
+        else answerId = ar?.id ?? null;
+      } catch (err) {
+        console.warn(`[/api/ask] qa_answer_exception err=${err instanceof Error ? err.message : String(err)}`);
+      }
+
+      const latencyMs = Date.now() - requestStart;
+      const questionHash = createHash('sha256').update(question).digest('hex');
+      const fmtMetrics = computeFormatMetrics(cachedAnswer);
+      supabase.from('qa_analytics')
+        .insert({ question_hash: questionHash, pinecone_scores: [], latency_ms: latencyMs, model_used: CHAT_MODEL, cache_hit: true, semantic_cache_hit: true, ...fmtMetrics })
+        .then(({ error }) => { if (error) console.warn(`[/api/ask] analytics_write_error err=${error.message}`); });
+
+      const updatedHistory = appendTurn(effectiveHistory, question, cachedAnswer);
+      supabase.from('conversation_sessions')
+        .upsert({ id: conversationId, history: updatedHistory, expires_at: new Date(Date.now() + SESSION_TTL_MS).toISOString() }, { onConflict: 'id' })
+        .then(({ error }) => { if (error) console.warn(`[/api/ask] supabase_session_error conv=${conversationId} err=${error.message}`); });
+      setConversationHistory(conversationId, updatedHistory).catch(() => {});
+      supabase.from('qa_conversations')
+        .upsert({ id: conversationId, messages: updatedHistory, updated_at: new Date().toISOString(), ...(userId ? { user_id: userId } : {}) }, { onConflict: 'id' })
+        .then(({ error }) => { if (error) console.warn(`[/api/ask] qa_conv_error conv=${conversationId} err=${error.message}`); });
+
+      await tracer.trace('rag.response_send', () => Promise.resolve(), { cached: true, type: 'semantic' });
+      return NextResponse.json({
+        answer: cachedAnswer, answerId, conversationId, followUps: cachedFollowUps, cached: true,
+        sources: cachedChunks.map((c) => ({ text: c.text.slice(0, 200), speaker: c.speaker, source: c.source, score: Math.round(c.score * 100) / 100 })),
+        ...(rl !== null ? { rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() } } : {}),
+        ...(guestQueriesRemaining !== null ? { guestQueriesRemaining } : {}),
+        ...(userQuestionsRemaining !== null ? { userQuestionsRemaining } : {}),
+      }, { headers: dailyRlHeaders });
     }
   }
 
@@ -511,7 +523,7 @@ export async function POST(req: NextRequest) {
   const perPhrasingChunks: Array<Array<{ text: string; speaker: string; source: string; score: number }>> = [];
 
   try {
-    await tracer.trace('rag.pinecone_retrieve', async () => {
+    await tracer.trace('rag.vector_search', async () => {
       const index = pc.Index(pineconeIndex);
 
       for (const vec of queryVectors) {
@@ -554,7 +566,11 @@ export async function POST(req: NextRequest) {
 
         perPhrasingChunks.push(matchesToChunks([...rawMatches, ...summaryMatches]));
       }
-    }, { k: TOP_K, phrasings: queryVectors.length });
+    }, { k: TOP_K, phrasings: queryVectors.length },
+    () => ({
+      chunk_count: perPhrasingChunks.reduce((s, c) => s + c.length, 0),
+      top_score: perPhrasingChunks.flat().sort((a, b) => b.score - a.score)[0]?.score ?? 0,
+    }));
   } catch (err) {
     return handlePineconeError(err, logCtx);
   }
@@ -714,6 +730,7 @@ export async function POST(req: NextRequest) {
           .upsert({ id: conversationId, messages: updatedHistory, updated_at: new Date().toISOString(), ...(userId ? { user_id: userId } : {}) }, { onConflict: 'id' })
           .then(({ error }) => { if (error) console.warn(`[/api/ask] qa_conv_error conv=${conversationId} err=${error.message}`); });
 
+        await tracer.trace('rag.response_send', () => Promise.resolve(), { cached: true, type: 'redis' });
         return NextResponse.json({
           answer: cachedAnswer, answerId, conversationId, followUps: cachedFollowUps, cached: true,
           sources: cachedChunks.map((c) => ({ text: c.text.slice(0, 200), speaker: c.speaker, source: c.source, score: Math.round(c.score * 100) / 100 })),
@@ -729,7 +746,7 @@ export async function POST(req: NextRequest) {
     let followUps: string[] = [];
     try {
       const [chatResp, followUpsResp] = await Promise.all([
-        tracer.trace('rag.llm_generate', () =>
+        tracer.trace('rag.llm_call', () =>
           oai.chat.completions.create({
             model: CHAT_MODEL,
             messages: [
@@ -739,6 +756,11 @@ export async function POST(req: NextRequest) {
             ],
             temperature: 0.5,
             max_tokens: 600,
+          }),
+          { 'llm.model': CHAT_MODEL },
+          (resp) => ({
+            'llm.prompt_tokens': resp.usage?.prompt_tokens ?? 0,
+            'llm.completion_tokens': resp.usage?.completion_tokens ?? 0,
           }),
         ),
         oai.chat.completions.create({
@@ -830,6 +852,7 @@ export async function POST(req: NextRequest) {
       .upsert({ id: conversationId, messages: updatedHistory, updated_at: new Date().toISOString(), ...(userId ? { user_id: userId } : {}) }, { onConflict: 'id' })
       .then(({ error }) => { if (error) console.warn(`[/api/ask] qa_conv_error conv=${conversationId} err=${error.message}`); });
 
+    await tracer.trace('rag.response_send', () => Promise.resolve(), { cached: false, streaming: false });
     return NextResponse.json({
       answer,
       answerId,
@@ -891,6 +914,7 @@ export async function POST(req: NextRequest) {
           { signal: streamAbortController.signal },
         );
 
+        let streamUsage: { prompt_tokens: number; completion_tokens: number } | null = null;
         for await (const chunk of chatStream) {
           const delta = chunk.choices[0]?.delta?.content ?? '';
           if (delta) {
@@ -899,10 +923,15 @@ export async function POST(req: NextRequest) {
           }
           if (chunk.usage) {
             logOpenAIUsage({ model: CHAT_MODEL, endpoint: 'completion', promptTokens: chunk.usage.prompt_tokens, completionTokens: chunk.usage.completion_tokens, cachedTokens: chunk.usage.prompt_tokens_details?.cached_tokens ?? 0 });
+            streamUsage = { prompt_tokens: chunk.usage.prompt_tokens, completion_tokens: chunk.usage.completion_tokens };
           }
         }
 
-        tracer.recordGenerateSpan(Date.now() - generateStart);
+        tracer.recordGenerateSpan(Date.now() - generateStart, {
+          'llm.model': CHAT_MODEL,
+          'llm.prompt_tokens': streamUsage?.prompt_tokens ?? 0,
+          'llm.completion_tokens': streamUsage?.completion_tokens ?? 0,
+        });
 
         // Main stream complete — follow-ups should be ready by now
         const followUps = await followUpsPromise;
@@ -979,6 +1008,7 @@ export async function POST(req: NextRequest) {
           .then(({ error }) => { if (error) console.warn(`[/api/ask] qa_conv_error conv=${conversationId} err=${error.message}`); });
 
         // Send done event with all metadata
+        await tracer.trace('rag.response_send', () => Promise.resolve(), { cached: false, streaming: true });
         controller.enqueue(
           sseEvent({
             done: true,
