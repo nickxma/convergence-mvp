@@ -476,6 +476,28 @@ export async function POST(req: NextRequest) {
     ]);
     rawMatches = (rawResults.matches ?? []) as PineconeMatch[];
     summaryMatches = (summaryResults.matches ?? []) as PineconeMatch[];
+
+    // ── Fallback: primary namespace empty → query __default__ ─────────────
+    // The waking-up namespace is only populated after running refresh-corpus.ts
+    // --reindex. Until that runs, fall back to the __default__ namespace (28,713
+    // chunks, text-embedding-3-small). Cross-model retrieval is slightly lower
+    // quality but far better than returning no context. Self-disabling: once
+    // waking-up is populated this branch never fires.
+    if (rawMatches.length === 0 && summaryMatches.length === 0 && !pineconeFilter) {
+      try {
+        const fallbackResults = await index.namespace('__default__').query({
+          vector: queryVector,
+          topK: TOP_K,
+          includeMetadata: true,
+        });
+        rawMatches = (fallbackResults.matches ?? []) as PineconeMatch[];
+        if (rawMatches.length > 0) {
+          console.log(`[/api/ask] fallback_ns_default matches=${rawMatches.length} ${logCtx}`);
+        }
+      } catch (fallbackErr) {
+        console.warn(`[/api/ask] fallback_ns_failed err=${fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)}`);
+      }
+    }
   } catch (err) {
     return handlePineconeError(err, logCtx);
   }
