@@ -402,30 +402,30 @@ const DEFAULT_VOICE_ID = '21m00Tcm4TlvDq8ikWAM'; // ElevenLabs "Rachel"
 
 async function enqueueAudioJobs(
   meditationId: string,
-  script: Omit<GeneratedMeditation, 'sections'> & { sections: Omit<MeditationSection, 'timestamp_sec'>[] },
+  // script param kept for API compatibility; full job reads script from DB
+  _script: Omit<GeneratedMeditation, 'sections'> & { sections: Omit<MeditationSection, 'timestamp_sec'>[] },
 ): Promise<void> {
   const voiceId = process.env.ELEVENLABS_DEFAULT_VOICE_ID ?? DEFAULT_VOICE_ID;
 
-  const rows = [
-    { meditation_id: meditationId, script_section: 'intro', voice_id: voiceId, status: 'queued' },
-    ...script.sections.map((_, i) => ({
-      meditation_id: meditationId,
-      script_section: `section-${i}`,
-      voice_id: voiceId,
-      status: 'queued',
-    })),
-    { meditation_id: meditationId, script_section: 'closing', voice_id: voiceId, status: 'queued' },
-  ];
+  // Enqueue a single full-script job. The cron worker splits the script into
+  // paragraphs, calls ElevenLabs per paragraph with exponential backoff,
+  // concatenates the chunks into one MP3, and updates meditation.audio_url.
+  const { error } = await supabase.from('audio_jobs').insert({
+    meditation_id: meditationId,
+    script_section: 'full',
+    voice_id: voiceId,
+    status: 'queued',
+    job_type: 'full',
+  });
 
-  const { error } = await supabase.from('audio_jobs').insert(rows);
   if (error) {
     console.warn(
-      `[/api/meditations/generate] audio_jobs_insert_error id=${meditationId}:`,
+      `[/api/meditations/generate] audio_job_insert_error id=${meditationId}:`,
       error.message,
     );
   } else {
     console.info(
-      `[/api/meditations/generate] audio_jobs_enqueued id=${meditationId} count=${rows.length}`,
+      `[/api/meditations/generate] full_audio_job_enqueued id=${meditationId}`,
     );
   }
 }
