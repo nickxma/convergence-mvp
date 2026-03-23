@@ -20,9 +20,11 @@
     "export:subscribers": "tsx scripts/export-subscribers.ts",
     "benchmark:embeddings": "tsx scripts/benchmark-embeddings.ts",
     "build:concept-graph": "tsx scripts/build-concept-graph.ts",
-    "eval:concept-graph": "tsx scripts/eval-concept-graph.ts"
+    "eval:concept-graph": "tsx scripts/eval-concept-graph.ts",
+    "scrape:paradox": "tsx scripts/scrape-paradox.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.80.0",
     "@opentelemetry/exporter-metrics-otlp-http": "^0.213.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.213.0",
     "@opentelemetry/sdk-metrics": "^2.6.0",
