@@ -1,10 +1,14 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback, type RefObject, type MutableRefObject, FormEvent, KeyboardEvent } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import type { Components } from 'react-markdown';
 import { useAuth } from '@/lib/use-auth';
 import {
   type Message,
   type Conversation,
+  type CompareColumn,
   loadConversations,
   saveConversation,
   newConversationId,
@@ -24,10 +28,27 @@ interface Source {
   score: number;
 }
 
+const CITATION_BUTTON_STYLE: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  background: 'var(--citation-bg)',
+  color: 'var(--sage-mid)',
+  borderRadius: '3px',
+  padding: '0 4px',
+  fontSize: '0.6rem',
+  fontFamily: 'monospace',
+  verticalAlign: 'super',
+  lineHeight: '1.5',
+  margin: '0 1px',
+  cursor: 'pointer',
+  border: 'none',
+};
+
 /**
- * Renders answer text with paragraph breaks and clickable [N] citation badges.
- * Double newlines → paragraph break; single newlines → <br>.
- * [N] markers become small superscript buttons that open the sources panel.
+ * Renders answer text as markdown with clickable [N] citation badges.
+ * Supports paragraph breaks, bullet lists, headers, bold/italic via react-markdown.
+ * [N] markers are pre-processed to cite: links and rendered as superscript buttons.
  */
 function FormattedAnswer({
   text,
@@ -36,58 +57,54 @@ function FormattedAnswer({
   text: string;
   onCitationClick?: (n: number) => void;
 }) {
-  const paragraphs = text.split(/\n{2,}/).map((s) => s.trim()).filter(Boolean);
-  if (paragraphs.length === 0) return <span>{text}</span>;
+  // Pre-process [N] citation markers → [N](cite:N) so react-markdown treats them
+  // as anchor elements that we can intercept with a custom renderer.
+  const processedText = text.replace(/\[(\d+)\]/g, '[$1](cite:$1)');
+
+  const components: Components = {
+    p: ({ children }) => (
+      <p style={{ marginBottom: '0.65rem' }} className="last:mb-0">{children}</p>
+    ),
+    ul: ({ children }) => (
+      <ul style={{ listStyleType: 'disc', paddingLeft: '1.25rem', marginBottom: '0.65rem' }}>{children}</ul>
+    ),
+    ol: ({ children }) => (
+      <ol style={{ listStyleType: 'decimal', paddingLeft: '1.25rem', marginBottom: '0.65rem' }}>{children}</ol>
+    ),
+    li: ({ children }) => (
+      <li style={{ marginBottom: '0.2rem' }}>{children}</li>
+    ),
+    h1: ({ children }) => (
+      <h1 style={{ fontWeight: 600, marginBottom: '0.4rem' }}>{children}</h1>
+    ),
+    h2: ({ children }) => (
+      <h2 style={{ fontWeight: 600, marginBottom: '0.35rem' }}>{children}</h2>
+    ),
+    h3: ({ children }) => (
+      <h3 style={{ fontWeight: 500, marginBottom: '0.3rem' }}>{children}</h3>
+    ),
+    a: ({ href, children }) => {
+      if (href?.startsWith('cite:') && onCitationClick) {
+        const n = parseInt(href.slice(5), 10);
+        return (
+          <button
+            onClick={() => onCitationClick(n)}
+            title={`View source ${n}`}
+            aria-label={`View source ${n}`}
+            style={CITATION_BUTTON_STYLE}
+          >
+            {n}
+          </button>
+        );
+      }
+      return <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
+    },
+  };
 
   return (
-    <>
-      {paragraphs.map((para, pIdx) => {
-        const parts = para.split(/(\[\d+\])/);
-        return (
-          <p key={pIdx} style={{ marginTop: pIdx > 0 ? '0.65rem' : 0 }}>
-            {parts.map((part, j) => {
-              const match = part.match(/^\[(\d+)\]$/);
-              if (match && onCitationClick) {
-                const n = parseInt(match[1], 10);
-                return (
-                  <button
-                    key={j}
-                    onClick={() => onCitationClick(n)}
-                    title={`View source ${n}`}
-                    aria-label={`View source ${n}`}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      background: 'var(--citation-bg)',
-                      color: 'var(--sage-mid)',
-                      borderRadius: '3px',
-                      padding: '0 4px',
-                      fontSize: '0.6rem',
-                      fontFamily: 'monospace',
-                      verticalAlign: 'super',
-                      lineHeight: '1.5',
-                      margin: '0 1px',
-                      cursor: 'pointer',
-                      border: 'none',
-                    }}
-                  >
-                    {n}
-                  </button>
-                );
-              }
-              return (
-                <span key={j}>
-                  {part.split('\n').map((line, k) => (
-                    <span key={k}>{k > 0 && <br />}{line}</span>
-                  ))}
-                </span>
-              );
-            })}
-          </p>
-        );
-      })}
-    </>
+    <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+      {processedText}
+    </ReactMarkdown>
   );
 }
 
@@ -343,10 +360,6 @@ function ExportAnswerButton({
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  const sourceLabels = sources.slice(0, 3).map((s) => {
-    const base = (s.source ?? '').split('/').pop() ?? s.source ?? '';
-    return base.replace(/\.[^.]+$/, '').replace(/[_-]/g, ' ');
-  });
 
   useEffect(() => {
     if (!open) return;
@@ -380,14 +393,14 @@ function ExportAnswerButton({
           <button
             className="w-full text-left px-3 py-2 text-xs transition-colors"
             style={{ color: 'var(--text-warm)' }}
-            onClick={() => { exportSingleAnswer(question, answer, sourceLabels, 'markdown'); setOpen(false); }}
+            onClick={() => { exportSingleAnswer(question, answer, sources.slice(0, 3), 'markdown'); setOpen(false); }}
           >
             Export as Markdown
           </button>
           <button
             className="w-full text-left px-3 py-2 text-xs transition-colors"
             style={{ color: 'var(--text-warm)' }}
-            onClick={() => { exportSingleAnswer(question, answer, sourceLabels, 'plaintext'); setOpen(false); }}
+            onClick={() => { exportSingleAnswer(question, answer, sources.slice(0, 3), 'plaintext'); setOpen(false); }}
           >
             Export as Plain Text
           </button>
@@ -873,17 +886,122 @@ export interface QAInterfaceActions {
   clear: () => void;
 }
 
+/** Compact collapsible citations for a single compare column. */
+function CompareSourceList({ sources }: { sources: Source[] }) {
+  const [open, setOpen] = useState(false);
+  const top3 = sources.slice(0, 3);
+  if (top3.length === 0) return null;
+  return (
+    <div className="px-4 pb-3">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1.5 text-xs font-medium transition-colors"
+        style={{ color: 'var(--sage)' }}
+      >
+        <svg
+          className="w-3 h-3 transition-transform"
+          style={{ transform: open ? 'rotate(90deg)' : 'rotate(0deg)' }}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+        </svg>
+        {top3.length} citation{top3.length !== 1 ? 's' : ''}
+      </button>
+      {open && (
+        <div className="mt-2 space-y-2">
+          {top3.map((s, i) => (
+            <div
+              key={i}
+              className="rounded p-2 text-xs"
+              style={{ background: 'var(--source-bg)', borderLeft: '2px solid var(--source-border)' }}
+            >
+              <p className="font-semibold" style={{ color: 'var(--sage-mid)' }}>{sourceLabel(s.source)}</p>
+              <p className="mt-0.5 leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+                {s.text.slice(0, 120)}{s.text.length > 120 ? '…' : ''}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Side-by-side (desktop) / stacked (mobile) teacher comparison columns. */
+function CompareColumns({ columns }: { columns: CompareColumn[] }) {
+  return (
+    <div className="w-full">
+      <div className="flex flex-col md:flex-row gap-3">
+        {columns.map((col, i) => (
+          <div
+            key={i}
+            className="flex-1 min-w-0 rounded-xl overflow-hidden"
+            style={{ border: '1px solid var(--border-subtle)', background: 'var(--bg-surface)' }}
+          >
+            {/* Column header */}
+            <div
+              className="px-4 py-2 border-b"
+              style={{ borderColor: 'var(--border-subtle)', background: 'var(--bg-chip)' }}
+            >
+              <span className="text-xs font-semibold" style={{ color: 'var(--sage-dark)' }}>
+                {col.teacher}
+              </span>
+            </div>
+            {/* Column content */}
+            <div
+              className="px-4 py-3 text-sm leading-relaxed"
+              style={{ color: 'var(--text)', minHeight: '80px' }}
+            >
+              {col.content ? (
+                <>
+                  <FormattedAnswer text={col.content} />
+                  {col.streaming && (
+                    <span
+                      style={{
+                        display: 'inline-block',
+                        marginLeft: '2px',
+                        width: '2px',
+                        height: '1em',
+                        background: 'var(--sage)',
+                        animation: 'blink 1s step-end infinite',
+                        verticalAlign: 'text-bottom',
+                      }}
+                    />
+                  )}
+                </>
+              ) : col.streaming ? (
+                <div className="space-y-2 py-1" aria-label="Loading response">
+                  <div className="h-3 rounded-full" style={{ width: '80%', background: 'var(--border-subtle)', animation: 'shimmer 1.4s ease-in-out infinite' }} />
+                  <div className="h-3 rounded-full" style={{ width: '65%', background: 'var(--border-subtle)', animation: 'shimmer 1.4s ease-in-out 0.15s infinite' }} />
+                  <div className="h-3 rounded-full" style={{ width: '50%', background: 'var(--border-subtle)', animation: 'shimmer 1.4s ease-in-out 0.3s infinite' }} />
+                </div>
+              ) : (
+                <span style={{ color: 'var(--text-faint)' }}>No response</span>
+              )}
+            </div>
+            {/* Sources */}
+            {!col.streaming && col.sources.length > 0 && (
+              <CompareSourceList sources={col.sources} />
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 interface QAInterfaceProps {
   initialConversation?: Conversation | null;
   onConversationUpdate?: (conversation: Conversation) => void;
   onNewChat?: () => void;
   initialQuestion?: string;
   actionsRef?: MutableRefObject<QAInterfaceActions | null>;
+  essayContext?: { title: string; courseSlug: string; sessionSlug: string } | null;
 }
 
 const TEACHER_STORAGE_KEY = 'wu_teacher_filter';
 
-export function QAInterface({ initialConversation, onConversationUpdate, onNewChat, initialQuestion, actionsRef }: QAInterfaceProps) {
+export function QAInterface({ initialConversation, onConversationUpdate, onNewChat, initialQuestion, actionsRef, essayContext }: QAInterfaceProps) {
   const { user, login, getAccessToken } = useAuth();
   const walletAddress = user?.wallet?.address ?? null;
   const userId = user?.id ?? null;
@@ -900,8 +1018,11 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
   const [conversationId, setConversationId] = useState<string>(
     initialConversation?.id ?? newConversationId()
   );
-  // Server-generated UUID for Supabase session continuity across turns
-  const [serverConversationId, setServerConversationId] = useState<string | null>(null);
+  // Server-generated UUID for Supabase session continuity across turns.
+  // Pre-seeded from initialConversation.serverConversationId to support resume flow.
+  const [serverConversationId, setServerConversationId] = useState<string | null>(
+    initialConversation?.serverConversationId ?? null,
+  );
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -910,6 +1031,8 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
   const [takeawaysState, setTakeawaysState] = useState<'loading' | 'ready' | 'timeout' | null>(null);
   const takeawaysPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const takeawaysSessionIdRef = useRef<string | null>(null);
+
+  const [essayContextDismissed, setEssayContextDismissed] = useState(false);
 
   // null = not yet determined (avoids flash on mount)
   const [showOnboardingPanel, setShowOnboardingPanel] = useState<boolean | null>(null);
@@ -925,6 +1048,11 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
   type AnswerStyle = 'brief' | 'detailed' | 'citations_first';
   const ANSWER_STYLE_KEY = 'wu_answer_style';
   const [answerStyle, setAnswerStyleState] = useState<AnswerStyle>('detailed');
+
+  // Compare mode — side-by-side answers from multiple teachers
+  const [compareMode, setCompareMode] = useState(false);
+  const [compareTeachers, setCompareTeachers] = useState<string[]>([]);
+  const [userTier, setUserTier] = useState<'free' | 'pro' | 'team'>('free');
 
   // Load answer style on mount/auth change
   useEffect(() => {
@@ -955,6 +1083,15 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
       localStorage.setItem(ANSWER_STYLE_KEY, style);
     }
   }
+
+  // Fetch user subscription tier for Pro feature gating (compare 3+ teachers)
+  useEffect(() => {
+    if (!userId) return;
+    fetch('/api/subscriptions/me')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => { if (data?.tier) setUserTier(data.tier as 'free' | 'pro' | 'team'); })
+      .catch(() => {});
+  }, [userId]);
 
   // Suggestion dropdown state
   interface Suggestion { question: string; count: number; }
@@ -1190,6 +1327,9 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
           ...(serverConversationId ? { conversationId: serverConversationId } : {}),
           ...(selectedTeacher ? { teacher: selectedTeacher } : {}),
           ...(answerStyle !== 'detailed' ? { answerStyle } : {}),
+          ...(!essayContextDismissed && essayContext
+            ? { essaySlug: essayContext.sessionSlug, courseSlug: essayContext.courseSlug }
+            : {}),
         }),
       });
 
@@ -1367,6 +1507,220 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
     }
   }
 
+  /**
+   * submitCompare — fires parallel /api/ask requests for each selected teacher
+   * and streams the responses into side-by-side columns.
+   */
+  async function submitCompare(questionOverride?: string) {
+    const question = (questionOverride ?? input).trim();
+    if (!question || loading || compareTeachers.length < 2) return;
+
+    const baseMessages = messages;
+    track('question_asked');
+    track('compare_mode_used');
+
+    setInput('');
+    setRelatedQuestions([]);
+    setRelatedLoading(false);
+
+    const newMessages: Message[] = [
+      ...baseMessages,
+      { role: 'user', content: question },
+    ];
+
+    // Initial compare message with empty, streaming columns
+    const initialCompare: Message = {
+      role: 'assistant',
+      content: '',
+      compareColumns: compareTeachers.map((t) => ({
+        teacher: t,
+        content: '',
+        sources: [],
+        streaming: true,
+        followUps: [],
+      })),
+    };
+    setMessages([...newMessages, initialCompare]);
+    setLoading(true);
+
+    const history = baseMessages.map((m) => ({ role: m.role, content: m.content }));
+
+    await Promise.all(
+      compareTeachers.map(async (teacher, colIdx) => {
+        try {
+          const res = await fetch('/api/ask', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              question,
+              history,
+              walletAddress,
+              teacher,
+              ...(answerStyle !== 'detailed' ? { answerStyle } : {}),
+            }),
+          });
+
+          if (!res.ok) {
+            if (res.status === 402) {
+              if (userId) setFreeTierLimitReached(true);
+              else setGuestLimitReached(true);
+            }
+            const errText = res.status === 402 ? 'Daily limit reached — upgrade to Pro for unlimited access.' : 'Something went wrong — try again.';
+            setMessages((prev) => {
+              const msgs = [...prev];
+              const last = msgs[msgs.length - 1];
+              if (last?.compareColumns) {
+                const cols = [...last.compareColumns];
+                cols[colIdx] = { ...cols[colIdx], content: errText, streaming: false };
+                msgs[msgs.length - 1] = { ...last, compareColumns: cols };
+              }
+              return msgs;
+            });
+            return;
+          }
+
+          const contentType = res.headers.get('content-type') ?? '';
+
+          if (contentType.includes('text/event-stream') && res.body) {
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let accumulated = '';
+
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+
+              buffer += decoder.decode(value, { stream: true });
+              const parts = buffer.split('\n\n');
+              buffer = parts.pop() ?? '';
+
+              for (const part of parts) {
+                const line = part.trim();
+                if (!line.startsWith('data: ')) continue;
+                let event: Record<string, unknown>;
+                try {
+                  event = JSON.parse(line.slice(6)) as Record<string, unknown>;
+                } catch {
+                  continue;
+                }
+
+                if (typeof event.delta === 'string') {
+                  accumulated += event.delta;
+                  const content = accumulated;
+                  setMessages((prev) => {
+                    const msgs = [...prev];
+                    const last = msgs[msgs.length - 1];
+                    if (last?.compareColumns) {
+                      const cols = [...last.compareColumns];
+                      cols[colIdx] = { ...cols[colIdx], content, streaming: true };
+                      msgs[msgs.length - 1] = { ...last, compareColumns: cols };
+                    }
+                    return msgs;
+                  });
+                } else if (event.done === true) {
+                  const sources = Array.isArray(event.sources) ? (event.sources as Source[]) : [];
+                  const followUps = Array.isArray(event.followUps) ? (event.followUps as string[]) : [];
+                  const finalContent = accumulated;
+
+                  // Update global rate limit / quota from the first column's done event
+                  if (colIdx === 0) {
+                    if (event.rateLimit && typeof event.rateLimit === 'object') {
+                      const rl = event.rateLimit as { remaining?: unknown; resetAt?: unknown };
+                      if (typeof rl.remaining === 'number' && typeof rl.resetAt === 'string') {
+                        setRateLimit({ remaining: rl.remaining, resetAt: rl.resetAt });
+                      }
+                    }
+                    if (typeof event.guestQueriesRemaining === 'number') {
+                      setGuestQueriesRemaining(event.guestQueriesRemaining);
+                      if (event.guestQueriesRemaining === 0) setGuestLimitReached(true);
+                    }
+                    if (typeof event.userQuestionsRemaining === 'number') {
+                      setUserQuestionsRemaining(event.userQuestionsRemaining);
+                      if (event.userQuestionsRemaining === 0) setFreeTierLimitReached(true);
+                    }
+                  }
+
+                  setMessages((prev) => {
+                    const msgs = [...prev];
+                    const last = msgs[msgs.length - 1];
+                    if (last?.compareColumns) {
+                      const cols = [...last.compareColumns];
+                      cols[colIdx] = { ...cols[colIdx], content: finalContent, sources, followUps, streaming: false };
+                      msgs[msgs.length - 1] = { ...last, compareColumns: cols };
+                    }
+                    return msgs;
+                  });
+                } else if (typeof event.error === 'string') {
+                  setMessages((prev) => {
+                    const msgs = [...prev];
+                    const last = msgs[msgs.length - 1];
+                    if (last?.compareColumns) {
+                      const cols = [...last.compareColumns];
+                      cols[colIdx] = { ...cols[colIdx], content: event.error as string, streaming: false };
+                      msgs[msgs.length - 1] = { ...last, compareColumns: cols };
+                    }
+                    return msgs;
+                  });
+                }
+              }
+            }
+
+            // Finalize if stream ended without a done event
+            setMessages((prev) => {
+              const msgs = [...prev];
+              const last = msgs[msgs.length - 1];
+              if (last?.compareColumns && last.compareColumns[colIdx]?.streaming) {
+                const cols = [...last.compareColumns];
+                cols[colIdx] = { ...cols[colIdx], streaming: false };
+                msgs[msgs.length - 1] = { ...last, compareColumns: cols };
+              }
+              return msgs;
+            });
+          } else {
+            // Non-streaming fallback
+            const data = await res.json();
+            setMessages((prev) => {
+              const msgs = [...prev];
+              const last = msgs[msgs.length - 1];
+              if (last?.compareColumns) {
+                const cols = [...last.compareColumns];
+                cols[colIdx] = {
+                  ...cols[colIdx],
+                  content: data.answer ?? '',
+                  sources: data.sources ?? [],
+                  followUps: data.followUps ?? [],
+                  streaming: false,
+                };
+                msgs[msgs.length - 1] = { ...last, compareColumns: cols };
+              }
+              return msgs;
+            });
+          }
+        } catch {
+          setMessages((prev) => {
+            const msgs = [...prev];
+            const last = msgs[msgs.length - 1];
+            if (last?.compareColumns) {
+              const cols = [...last.compareColumns];
+              cols[colIdx] = { ...cols[colIdx], content: 'Something went wrong — try again.', streaming: false };
+              msgs[msgs.length - 1] = { ...last, compareColumns: cols };
+            }
+            return msgs;
+          });
+        }
+      })
+    );
+
+    setLoading(false);
+
+    // Persist the final compare message
+    setMessages((prev) => {
+      persistConversation(prev, conversationId, serverConversationId);
+      return prev;
+    });
+  }
+
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     if (showSuggestions && suggestions.length > 0) {
       if (e.key === 'ArrowDown') {
@@ -1397,14 +1751,22 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      void submit();
+      if (compareMode && compareTeachers.length >= 2) {
+        void submitCompare();
+      } else {
+        void submit();
+      }
     }
   }
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setShowSuggestions(false);
-    void submit();
+    if (compareMode && compareTeachers.length >= 2) {
+      void submitCompare();
+    } else {
+      void submit();
+    }
   }
 
   function handleRelatedClick(rq: RelatedQuestion) {
@@ -1809,6 +2171,8 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
                     {msg.content}
                   </div>
                 </div>
+              ) : msg.compareColumns ? (
+                <CompareColumns columns={msg.compareColumns} />
               ) : (
                 <div className="flex justify-start">
                   <AssistantMessage
@@ -1873,7 +2237,7 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
             </div>
           )}
 
-          {loading && (
+          {loading && !compareMode && (
             <div className="flex justify-start">
               <ResponseSkeleton />
             </div>
@@ -1911,45 +2275,130 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
             You&apos;ve used all 20 questions for this hour. Resets at {formatResetTime(rateLimit.resetAt)}.
           </div>
         )}
-        {/* Teacher filter pill selector */}
-        {teachers.length > 0 && (
-          <div className="max-w-2xl mx-auto mb-3 flex flex-wrap items-center gap-1.5">
-            <span className="text-xs flex-shrink-0" style={{ color: 'var(--text-faint)' }}>
-              Teacher:
-            </span>
+        {/* Essay context chip — dismissable */}
+        {essayContext && !essayContextDismissed && (
+          <div className="max-w-2xl mx-auto mb-3 flex items-center gap-2">
+            <div
+              className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-full flex-shrink min-w-0"
+              style={{ background: 'var(--bg-chip)', color: 'var(--sage)' }}
+            >
+              <svg className="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" />
+              </svg>
+              <span className="truncate">Reading: {essayContext.title}</span>
+            </div>
             <button
               type="button"
-              onClick={() => {
-                setSelectedTeacher(null);
-                localStorage.removeItem(TEACHER_STORAGE_KEY);
-              }}
-              className="text-xs px-2.5 py-1 rounded-full transition-colors flex-shrink-0"
-              style={{
-                background: selectedTeacher === null ? 'var(--sage)' : 'var(--bg-chip)',
-                color: selectedTeacher === null ? '#fff' : 'var(--text-muted)',
-                border: '1px solid transparent',
-              }}
+              onClick={() => setEssayContextDismissed(true)}
+              aria-label="Dismiss essay context"
+              className="flex-shrink-0 p-0.5 rounded"
+              style={{ color: 'var(--text-faint)' }}
             >
-              All
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
             </button>
-            {teachers.map((t) => (
+          </div>
+        )}
+
+        {/* Teacher filter / compare selector */}
+        {teachers.length > 0 && (
+          <div className="max-w-2xl mx-auto mb-3">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-xs flex-shrink-0" style={{ color: 'var(--text-faint)' }}>
+                Teacher:
+              </span>
+
+              {!compareMode ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => { setSelectedTeacher(null); localStorage.removeItem(TEACHER_STORAGE_KEY); }}
+                    className="text-xs px-2.5 py-1 rounded-full transition-colors flex-shrink-0"
+                    style={{
+                      background: selectedTeacher === null ? 'var(--sage)' : 'var(--bg-chip)',
+                      color: selectedTeacher === null ? '#fff' : 'var(--text-muted)',
+                      border: '1px solid transparent',
+                    }}
+                  >
+                    All
+                  </button>
+                  {teachers.map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => { setSelectedTeacher(t); localStorage.setItem(TEACHER_STORAGE_KEY, t); }}
+                      className="text-xs px-2.5 py-1 rounded-full transition-colors flex-shrink-0"
+                      style={{
+                        background: selectedTeacher === t ? 'var(--sage)' : 'var(--bg-chip)',
+                        color: selectedTeacher === t ? '#fff' : 'var(--text-muted)',
+                        border: '1px solid transparent',
+                      }}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </>
+              ) : (
+                <>
+                  {teachers.map((t) => {
+                    const isSelected = compareTeachers.includes(t);
+                    const wouldBeThird = compareTeachers.length >= 2 && !isSelected;
+                    const needsPro = wouldBeThird && userTier === 'free';
+                    return (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => {
+                          if (isSelected) {
+                            setCompareTeachers(compareTeachers.filter((x) => x !== t));
+                          } else if (compareTeachers.length >= 3) {
+                            // Already at max — no-op
+                          } else if (needsPro) {
+                            setUpgradeFeature('compare_teachers');
+                          } else {
+                            setCompareTeachers([...compareTeachers, t]);
+                          }
+                        }}
+                        className="text-xs px-2.5 py-1 rounded-full transition-colors flex-shrink-0"
+                        style={{
+                          background: isSelected ? 'var(--sage)' : 'var(--bg-chip)',
+                          color: isSelected ? '#fff' : needsPro ? 'var(--text-faint)' : 'var(--text-muted)',
+                          border: isSelected ? '1px solid transparent' : '1px solid var(--border-subtle)',
+                          opacity: needsPro ? 0.6 : 1,
+                        }}
+                        title={needsPro ? 'Requires Pro' : undefined}
+                      >
+                        {isSelected ? '✓ ' : ''}{t}{needsPro ? ' ★' : ''}
+                      </button>
+                    );
+                  })}
+                </>
+              )}
+
+              {/* Compare toggle button */}
               <button
-                key={t}
                 type="button"
-                onClick={() => {
-                  setSelectedTeacher(t);
-                  localStorage.setItem(TEACHER_STORAGE_KEY, t);
-                }}
+                onClick={() => { setCompareMode(!compareMode); setCompareTeachers([]); }}
                 className="text-xs px-2.5 py-1 rounded-full transition-colors flex-shrink-0"
-                style={{
-                  background: selectedTeacher === t ? 'var(--sage)' : 'var(--bg-chip)',
-                  color: selectedTeacher === t ? '#fff' : 'var(--text-muted)',
-                  border: '1px solid transparent',
-                }}
+                style={
+                  compareMode
+                    ? { background: 'var(--sage)', color: '#fff', border: '1px solid transparent' }
+                    : { background: 'transparent', color: 'var(--sage)', border: '1px solid var(--sage)' }
+                }
               >
-                {t}
+                {compareMode ? 'Exit compare' : 'Compare'}
               </button>
-            ))}
+            </div>
+
+            {/* Compare mode status line */}
+            {compareMode && (
+              <p className="text-xs mt-1.5 px-0.5" style={{ color: 'var(--text-faint)' }}>
+                {compareTeachers.length < 2
+                  ? 'Select 2–3 teachers to compare'
+                  : `Compare uses ${compareTeachers.length} of your daily questions per submit`}
+              </p>
+            )}
           </div>
         )}
         <form onSubmit={handleSubmit} className="max-w-2xl mx-auto">
@@ -2060,7 +2509,7 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
                 type="submit"
                 title="Submit (Enter or Ctrl+Enter)"
                 aria-label="Submit question"
-                disabled={!input.trim() || loading || rateLimit?.remaining === 0 || guestLimitReached || freeTierLimitReached}
+                disabled={!input.trim() || loading || rateLimit?.remaining === 0 || guestLimitReached || freeTierLimitReached || (compareMode && compareTeachers.length < 2)}
                 className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-opacity disabled:opacity-30"
                 style={{ background: 'var(--sage)' }}
               >
