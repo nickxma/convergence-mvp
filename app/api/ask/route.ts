@@ -41,6 +41,13 @@ interface CacheChunk {
   speaker: string;
   source: string;
   score: number;
+  chunkId?: string;
+}
+
+/** Stable chunk identifier: SHA-256 of "source::text_prefix". Matches the
+ *  format expected by citation_feedback.chunk_id. */
+function computeChunkId(source: string, text: string): string {
+  return createHash('sha256').update(source + '::' + text.slice(0, 100)).digest('hex');
 }
 
 const SYSTEM_PROMPT_BASE = `You are a knowledgeable mindfulness guide with deep expertise in meditation, consciousness, non-dual awareness, and contemplative traditions.
@@ -367,7 +374,7 @@ export async function POST(req: NextRequest) {
       await tracer.trace('rag.response_send', () => Promise.resolve(), { cached: true, type: 'exact' });
       return NextResponse.json({
         answer: cachedAnswer, answerId, conversationId, followUps: cachedFollowUps, cached: true,
-        sources: cachedChunks.map((c) => ({ text: c.text.slice(0, 200), speaker: c.speaker, source: c.source, score: Math.round(c.score * 100) / 100 })),
+        sources: cachedChunks.map((c) => ({ text: c.text.slice(0, 200), speaker: c.speaker, source: c.source, score: Math.round(c.score * 100) / 100, chunkId: c.chunkId ?? computeChunkId(c.source, c.text) })),
         ...(rl !== null ? { rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() } } : {}),
         ...(guestQueriesRemaining !== null ? { guestQueriesRemaining } : {}),
         ...(userQuestionsRemaining !== null ? { userQuestionsRemaining } : {}),
@@ -470,7 +477,7 @@ export async function POST(req: NextRequest) {
       await tracer.trace('rag.response_send', () => Promise.resolve(), { cached: true, type: 'semantic' });
       return NextResponse.json({
         answer: cachedAnswer, answerId, conversationId, followUps: cachedFollowUps, cached: true,
-        sources: cachedChunks.map((c) => ({ text: c.text.slice(0, 200), speaker: c.speaker, source: c.source, score: Math.round(c.score * 100) / 100 })),
+        sources: cachedChunks.map((c) => ({ text: c.text.slice(0, 200), speaker: c.speaker, source: c.source, score: Math.round(c.score * 100) / 100, chunkId: c.chunkId ?? computeChunkId(c.source, c.text) })),
         ...(rl !== null ? { rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() } } : {}),
         ...(guestQueriesRemaining !== null ? { guestQueriesRemaining } : {}),
         ...(userQuestionsRemaining !== null ? { userQuestionsRemaining } : {}),
@@ -516,21 +523,22 @@ export async function POST(req: NextRequest) {
   // When a teacher filter is active, restrict retrieval to that teacher's chunks only.
   const pineconeFilter = teacher ? { speaker: { $eq: teacher } } : undefined;
 
-  function matchesToChunks(matches: PineconeMatch[]): Array<{ text: string; speaker: string; source: string; score: number }> {
-    const map = new Map<string, { text: string; speaker: string; source: string; score: number }>();
+  function matchesToChunks(matches: PineconeMatch[]): Array<{ text: string; speaker: string; source: string; score: number; chunkId: string }> {
+    const map = new Map<string, { text: string; speaker: string; source: string; score: number; chunkId: string }>();
     for (const m of matches) {
       const meta = m.metadata ?? {};
       const text = meta.text ?? '';
       if (!text || (m.score ?? 0) < 0.4) continue;
       const existing = map.get(text);
       if (!existing || (m.score ?? 0) > existing.score) {
-        map.set(text, { text, speaker: meta.speaker ?? '', source: meta.source_file ?? '', score: m.score ?? 0 });
+        const source = meta.source_file ?? '';
+        map.set(text, { text, speaker: meta.speaker ?? '', source, score: m.score ?? 0, chunkId: computeChunkId(source, text) });
       }
     }
     return Array.from(map.values()).sort((a, b) => b.score - a.score);
   }
 
-  const perPhrasingChunks: Array<Array<{ text: string; speaker: string; source: string; score: number }>> = [];
+  const perPhrasingChunks: Array<Array<{ text: string; speaker: string; source: string; score: number; chunkId: string }>> = [];
 
   try {
     await tracer.trace('rag.vector_search', async () => {
@@ -589,6 +597,34 @@ export async function POST(req: NextRequest) {
   const allChunks = queryVectors.length > 1 && perPhrasingChunks.length > 1
     ? reciprocalRankFusion(perPhrasingChunks)
     : (perPhrasingChunks[0] ?? []);
+
+  // ── Feedback score re-ranking boost ───────────────────────────────────────
+  // Multiply each chunk's retrieval score by (1 + 0.1 * feedback_score) using
+  // aggregated citation_feedback signals. Fire-and-forget: skip silently on DB
+  // error so retrieval is never blocked by a feedback lookup failure.
+  if (allChunks.length > 0) {
+    try {
+      const chunkIds = allChunks.map((c) => c.chunkId).filter((id): id is string => !!id);
+      const { data: feedbackRows } = await supabase
+        .from('corpus_chunks')
+        .select('chunk_id, feedback_score')
+        .in('chunk_id', chunkIds);
+      if (feedbackRows && feedbackRows.length > 0) {
+        const scoreMap = new Map(
+          (feedbackRows as Array<{ chunk_id: string; feedback_score: number }>).map(
+            (r) => [r.chunk_id, r.feedback_score],
+          ),
+        );
+        for (const c of allChunks) {
+          const fScore = scoreMap.get(c.chunkId ?? '') ?? 0;
+          if (fScore !== 0) c.score = c.score * (1 + 0.1 * fScore);
+        }
+        allChunks.sort((a, b) => b.score - a.score);
+      }
+    } catch (fbErr) {
+      console.warn(`[/api/ask] feedback_score_lookup_failed err=${fbErr instanceof Error ? fbErr.message : String(fbErr)}`);
+    }
+  }
 
   // ── Cohere re-ranking ─────────────────────────────────────────────────────
   // If COHERE_API_KEY is set, re-rank the broad retrieval set and keep top N.
@@ -664,11 +700,14 @@ export async function POST(req: NextRequest) {
   })();
 
   // Shared sources payloads (built once, used in both paths)
+  // chunkId is included so clients can reference specific chunks when submitting
+  // feedback via POST /api/qa/feedback.
   const sourcesPayload = chunks.map((c) => ({
     text: c.text.slice(0, 200),
     speaker: c.speaker,
     source: c.source,
     score: Math.round(c.score * 100) / 100,
+    chunkId: c.chunkId ?? computeChunkId(c.source, c.text),
   }));
 
   const answerSources = chunks.slice(0, 3).map((c) => ({
@@ -676,6 +715,7 @@ export async function POST(req: NextRequest) {
     speaker: c.speaker,
     source: c.source,
     score: Math.round(c.score * 100) / 100,
+    chunkId: c.chunkId ?? computeChunkId(c.source, c.text),
   }));
 
   // Shared follow-up messages (same input for both paths)
@@ -717,6 +757,7 @@ export async function POST(req: NextRequest) {
         const hitSources = cachedChunks.slice(0, 3).map((c) => ({
           text: c.text.slice(0, 200), speaker: c.speaker, source: c.source,
           score: Math.round(c.score * 100) / 100,
+          chunkId: c.chunkId ?? computeChunkId(c.source, c.text),
         }));
         let answerId: string | null = null;
         try {
@@ -743,7 +784,7 @@ export async function POST(req: NextRequest) {
         await tracer.trace('rag.response_send', () => Promise.resolve(), { cached: true, type: 'redis' });
         return NextResponse.json({
           answer: cachedAnswer, answerId, conversationId, followUps: cachedFollowUps, cached: true,
-          sources: cachedChunks.map((c) => ({ text: c.text.slice(0, 200), speaker: c.speaker, source: c.source, score: Math.round(c.score * 100) / 100 })),
+          sources: cachedChunks.map((c) => ({ text: c.text.slice(0, 200), speaker: c.speaker, source: c.source, score: Math.round(c.score * 100) / 100, chunkId: c.chunkId ?? computeChunkId(c.source, c.text) })),
           related_concepts: relatedConcepts,
           ...(rl !== null ? { rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() } } : {}),
           ...(guestQueriesRemaining !== null ? { guestQueriesRemaining } : {}),

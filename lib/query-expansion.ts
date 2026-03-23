@@ -25,6 +25,7 @@ export interface RankedChunk {
   speaker: string;
   source: string;
   score: number;
+  chunkId?: string;
 }
 
 /**

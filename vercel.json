@@ -19,6 +19,30 @@
     {
       "path": "/api/cron/churn-report",
       "schedule": "0 9 * * 1"
+    },
+    {
+      "path": "/api/cron/ab-test-winner",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/newsletter-scheduled",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/insight-digest",
+      "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/cron/waking-up-sync",
+      "schedule": "0 4 * * 1"
+    },
+    {
+      "path": "/api/cron/paradox-sync",
+      "schedule": "0 5 * * 1"
+    },
+    {
+      "path": "/api/cron/feedback-score",
+      "schedule": "0 3 * * *"
     }
   ]
 }
