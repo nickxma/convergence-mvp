@@ -22,6 +22,7 @@ import { embedOne, embedBatch } from '@/lib/embeddings';
 import { getConceptContext } from '@/lib/concept-graph';
 import { shouldExpandQuery, expandQuery, reciprocalRankFusion } from '@/lib/query-expansion';
 import { getEssayContext, getCourseSessionContext } from '@/lib/essay-cache';
+import { RagTracer } from '@/lib/rag-tracer';
 
 const EMBED_MODEL = 'text-embedding-3-large';
 const EMBED_DIMENSIONS = 1536;
@@ -91,6 +92,7 @@ const REFERRED_GUEST_LIMIT = 5; // bumped limit for visitors arriving via referr
 
 export async function POST(req: NextRequest) {
   const requestStart = Date.now();
+  const tracer = new RagTracer();
   const ip = getClientIp(req);
 
   // ── Identify caller ───────────────────────────────────────────────────────
@@ -379,7 +381,9 @@ export async function POST(req: NextRequest) {
 
   let queryVector: number[];
   try {
-    queryVector = await embedOne(embedInput, { model: EMBED_MODEL, dimensions: EMBED_DIMENSIONS, client: oai });
+    queryVector = await tracer.trace('rag.embed_query', () =>
+      embedOne(embedInput, { model: EMBED_MODEL, dimensions: EMBED_DIMENSIONS, client: oai }),
+    );
   } catch (err) {
     return handleOpenAIError(err, 'embeddings', logCtx);
   }
@@ -506,48 +510,50 @@ export async function POST(req: NextRequest) {
   const perPhrasingChunks: Array<Array<{ text: string; speaker: string; source: string; score: number }>> = [];
 
   try {
-    const index = pc.Index(pineconeIndex);
+    await tracer.trace('rag.pinecone_retrieve', async () => {
+      const index = pc.Index(pineconeIndex);
 
-    for (const vec of queryVectors) {
-      const [rawResults, summaryResults] = await Promise.all([
-        index.namespace(PINECONE_NAMESPACE).query({
-          vector: vec,
-          topK: TOP_K,
-          includeMetadata: true,
-          ...(pineconeFilter ? { filter: pineconeFilter } : {}),
-        }),
-        index.namespace(PINECONE_SUMMARY_NAMESPACE).query({
-          vector: vec,
-          topK: TOP_K,
-          includeMetadata: true,
-          ...(pineconeFilter ? { filter: pineconeFilter } : {}),
-        }).catch(() => ({ matches: [] })), // graceful fallback if namespace empty
-      ]);
-
-      const rawMatches = (rawResults.matches ?? []) as PineconeMatch[];
-      const summaryMatches = (summaryResults.matches ?? []) as PineconeMatch[];
-
-      // ── Fallback: primary namespace empty → query __default__ ───────────
-      if (rawMatches.length === 0 && summaryMatches.length === 0 && !pineconeFilter) {
-        try {
-          const fallbackResults = await index.namespace('__default__').query({
+      for (const vec of queryVectors) {
+        const [rawResults, summaryResults] = await Promise.all([
+          index.namespace(PINECONE_NAMESPACE).query({
             vector: vec,
             topK: TOP_K,
             includeMetadata: true,
-          });
-          const fallbackMatches = (fallbackResults.matches ?? []) as PineconeMatch[];
-          if (fallbackMatches.length > 0) {
-            console.log(`[/api/ask] fallback_ns_default matches=${fallbackMatches.length} ${logCtx}`);
-            perPhrasingChunks.push(matchesToChunks(fallbackMatches));
-            continue;
-          }
-        } catch (fallbackErr) {
-          console.warn(`[/api/ask] fallback_ns_failed err=${fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)}`);
-        }
-      }
+            ...(pineconeFilter ? { filter: pineconeFilter } : {}),
+          }),
+          index.namespace(PINECONE_SUMMARY_NAMESPACE).query({
+            vector: vec,
+            topK: TOP_K,
+            includeMetadata: true,
+            ...(pineconeFilter ? { filter: pineconeFilter } : {}),
+          }).catch(() => ({ matches: [] })), // graceful fallback if namespace empty
+        ]);
 
-      perPhrasingChunks.push(matchesToChunks([...rawMatches, ...summaryMatches]));
-    }
+        const rawMatches = (rawResults.matches ?? []) as PineconeMatch[];
+        const summaryMatches = (summaryResults.matches ?? []) as PineconeMatch[];
+
+        // ── Fallback: primary namespace empty → query __default__ ───────────
+        if (rawMatches.length === 0 && summaryMatches.length === 0 && !pineconeFilter) {
+          try {
+            const fallbackResults = await index.namespace('__default__').query({
+              vector: vec,
+              topK: TOP_K,
+              includeMetadata: true,
+            });
+            const fallbackMatches = (fallbackResults.matches ?? []) as PineconeMatch[];
+            if (fallbackMatches.length > 0) {
+              console.log(`[/api/ask] fallback_ns_default matches=${fallbackMatches.length} ${logCtx}`);
+              perPhrasingChunks.push(matchesToChunks(fallbackMatches));
+              continue;
+            }
+          } catch (fallbackErr) {
+            console.warn(`[/api/ask] fallback_ns_failed err=${fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)}`);
+          }
+        }
+
+        perPhrasingChunks.push(matchesToChunks([...rawMatches, ...summaryMatches]));
+      }
+    }, { k: TOP_K, phrasings: queryVectors.length });
   } catch (err) {
     return handlePineconeError(err, logCtx);
   }
@@ -564,18 +570,20 @@ export async function POST(req: NextRequest) {
   let chunks: typeof allChunks;
   if (cohereKey && allChunks.length > RERANK_TOP_N) {
     try {
-      const cohere = new CohereClient({ token: cohereKey });
-      const rerankResult = await cohere.rerank({
-        model: 'rerank-v3.5',
-        query: question,
-        documents: allChunks.map((c) => ({ text: c.text })),
-        topN: RERANK_TOP_N,
-        returnDocuments: false,
-      });
-      chunks = rerankResult.results.map((r) => ({
-        ...allChunks[r.index],
-        score: r.relevanceScore,
-      }));
+      chunks = await tracer.trace('rag.cohere_rerank', async () => {
+        const cohere = new CohereClient({ token: cohereKey });
+        const rerankResult = await cohere.rerank({
+          model: 'rerank-v3.5',
+          query: question,
+          documents: allChunks.map((c) => ({ text: c.text })),
+          topN: RERANK_TOP_N,
+          returnDocuments: false,
+        });
+        return rerankResult.results.map((r) => ({
+          ...allChunks[r.index],
+          score: r.relevanceScore,
+        }));
+      }, { input_count: allChunks.length, top_n: RERANK_TOP_N });
       console.log(`[/api/ask] reranked ${allChunks.length} → ${chunks.length} chunks ${logCtx}`);
     } catch (err) {
       console.warn(`[/api/ask] rerank_failed fallback to cosine err=${err instanceof Error ? err.message : String(err)}`);
@@ -664,16 +672,18 @@ export async function POST(req: NextRequest) {
     let followUps: string[] = [];
     try {
       const [chatResp, followUpsResp] = await Promise.all([
-        oai.chat.completions.create({
-          model: CHAT_MODEL,
-          messages: [
-            { role: 'system', content: activeSystemPrompt },
-            ...priorMessages,
-            { role: 'user', content: userContent },
-          ],
-          temperature: 0.5,
-          max_tokens: 600,
-        }),
+        tracer.trace('rag.llm_generate', () =>
+          oai.chat.completions.create({
+            model: CHAT_MODEL,
+            messages: [
+              { role: 'system', content: activeSystemPrompt },
+              ...priorMessages,
+              { role: 'user', content: userContent },
+            ],
+            temperature: 0.5,
+            max_tokens: 600,
+          }),
+        ),
         oai.chat.completions.create({
           model: CHAT_MODEL,
           messages: followUpMessages,
@@ -699,6 +709,14 @@ export async function POST(req: NextRequest) {
     const questionHash = createHash('sha256').update(question).digest('hex');
     const pineconeScores = chunks.slice(0, 3).map((c) => c.score);
     const fmtMetrics = computeFormatMetrics(answer);
+
+    // Log structured spans and persist timing to qa_metrics (fire-and-forget)
+    tracer.log(logCtx);
+    const ragSpans = tracer.summarize();
+    supabase
+      .from('qa_metrics')
+      .insert({ question_hash: questionHash, conversation_id: conversationId, embed_ms: ragSpans.embed_ms, retrieve_ms: ragSpans.retrieve_ms, rerank_ms: ragSpans.rerank_ms, generate_ms: ragSpans.generate_ms, total_ms: ragSpans.total_ms })
+      .then(({ error }) => { if (error) console.warn(`[/api/ask] qa_metrics_write_error err=${error.message}`); });
 
     supabase
       .from('qa_analytics')
@@ -796,6 +814,7 @@ export async function POST(req: NextRequest) {
       streamAbortController = new AbortController();
       try {
         let fullAnswer = '';
+        const generateStart = Date.now();
 
         const chatStream = await oai.chat.completions.create(
           {
@@ -824,12 +843,22 @@ export async function POST(req: NextRequest) {
           }
         }
 
+        tracer.recordGenerateSpan(Date.now() - generateStart);
+
         // Main stream complete — follow-ups should be ready by now
         const followUps = await followUpsPromise;
 
+        // Log structured spans and persist timing to qa_metrics (fire-and-forget)
+        tracer.log(logCtx);
+        const ragSpans = tracer.summarize();
+        const questionHash = createHash('sha256').update(question).digest('hex');
+        supabase
+          .from('qa_metrics')
+          .insert({ question_hash: questionHash, conversation_id: conversationId, embed_ms: ragSpans.embed_ms, retrieve_ms: ragSpans.retrieve_ms, rerank_ms: ragSpans.rerank_ms, generate_ms: ragSpans.generate_ms, total_ms: ragSpans.total_ms })
+          .then(({ error }) => { if (error) console.warn(`[/api/ask] qa_metrics_write_error err=${error.message}`); });
+
         // Analytics (fire and forget)
         const latencyMs = Date.now() - requestStart;
-        const questionHash = createHash('sha256').update(question).digest('hex');
         const pineconeScores = chunks.slice(0, 3).map((c) => c.score);
         const fmtMetrics = computeFormatMetrics(fullAnswer);
         supabase
