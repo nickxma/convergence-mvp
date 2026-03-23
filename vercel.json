@@ -59,6 +59,10 @@
     {
       "path": "/api/cron/token-snapshot",
       "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/cron/subscription-renewals",
+      "schedule": "0 10 * * *"
     }
   ]
 }
