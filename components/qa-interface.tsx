@@ -1122,6 +1122,7 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
   const [userQuestionsRemaining, setUserQuestionsRemaining] = useState<number | null>(null);
   const [freeTierLimitReached, setFreeTierLimitReached] = useState(false);
   const [upgradeFeature, setUpgradeFeature] = useState<string | null>(null);
+  const [correctedQuery, setCorrectedQuery] = useState<string | null>(null);
 
   // Answer style preference — loaded from API for authenticated users, localStorage for others
   type AnswerStyle = 'brief' | 'detailed' | 'citations_first';
@@ -1416,6 +1417,7 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
     similarDismissedInput.current = null;
     setRelatedQuestions([]);
     setRelatedLoading(false);
+    setCorrectedQuery(null);
     const newMessages: Message[] = [...baseMessages, { role: 'user', content: question }];
     setMessages(newMessages);
     setLoading(true);
@@ -1573,6 +1575,9 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
                 setUserQuestionsRemaining(event.userQuestionsRemaining);
                 if (event.userQuestionsRemaining === 0) setFreeTierLimitReached(true);
               }
+              if (typeof event.correctedQuery === 'string' && event.correctedQuery) {
+                setCorrectedQuery(event.correctedQuery);
+              }
               if (wasFirstEver) {
                 localStorage.setItem('wu_onboarding_seen', '1');
                 setShowOnboardingPanel(false);
@@ -1629,6 +1634,9 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
           setUserQuestionsRemaining(data.userQuestionsRemaining);
           if (data.userQuestionsRemaining === 0) setFreeTierLimitReached(true);
         }
+        if (typeof data.correctedQuery === 'string' && data.correctedQuery) {
+          setCorrectedQuery(data.correctedQuery);
+        }
         if (wasFirstEver) {
           localStorage.setItem('wu_onboarding_seen', '1');
           setShowOnboardingPanel(false);
@@ -1679,6 +1687,9 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
             ];
             setMessages(fallbackMessages);
             persistConversation(fallbackMessages, conversationId, newServerConvId ?? serverConversationId);
+            if (typeof data.correctedQuery === 'string' && data.correctedQuery) {
+              setCorrectedQuery(data.correctedQuery);
+            }
             fetchRelated(question);
           } else {
             setMessages([...newMessages, { role: 'assistant', content: 'Something went wrong — try again.', error: true }]);
@@ -1719,6 +1730,7 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
     setInput('');
     setRelatedQuestions([]);
     setRelatedLoading(false);
+    setCorrectedQuery(null);
 
     const newMessages: Message[] = [
       ...baseMessages,
@@ -2337,6 +2349,40 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
                 textareaRef.current?.focus();
               }}
             />
+          )}
+
+          {correctedQuery && (
+            <div
+              className="flex items-center justify-between gap-2 rounded-xl px-4 py-2.5 text-sm"
+              style={{
+                background: 'var(--bg-surface)',
+                border: '1px solid var(--border-subtle)',
+              }}
+            >
+              <span style={{ color: 'var(--text-muted)' }}>
+                Did you mean:{' '}
+                <button
+                  type="button"
+                  onClick={() => submit(correctedQuery)}
+                  className="font-medium underline underline-offset-2"
+                  style={{ color: 'var(--sage-dark)' }}
+                >
+                  {correctedQuery}
+                </button>
+                ?
+              </span>
+              <button
+                type="button"
+                onClick={() => setCorrectedQuery(null)}
+                aria-label="Dismiss spelling suggestion"
+                className="flex-shrink-0"
+                style={{ color: 'var(--text-faint)' }}
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
           )}
 
           {messages.map((msg, i) => (
