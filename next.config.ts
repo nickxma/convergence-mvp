@@ -1,15 +1,6 @@
 import type { NextConfig } from "next";
 import { withSentryConfig } from "@sentry/nextjs";
 
-// Allowed CORS origin for API routes.
-// Browsers enforce same-origin by default (no CORS header = requests blocked).
-// We set this explicitly so cross-origin clients (e.g. mobile app) can only come from
-// the configured app URL. The value must be a single origin string; multiple origins
-// require dynamic handling in middleware.
-// In dev, set NEXT_PUBLIC_APP_URL=http://localhost:3000.
-// In prod, set NEXT_PUBLIC_APP_URL=https://your-app.vercel.app.
-const allowedOrigin = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
-
 // CSP allows:
 // - Privy (auth modal + embedded wallet iframes)
 // - Sentry (error reporting)
@@ -60,25 +51,23 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  // Don't emit X-Powered-By: Next.js — leaks server technology.
+  poweredByHeader: false,
+
+  // Cap the request body buffered in proxy at 1 MB.
+  // Prevents memory exhaustion from oversized payloads hitting proxy.ts.
+  // CORS and rate-limiting are handled in proxy.ts; dynamic origin checking
+  // is done there (multi-origin support via CORS_ALLOWED_ORIGINS env var).
+  experimental: {
+    proxyClientMaxBodySize: '1mb',
+  },
+
   async headers() {
     return [
       {
         // Apply security headers to all routes.
         source: "/(.*)",
         headers: securityHeaders,
-      },
-      {
-        // Explicit CORS for API routes: restrict cross-origin access to the known app origin.
-        // This prevents third-party sites from making credentialed requests to our API.
-        // Routes that need to be callable from other origins (e.g. /api/health) can
-        // override this per-route handler, but none currently do.
-        source: "/api/:path*",
-        headers: [
-          { key: "Access-Control-Allow-Origin", value: allowedOrigin },
-          { key: "Access-Control-Allow-Methods", value: "GET, POST, PATCH, DELETE, OPTIONS" },
-          { key: "Access-Control-Allow-Headers", value: "Content-Type, Authorization" },
-          { key: "Access-Control-Max-Age", value: "86400" },
-        ],
       },
       {
         // Embed iframe page: allow any external site to frame this page.

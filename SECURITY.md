@@ -34,7 +34,8 @@ Vercel Cron jobs authenticate with `CRON_SECRET` via `Authorization: Bearer <CRO
 
 | Route | Methods | Notes |
 |-------|---------|-------|
-| `GET /api/health` | GET | Service liveness check |
+| `GET /api/health` | GET | Service liveness check (deep dependency checks) |
+| `GET /api/ready` | GET | Container readiness probe (env-var check only, no I/O) |
 | `GET /api/topics` | GET | Question cluster listing |
 | `GET /api/topics/:clusterId/questions` | GET | Questions per cluster |
 | `GET /api/questions/suggest` | GET | Question search suggestions |
