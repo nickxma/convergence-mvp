@@ -12,6 +12,7 @@
  *   npx tsx scripts/rag-benchmark.ts              # auto-detect (tries new, falls back to baseline)
  *   npx tsx scripts/rag-benchmark.ts --new        # force new pipeline
  *   npx tsx scripts/rag-benchmark.ts --baseline   # force baseline pipeline
+ *   npx tsx scripts/rag-benchmark.ts --expand     # enable short-query expansion + RRF (OLU-597)
  *
  * Requires (in .env.local or environment):
  *   PINECONE_API_KEY, PINECONE_INDEX, OPENAI_API_KEY
@@ -45,6 +46,7 @@ loadEnvLocal();
 import { Pinecone } from '@pinecone-database/pinecone';
 import OpenAI from 'openai';
 import { CohereClient } from 'cohere-ai';
+import { shouldExpandQuery, expandQuery, reciprocalRankFusion } from '@/lib/query-expansion';
 
 // ── Pipeline configs ──────────────────────────────────────────────────────────
 
@@ -119,6 +121,8 @@ interface QueryResult {
   latencyMs: number;
   totalCandidates: number;
   rerankUsed: boolean;
+  expansionUsed: boolean;
+  phrasings?: string[];
   chunks: RetrievedChunk[];
   error?: string;
 }
@@ -202,10 +206,14 @@ async function main() {
 
   const cfg = CONFIGS[mode];
 
+  // --expand flag enables short-query expansion with RRF (OLU-597 Fix 2)
+  const useExpansion = process.argv.includes('--expand');
+
   console.log(`\n═══ RAG Benchmark — ${QUERIES.length} queries ══════════════════════════════`);
-  console.log(`  Pipeline: ${cfg.label}`);
-  console.log(`  Index:    ${indexName}`);
-  console.log(`  Re-rank:  ${cohere ? 'Cohere rerank-v3.5' : 'disabled (cosine order)'}`);
+  console.log(`  Pipeline:  ${cfg.label}`);
+  console.log(`  Index:     ${indexName}`);
+  console.log(`  Re-rank:   ${cohere ? 'Cohere rerank-v3.5' : 'disabled (cosine order)'}`);
+  console.log(`  Expansion: ${useExpansion ? 'enabled (≤3-word queries → GPT-4o + RRF)' : 'disabled (use --expand to enable)'}`);
   console.log('─'.repeat(75));
 
   const results: QueryResult[] = [];
@@ -215,22 +223,50 @@ async function main() {
     const t0 = Date.now();
 
     try {
-      const vector = await embedQuery(oai, query, cfg.embedModel, cfg.embedDimensions);
+      // ── Query expansion (OLU-597 Fix 2) ─────────────────────────────────
+      // For short/abstract queries (≤ 3 words), expand to multiple phrasings
+      // and fuse results with Reciprocal Rank Fusion.
+      let phrasings: string[] = [query];
+      let expansionUsed = false;
 
-      let allMatches: PineconeMatch[];
-      if (cfg.summaryNamespace) {
-        const [raw, summary] = await Promise.all([
-          pineconeQuery(pc, indexName, vector, cfg.namespace, TOP_K),
-          pineconeQuery(pc, indexName, vector, cfg.summaryNamespace, TOP_K).catch(() => [] as PineconeMatch[]),
-        ]);
-        allMatches = [...raw, ...summary];
-      } else {
-        allMatches = await pineconeQuery(pc, indexName, vector, cfg.namespace, TOP_K);
+      if (useExpansion && shouldExpandQuery(query)) {
+        phrasings = await expandQuery(query, oai);
+        expansionUsed = phrasings.length > 1;
+        if (expansionUsed) {
+          process.stdout.write(`[+${phrasings.length - 1} expansions] `);
+        }
       }
 
-      const chunkMap = mergeChunks(allMatches);
-      const allChunks = Array.from(chunkMap.values()).sort((a, b) => b.score - a.score);
+      // ── Retrieve per phrasing ────────────────────────────────────────────
+      const perPhrasingChunks: Array<Array<{ text: string; speaker: string; source: string; score: number }>> = [];
 
+      for (const phrasing of phrasings) {
+        const vector = await embedQuery(oai, phrasing, cfg.embedModel, cfg.embedDimensions);
+
+        let allMatches: PineconeMatch[];
+        if (cfg.summaryNamespace) {
+          const [raw, summary] = await Promise.all([
+            pineconeQuery(pc, indexName, vector, cfg.namespace, TOP_K),
+            pineconeQuery(pc, indexName, vector, cfg.summaryNamespace, TOP_K).catch(() => [] as PineconeMatch[]),
+          ]);
+          allMatches = [...raw, ...summary];
+        } else {
+          allMatches = await pineconeQuery(pc, indexName, vector, cfg.namespace, TOP_K);
+        }
+
+        const chunkMap = mergeChunks(allMatches);
+        perPhrasingChunks.push(Array.from(chunkMap.values()).sort((a, b) => b.score - a.score));
+      }
+
+      // ── Merge: RRF (multi-phrasing) or direct sort (single phrasing) ────
+      let allChunks: Array<{ text: string; speaker: string; source: string; score: number }>;
+      if (expansionUsed && perPhrasingChunks.length > 1) {
+        allChunks = reciprocalRankFusion(perPhrasingChunks);
+      } else {
+        allChunks = perPhrasingChunks[0] ?? [];
+      }
+
+      // ── Cohere re-rank ───────────────────────────────────────────────────
       let finalChunks: typeof allChunks;
       let rerankUsed = false;
       if (cohere && allChunks.length > 3) {
@@ -258,6 +294,8 @@ async function main() {
         latencyMs,
         totalCandidates: allChunks.length,
         rerankUsed,
+        expansionUsed,
+        phrasings: expansionUsed ? phrasings : undefined,
         chunks: finalChunks.map((c, i) => ({ rank: i + 1, ...c })),
       });
 
@@ -268,7 +306,7 @@ async function main() {
     } catch (err) {
       const latencyMs = Date.now() - t0;
       console.log(`ERROR: ${(err as Error).message}`);
-      results.push({ id, query, latencyMs, totalCandidates: 0, rerankUsed: false, chunks: [], error: (err as Error).message });
+      results.push({ id, query, latencyMs, totalCandidates: 0, rerankUsed: false, expansionUsed: false, chunks: [], error: (err as Error).message });
     }
 
     await new Promise((r) => setTimeout(r, 200));
@@ -297,6 +335,7 @@ async function main() {
     indexName,
     corpusState: { wakingUpVectors: wakingUpCount, defaultVectors: defaultCount },
     rerankEnabled: !!cohere,
+    expansionEnabled: useExpansion,
     summary: { totalQueries: results.length, queriesWithResults: withResults.length, avgLatencyMs: Math.round(avgLatency), avgTopScore: Number(avgTopScore.toFixed(4)) },
     results,
   }, null, 2), 'utf-8');

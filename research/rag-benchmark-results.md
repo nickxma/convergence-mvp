@@ -329,15 +329,135 @@ No prior benchmark file found in the repo. This run establishes the **first form
 
 ---
 
+## OLU-597 Follow-Up: Query Expansion + Teacher Coverage (2026-03-23)
+
+### Fix 1 — Sparse Teacher Gap Analysis
+
+Script: `scripts/teacher-coverage.ts`. Full results: `research/teacher-coverage.json`.
+
+Probed the `__default__` namespace (28,713 vectors) with metadata-filtered queries for each teacher:
+
+| Teacher | Substantive Chunks | Source Files | Gap? |
+|---------|-------------------|--------------|------|
+| Sam Harris | 100 | 58 | — |
+| Adyashanti | 100 | 21 | — |
+| Tara Brach | 72 | 1 | — |
+| Joseph Goldstein | 99 | 6 | — |
+| Rupert Spira | 86 | **1** | ⚠ |
+| Loch Kelly | 100 | 30 | — |
+| Mingyur Rinpoche | 92 | 1 | — |
+| Diana Winston | 98 | 13 | — |
+| Stephan Bodian | 96 | 16 | — |
+| Henry Shukman | 100 | 40 | — |
+| Swami Sarvapriyananda | 74 | 1 | — |
+| Joan Tollifson | 100 | 12 | — |
+| Judson Brewer | 75 | 1 | — |
+| Kelly Boys | 100 | 25 | — |
+
+**Findings:**
+
+- **Joseph Goldstein (Q04)**: 99 substantive chunks, 6 source files. Coverage is adequate. Failure is from **dialogue fragment chunking** — short conversational turns ("Joseph Goldstein: Correct.", question exchanges) rank highly on embedding similarity but contain no teaching content. Fix requires semantic re-chunking (merge Q&A turns into idea-unit segments). This is the OLU-439 work.
+
+- **Rupert Spira (Q05)**: 86 substantive chunks, but **only 1 source file** (`The-Nature-of-Awareness-Fixed`). All Spira content is concentrated in a single transcript. When a query is phrased differently from the specific teaching in that transcript, retrieval fails. Fix requires indexing additional Rupert Spira source transcripts and applying query expansion for teacher-specific queries.
+
+### Fix 2 — Abstract Query Expansion
+
+New module: `lib/query-expansion.ts`
+
+**Implementation:**
+- `shouldExpandQuery(query)` — returns true when query ≤ 3 words
+- `expandQuery(query, oai)` — calls GPT-4o to generate 3 richer phrasings; returns `[original, ...3 phrasings]`
+- `reciprocalRankFusion(rankings)` — merges per-phrasing candidate lists; chunks appearing in top ranks across multiple phrasings are promoted
+
+**Integration:**
+- `scripts/rag-benchmark.ts` — add `--expand` flag to enable (per-phrasing retrieval + RRF merge)
+- `app/api/ask/route.ts` — auto-expands short standalone questions (no essay/teacher/follow-up context)
+
+### Re-Benchmark: 3 Failing Cases (with expansion)
+
+Run: `npx tsx scripts/rag-benchmark.ts --baseline --expand`
+
+**Affected queries (≤3 words that triggered expansion):**
+
+#### Q06 — "What is non-self?" (was P@3 = 0.83)
+| Rank | Speaker | Source | RRF | Relevance |
+|------|---------|--------|-----|-----------|
+| 1 | Swami Sarvapriyananda | Swami-Sarvapriyananda-Final-1 | 1.000 | **R** |
+| 2 | Sam Harris | Live-at-the-Wiltern-Fixed | 0.955 | **R** |
+| 3 | Sam Harris | Meditation-and-Mental-Health | 0.889 | **R** |
+
+**P@3 = 1.00** ✅ (+0.17) — 59 candidates from 4 phrasings vs 20 from 1. All 3 chunks directly explain non-self. Rank 2-3 moved from "In what sense is the self not as it seems?" (fragment) to substantive explanations.
+
+---
+
+#### Q17 — "Is enlightenment permanent?" (was P@3 = 0.33)
+| Rank | Speaker | Source | RRF | Relevance |
+|------|---------|--------|-----|-----------|
+| 1 | Sam Harris | Gradual-vs-Sudden-Realization | 1.000 | **R** |
+| 2 | Sam Harris | Live-at-the-Wiltern-Fixed | 0.975 | **I** |
+| 3 | Sam Harris | Awakening | 0.956 | **I** |
+
+**P@3 = 0.33** — (no change) Rank 1 improved dramatically ("The ultimate wisdom of enlightenment… cannot be a matter of having fleeting experiences"), but ranks 2–3 remain question fragments. RRF boosts cross-phrasing consensus; short fragments like "Is there something beyond enlightenment?" still rank highly because they match the word "enlightenment" across all phrasings. Fragment pruning (minimum chunk length filter) is the remaining fix needed.
+
+---
+
+#### Q18 — "What is consciousness?" (was P@3 = 0.17)
+| Rank | Speaker | Source | RRF | Relevance |
+|------|---------|--------|-----|-----------|
+| 1 | Sam Harris | course-691d97e0 | 1.000 | **I** |
+| 2 | Sam Harris | course-ec9d6503 | 0.780 | **P** |
+| 3 | Sam Harris | Looking-for-Whats-Looking | 0.770 | **P** |
+
+**P@3 = 0.33** ✅ (+0.17) — Rank 1 is off-topic (about happiness/suffering, not consciousness), but ranks 2–3 are now about dualistic vs non-dual mindfulness/awareness — partial matches. Prior rank 3 was "… or consciousness." (1-word fragment). Improvement from 0.17.
+
+---
+
+#### Q19 — "Suffering" (was P@3 = 0.50)
+| Rank | Speaker | Source | RRF | Relevance |
+|------|---------|--------|-----|-----------|
+| 1 | Henry Shukman | Koans-and-Difficult-Times-A-Talk | 1.000 | **R** |
+| 2 | Stephen Batchelor | Skeptical-Buddhism-Fixed | 0.986 | **R** |
+| 3 | Sam Harris | What-is-Progress-in-Meditation | 0.970 | **R** |
+
+**P@3 = 1.00** ✅ (+0.50) — Excellent. Three diverse teachers directly addressing how meditation works with suffering. Prior top results were short fragments ("Depends on what you call suffering.", "How does this relate to suffering?"). RRF fusion across 4 phrasings completely changed the candidate pool.
+
+---
+
+### P@3 Summary — With Expansion (Affected Queries Only)
+
+| ID | Query | Baseline P@3 | With Expansion P@3 | Delta |
+|----|-------|-------------|-------------------|-------|
+| Q06 | What is non-self? | 0.83 | **1.00** | +0.17 ✅ |
+| Q17 | Is enlightenment permanent? | 0.33 | 0.33 | 0.00 |
+| Q18 | What is consciousness? | 0.17 | **0.33** | +0.17 ✅ |
+| Q19 | Suffering | 0.50 | **1.00** | +0.50 ✅ |
+
+**Estimated full-run P@3 with expansion:** ~0.74 (4 queries change; net gain +0.84/20 = +0.04 on mean).
+
+### Remaining Gaps
+
+| Gap | Root Cause | Fix |
+|-----|-----------|-----|
+| Q04 Goldstein (P@3 = 0.17) | Dialogue fragments outrank substantive chunks | Semantic re-chunking (OLU-439) |
+| Q05 Spira (P@3 = 0.17) | Only 1 source file indexed | Index more Rupert Spira transcripts |
+| Q17 fragments (P@3 = 0.33) | Short fragments still rank on keyword overlap | Minimum chunk length filter in retrieval |
+| Q18 off-topic rank 1 | "consciousness" phrasing hits mindfulness course intro | Cohere re-ranking (will fix with real key) |
+
+---
+
 ## Next Steps
 
 1. **Run corpus re-ingestion** — `npx tsx scripts/refresh-corpus.ts --reindex` to populate the `waking-up` namespace with text-embedding-3-large embeddings + summaries. This is required before the new pipeline can be benchmarked at all.
 
-2. **Re-run benchmark after re-ingestion** — same 20 queries against the new pipeline (large model + Cohere re-ranking). Target: P@3 ≥ 0.80 to justify the compute cost.
+2. **Re-run benchmark after re-ingestion** — same 20 queries against the new pipeline (large model + Cohere re-ranking + expansion). Target: P@3 ≥ 0.80 to justify the compute cost.
 
-3. **Fix dialogue fragment chunking** — The semantic chunking from OLU-439 should merge short turns. Verify this is working after re-ingestion.
+3. **Fix dialogue fragment chunking** — The semantic chunking from OLU-439 should merge short turns. Verify this is working after re-ingestion. This will fix Q04 (Goldstein) and Q17.
 
-4. **Proceed to OLU-443** — The concept graph work is well-motivated by Q20 (cross-concept retrieval). Baseline P@3 = 0.70 provides the measurement baseline.
+4. **Index more Rupert Spira transcripts** — Only 1 source file. Add more Spira content to fix Q05.
+
+5. **Add minimum chunk length filter** — Prune chunks < 80 chars during retrieval to eliminate question fragments. Combine with expansion for short queries.
+
+6. **Proceed to OLU-443** — The concept graph work is well-motivated by Q20 (cross-concept retrieval). Baseline P@3 = 0.70 provides the measurement baseline.
 
 ---
 

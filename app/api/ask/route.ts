@@ -18,8 +18,9 @@ import type { HistoryMessage } from '@/lib/conversation-session';
 import { getConversationHistory, setConversationHistory } from '@/lib/conversation-cache';
 import { monitoredQuery } from '@/lib/db-monitor';
 import { logOpenAIUsage } from '@/lib/openai-usage';
-import { embedOne } from '@/lib/embeddings';
-import { buildConceptPreamble } from '@/lib/concept-graph';
+import { embedOne, embedBatch } from '@/lib/embeddings';
+import { getConceptContext } from '@/lib/concept-graph';
+import { shouldExpandQuery, expandQuery, reciprocalRankFusion } from '@/lib/query-expansion';
 import { getEssayContext, getCourseSessionContext } from '@/lib/essay-cache';
 
 const EMBED_MODEL = 'text-embedding-3-large';
@@ -450,86 +451,111 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ── Retrieve from Pinecone (dual-namespace) ───────────────────────────────
+  // ── Query expansion for short/abstract queries (OLU-597 Fix 2) ───────────
+  // Single-word or very short queries (≤ 3 words) match conversational fragments
+  // rather than substantive chunks. Expand to 3 richer phrasings via GPT-4o, then
+  // fuse per-phrasing retrievals with Reciprocal Rank Fusion.
+  // Only applies to standalone (non-follow-up) questions without essay/teacher context
+  // (follow-ups have richer context already; essay/teacher context changes the query).
+  const canExpand = !isFollowUp && !essayCtx && !teacher;
+  let queryPhrasings: string[] = [embedInput];
+  if (canExpand && shouldExpandQuery(question)) {
+    try {
+      queryPhrasings = await expandQuery(question, oai);
+      console.log(`[/api/ask] query_expansion phrasings=${queryPhrasings.length} q="${question.slice(0, 60)}" ${logCtx}`);
+    } catch (expandErr) {
+      console.warn(`[/api/ask] query_expansion_failed err=${expandErr instanceof Error ? expandErr.message : String(expandErr)}`);
+      queryPhrasings = [embedInput];
+    }
+  }
+
+  // Embed all phrasings (batch call when >1; falls back to already-computed queryVector for single)
+  let queryVectors: number[][];
+  if (queryPhrasings.length === 1) {
+    queryVectors = [queryVector];
+  } else {
+    try {
+      queryVectors = await embedBatch(queryPhrasings, { model: EMBED_MODEL, dimensions: EMBED_DIMENSIONS, client: oai });
+    } catch (batchEmbedErr) {
+      console.warn(`[/api/ask] batch_embed_failed err=${batchEmbedErr instanceof Error ? batchEmbedErr.message : String(batchEmbedErr)}`);
+      queryVectors = [queryVector];
+    }
+  }
+
+  // ── Retrieve from Pinecone (dual-namespace, per phrasing) ─────────────────
   // Query both raw and summary namespaces in parallel, then merge by chunk text.
   // Summary vectors capture semantic meaning; raw vectors capture exact terminology.
   type PineconeMatch = { id: string; score?: number; metadata?: Record<string, string> };
-  let rawMatches: PineconeMatch[] = [];
-  let summaryMatches: PineconeMatch[] = [];
   // When a teacher filter is active, restrict retrieval to that teacher's chunks only.
   const pineconeFilter = teacher ? { speaker: { $eq: teacher } } : undefined;
+
+  function matchesToChunks(matches: PineconeMatch[]): Array<{ text: string; speaker: string; source: string; score: number }> {
+    const map = new Map<string, { text: string; speaker: string; source: string; score: number }>();
+    for (const m of matches) {
+      const meta = m.metadata ?? {};
+      const text = meta.text ?? '';
+      if (!text || (m.score ?? 0) < 0.4) continue;
+      const existing = map.get(text);
+      if (!existing || (m.score ?? 0) > existing.score) {
+        map.set(text, { text, speaker: meta.speaker ?? '', source: meta.source_file ?? '', score: m.score ?? 0 });
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => b.score - a.score);
+  }
+
+  const perPhrasingChunks: Array<Array<{ text: string; speaker: string; source: string; score: number }>> = [];
+
   try {
     const index = pc.Index(pineconeIndex);
-    const [rawResults, summaryResults] = await Promise.all([
-      index.namespace(PINECONE_NAMESPACE).query({
-        vector: queryVector,
-        topK: TOP_K,
-        includeMetadata: true,
-        ...(pineconeFilter ? { filter: pineconeFilter } : {}),
-      }),
-      index.namespace(PINECONE_SUMMARY_NAMESPACE).query({
-        vector: queryVector,
-        topK: TOP_K,
-        includeMetadata: true,
-        ...(pineconeFilter ? { filter: pineconeFilter } : {}),
-      }).catch(() => ({ matches: [] })), // graceful fallback if namespace empty
-    ]);
-    rawMatches = (rawResults.matches ?? []) as PineconeMatch[];
-    summaryMatches = (summaryResults.matches ?? []) as PineconeMatch[];
 
-    // ── Fallback: primary namespace empty → query __default__ ─────────────
-    // The waking-up namespace is only populated after running refresh-corpus.ts
-    // --reindex. Until that runs, fall back to the __default__ namespace (28,713
-    // chunks, text-embedding-3-small). Cross-model retrieval is slightly lower
-    // quality but far better than returning no context. Self-disabling: once
-    // waking-up is populated this branch never fires.
-    if (rawMatches.length === 0 && summaryMatches.length === 0 && !pineconeFilter) {
-      try {
-        const fallbackResults = await index.namespace('__default__').query({
-          vector: queryVector,
+    for (const vec of queryVectors) {
+      const [rawResults, summaryResults] = await Promise.all([
+        index.namespace(PINECONE_NAMESPACE).query({
+          vector: vec,
           topK: TOP_K,
           includeMetadata: true,
-        });
-        rawMatches = (fallbackResults.matches ?? []) as PineconeMatch[];
-        if (rawMatches.length > 0) {
-          console.log(`[/api/ask] fallback_ns_default matches=${rawMatches.length} ${logCtx}`);
+          ...(pineconeFilter ? { filter: pineconeFilter } : {}),
+        }),
+        index.namespace(PINECONE_SUMMARY_NAMESPACE).query({
+          vector: vec,
+          topK: TOP_K,
+          includeMetadata: true,
+          ...(pineconeFilter ? { filter: pineconeFilter } : {}),
+        }).catch(() => ({ matches: [] })), // graceful fallback if namespace empty
+      ]);
+
+      const rawMatches = (rawResults.matches ?? []) as PineconeMatch[];
+      const summaryMatches = (summaryResults.matches ?? []) as PineconeMatch[];
+
+      // ── Fallback: primary namespace empty → query __default__ ───────────
+      if (rawMatches.length === 0 && summaryMatches.length === 0 && !pineconeFilter) {
+        try {
+          const fallbackResults = await index.namespace('__default__').query({
+            vector: vec,
+            topK: TOP_K,
+            includeMetadata: true,
+          });
+          const fallbackMatches = (fallbackResults.matches ?? []) as PineconeMatch[];
+          if (fallbackMatches.length > 0) {
+            console.log(`[/api/ask] fallback_ns_default matches=${fallbackMatches.length} ${logCtx}`);
+            perPhrasingChunks.push(matchesToChunks(fallbackMatches));
+            continue;
+          }
+        } catch (fallbackErr) {
+          console.warn(`[/api/ask] fallback_ns_failed err=${fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)}`);
         }
-      } catch (fallbackErr) {
-        console.warn(`[/api/ask] fallback_ns_failed err=${fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)}`);
       }
+
+      perPhrasingChunks.push(matchesToChunks([...rawMatches, ...summaryMatches]));
     }
   } catch (err) {
     return handlePineconeError(err, logCtx);
   }
 
-  // ── Merge and deduplicate chunks ──────────────────────────────────────────
-  // Summary matches resolve to their raw chunk text; raw matches are used directly.
-  // Deduplicate by chunk text; take the higher score when both namespaces return the same chunk.
-  const chunkScores = new Map<string, { text: string; speaker: string; source: string; score: number }>();
-
-  for (const m of rawMatches) {
-    const meta = m.metadata ?? {};
-    const text = meta.text ?? '';
-    if (!text || (m.score ?? 0) < 0.4) continue;
-    const existing = chunkScores.get(text);
-    if (!existing || (m.score ?? 0) > existing.score) {
-      chunkScores.set(text, { text, speaker: meta.speaker ?? '', source: meta.source_file ?? '', score: m.score ?? 0 });
-    }
-  }
-
-  for (const m of summaryMatches) {
-    const meta = m.metadata ?? {};
-    // Summary records carry the full raw chunk text in their metadata
-    const text = meta.text ?? '';
-    if (!text || (m.score ?? 0) < 0.4) continue;
-    const existing = chunkScores.get(text);
-    if (!existing || (m.score ?? 0) > existing.score) {
-      chunkScores.set(text, { text, speaker: meta.speaker ?? '', source: meta.source_file ?? '', score: m.score ?? 0 });
-    }
-  }
-
-  const allChunks = Array.from(chunkScores.values())
-    .sort((a, b) => b.score - a.score);
+  // ── Merge: RRF (multi-phrasing expansion) or direct sort (single phrasing) ─
+  const allChunks = queryVectors.length > 1 && perPhrasingChunks.length > 1
+    ? reciprocalRankFusion(perPhrasingChunks)
+    : (perPhrasingChunks[0] ?? []);
 
   // ── Cohere re-ranking ─────────────────────────────────────────────────────
   // If COHERE_API_KEY is set, re-rank the broad retrieval set and keep top N.
@@ -564,10 +590,26 @@ export async function POST(req: NextRequest) {
     ? chunks.map((c, i) => `[${i + 1}] ${c.text}`).join('\n\n')
     : null;
 
-  // ── Concept graph augmentation (OLU-443) ──────────────────────────────────
-  // Adds a cross-teacher concept preamble when the concept graph is populated.
-  // Fails gracefully — never blocks the response.
-  const conceptPreamble = await buildConceptPreamble(supabase, queryVector).catch(() => null);
+  // ── Concept graph augmentation (OLU-443, OLU-603) ────────────────────────
+  // Retrieves related concepts from the knowledge graph for prompt augmentation
+  // and for surfacing in the API response. Fails gracefully — never blocks the
+  // response.
+  const conceptContext = await getConceptContext(supabase, queryVector).catch(() => []);
+
+  const conceptPreamble = (() => {
+    const sections = conceptContext.flatMap(({ concept, teachers }) => {
+      if (teachers.length === 0) return [];
+      const lines = teachers.map((t) => `  - ${t.teacher}: "${t.summary}"`).join('\n');
+      return [`Concept: "${concept.name}"\n${lines}`];
+    });
+    return sections.length > 0 ? `[Cross-teacher context]\n${sections.join('\n\n')}` : null;
+  })();
+
+  const relatedConcepts = conceptContext.map(({ concept }) => ({
+    name: concept.name,
+    definition_excerpt: concept.description ?? null,
+    url: `/glossary/${concept.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}`,
+  }));
 
   const priorMessages = effectiveHistory.slice(-6).map((m) => ({
     role: m.role as 'user' | 'assistant',
@@ -717,6 +759,7 @@ export async function POST(req: NextRequest) {
       conversationId,
       followUps,
       sources: sourcesPayload,
+      related_concepts: relatedConcepts,
       cached: false,
       ...(rl !== null ? { rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() } } : {}),
       ...(guestQueriesRemaining !== null ? { guestQueriesRemaining } : {}),
@@ -855,10 +898,11 @@ export async function POST(req: NextRequest) {
             answerId,
             followUps,
             sources: sourcesPayload,
+            related_concepts: relatedConcepts,
             cached: false,
             ...(rl !== null ? { rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() } } : {}),
             ...(guestQueriesRemaining !== null ? { guestQueriesRemaining } : {}),
-          ...(userQuestionsRemaining !== null ? { userQuestionsRemaining } : {}),
+            ...(userQuestionsRemaining !== null ? { userQuestionsRemaining } : {}),
           }),
         );
       } catch (err) {
