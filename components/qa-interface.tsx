@@ -1,16 +1,18 @@
 'use client';
 
-import { useState, useRef, useEffect, FormEvent, KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { useChat } from '@ai-sdk/react';
+import { DefaultChatTransport, type UIMessage } from 'ai';
 import { usePrivy } from '@privy-io/react-auth';
 import {
-  type Message,
+  type Message as ConversationMessage,
   type Conversation,
   saveConversation,
   newConversationId,
   titleFromQuestion,
 } from '@/lib/conversations';
 
-export type { Message };
+export type { ConversationMessage as Message };
 
 interface Source {
   text: string;
@@ -19,16 +21,34 @@ interface Source {
   score: number;
 }
 
+interface AskMetadata {
+  sources?: Source[];
+  conversationId?: string;
+}
+
+/** Extract plain text from a UIMessage's parts array. */
+function getMessageText(msg: UIMessage): string {
+  return msg.parts
+    .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
+    .map((p) => p.text)
+    .join('');
+}
+
+/** Extract sources from message metadata. */
+function getMessageSources(msg: UIMessage): Source[] {
+  const meta = msg.metadata as AskMetadata | undefined;
+  return meta?.sources ?? [];
+}
+
 function SourceList({ sources }: { sources: Source[] }) {
   const [open, setOpen] = useState(false);
-
   if (sources.length === 0) return null;
 
   return (
     <div className="mt-3">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 text-xs font-medium text-sage-600 hover:text-sage-800 transition-colors"
+        className="flex items-center gap-1.5 text-xs font-medium transition-colors"
         style={{ color: '#7d8c6e' }}
       >
         <svg
@@ -50,10 +70,7 @@ function SourceList({ sources }: { sources: Source[] }) {
             <div
               key={i}
               className="rounded-lg p-3 text-xs"
-              style={{
-                background: '#f0ece3',
-                borderLeft: '2px solid #b8ccb0',
-              }}
+              style={{ background: '#f0ece3', borderLeft: '2px solid #b8ccb0' }}
             >
               {s.speaker && (
                 <p className="font-semibold mb-1" style={{ color: '#5a6b52' }}>
@@ -76,26 +93,20 @@ function SourceList({ sources }: { sources: Source[] }) {
   );
 }
 
-function ResponseSkeleton() {
+function StreamingIndicator() {
   return (
-    <div
-      className="rounded-2xl rounded-tl-sm px-4 py-3 max-w-xl"
-      style={{ background: '#f0ece3' }}
-      aria-label="Loading response"
-    >
-      <div className="space-y-2">
-        <div
-          className="h-3 rounded-full"
-          style={{ width: '85%', background: '#ddd5c8', animation: 'shimmer 1.4s ease-in-out infinite' }}
-        />
-        <div
-          className="h-3 rounded-full"
-          style={{ width: '70%', background: '#ddd5c8', animation: 'shimmer 1.4s ease-in-out 0.15s infinite' }}
-        />
-        <div
-          className="h-3 rounded-full"
-          style={{ width: '55%', background: '#ddd5c8', animation: 'shimmer 1.4s ease-in-out 0.3s infinite' }}
-        />
+    <div className="flex items-center gap-1.5 py-1">
+      <div className="flex gap-1">
+        {[0, 1, 2].map((i) => (
+          <div
+            key={i}
+            className="w-1.5 h-1.5 rounded-full"
+            style={{
+              background: '#7d8c6e',
+              animation: `pulse-dot 1.2s ease-in-out ${i * 0.2}s infinite`,
+            }}
+          />
+        ))}
       </div>
     </div>
   );
@@ -112,19 +123,66 @@ export function QAInterface({ initialConversation, onConversationUpdate }: QAInt
   const userId = user?.id ?? null;
 
   const MAX_CHARS = 500;
-  const [messages, setMessages] = useState<Message[]>(initialConversation?.messages ?? []);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
   const [conversationId, setConversationId] = useState<string>(
     initialConversation?.id ?? newConversationId()
   );
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // When a different conversation is loaded from the sidebar, reset state
+  // Convert initial conversation messages to UIMessage format
+  const initialMessages: UIMessage[] = (initialConversation?.messages ?? []).map((m, i) => ({
+    id: `init-${i}`,
+    role: m.role as 'user' | 'assistant',
+    parts: [{ type: 'text' as const, text: m.content }],
+    metadata: m.sources ? { sources: m.sources, conversationId } : undefined,
+  }));
+
+  const {
+    messages,
+    sendMessage,
+    status,
+    error,
+    setMessages,
+  } = useChat({
+    transport: new DefaultChatTransport({
+      api: '/api/ask',
+      body: { walletAddress, conversationId },
+    }),
+    messages: initialMessages,
+    onFinish: ({ messages: finalMessages }) => {
+      if (!userId) return;
+      const allMsgs: ConversationMessage[] = finalMessages.map((m) => ({
+        role: m.role as 'user' | 'assistant',
+        content: getMessageText(m),
+        sources: getMessageSources(m),
+      }));
+      const firstQuestion = allMsgs.find((m) => m.role === 'user')?.content ?? 'Untitled';
+      const conversation: Conversation = {
+        id: conversationId,
+        userId,
+        title: titleFromQuestion(firstQuestion),
+        messages: allMsgs,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      saveConversation(userId, conversation);
+      onConversationUpdate?.(conversation);
+    },
+  });
+
+  const isLoading = status === 'streaming' || status === 'submitted';
+
+  // Reset when a different conversation is loaded
   useEffect(() => {
     if (initialConversation) {
-      setMessages(initialConversation.messages);
+      const msgs: UIMessage[] = initialConversation.messages.map((m, i) => ({
+        id: `init-${i}`,
+        role: m.role as 'user' | 'assistant',
+        parts: [{ type: 'text' as const, text: m.content }],
+        metadata: m.sources ? { sources: m.sources, conversationId: initialConversation.id } : undefined,
+      }));
+      setMessages(msgs);
       setConversationId(initialConversation.id);
     } else {
       setMessages([]);
@@ -132,9 +190,10 @@ export function QAInterface({ initialConversation, onConversationUpdate }: QAInt
     }
   }, [initialConversation?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Auto-scroll
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, loading]);
+  }, [messages, isLoading]);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -144,73 +203,6 @@ export function QAInterface({ initialConversation, onConversationUpdate }: QAInt
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
   }, [input]);
 
-  function persistConversation(msgs: Message[], cid: string) {
-    if (!userId) return;
-    const firstQuestion = msgs.find((m) => m.role === 'user')?.content ?? 'Untitled';
-    const conversation: Conversation = {
-      id: cid,
-      userId,
-      title: titleFromQuestion(firstQuestion),
-      messages: msgs,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
-    saveConversation(userId, conversation);
-    onConversationUpdate?.(conversation);
-  }
-
-  async function submit() {
-    const question = input.trim();
-    if (!question || loading) return;
-
-    setInput('');
-    const newMessages: Message[] = [...messages, { role: 'user', content: question }];
-    setMessages(newMessages);
-    setLoading(true);
-
-    try {
-      const history = messages.map((m) => ({ role: m.role, content: m.content }));
-      const res = await fetch('/api/ask', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question, history, walletAddress }),
-      });
-
-      if (!res.ok) {
-        await res.json().catch(() => null);
-        const errorMessages: Message[] = [
-          ...newMessages,
-          { role: 'assistant', content: 'Something went wrong — try again.', error: true },
-        ];
-        setMessages(errorMessages);
-        return;
-      }
-
-      const data = await res.json();
-      const finalMessages: Message[] = [
-        ...newMessages,
-        {
-          role: 'assistant',
-          content: data.answer ?? '',
-          sources: data.sources ?? [],
-        },
-      ];
-      setMessages(finalMessages);
-      persistConversation(finalMessages, conversationId);
-    } catch {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: 'Something went wrong — try again.',
-          error: true,
-        },
-      ]);
-    } finally {
-      setLoading(false);
-    }
-  }
-
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -218,12 +210,19 @@ export function QAInterface({ initialConversation, onConversationUpdate }: QAInt
     }
   }
 
+  function submit() {
+    const text = input.trim();
+    if (!text || isLoading) return;
+    setInput('');
+    sendMessage({ text });
+  }
+
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     submit();
   }
 
-  const isEmpty = messages.length === 0 && !loading;
+  const isEmpty = messages.length === 0 && !isLoading;
 
   return (
     <div className="flex flex-col h-full" style={{ background: '#faf8f3' }}>
@@ -281,51 +280,67 @@ export function QAInterface({ initialConversation, onConversationUpdate }: QAInt
             </div>
           )}
 
-          {messages.map((msg, i) => {
-            if (msg.role === 'assistant' && !msg.content?.trim()) return null;
+          {messages.map((msg) => {
+            const text = getMessageText(msg);
+            const sources = getMessageSources(msg);
+
+            if (msg.role === 'assistant' && !text && !isLoading) return null;
+
             return (
-            <div key={i}>
-              {msg.role === 'user' ? (
-                <div className="flex justify-end">
-                  <div
-                    className="rounded-2xl rounded-tr-sm px-4 py-3 max-w-sm text-sm leading-relaxed"
-                    style={{
-                      background: '#7d8c6e',
-                      color: '#fff',
-                    }}
-                  >
-                    {msg.content}
-                  </div>
-                </div>
-              ) : (
-                <div className="flex justify-start">
-                  <div className="max-w-xl">
+              <div key={msg.id}>
+                {msg.role === 'user' ? (
+                  <div className="flex justify-end">
                     <div
-                      className="rounded-2xl rounded-tl-sm px-4 py-3 text-sm leading-relaxed"
-                      style={{
-                        background: msg.error ? '#fff4f2' : '#f0ece3',
-                        color: msg.error ? '#c0392b' : '#2c2c2c',
-                        border: msg.error ? '1px solid #f5c6c0' : 'none',
-                        whiteSpace: 'pre-wrap',
-                      }}
+                      className="rounded-2xl rounded-tr-sm px-4 py-3 max-w-sm text-sm leading-relaxed"
+                      style={{ background: '#7d8c6e', color: '#fff' }}
                     >
-                      {msg.content}
+                      {text}
                     </div>
-                    {msg.sources && msg.sources.length > 0 && (
-                      <div className="px-2">
-                        <SourceList sources={msg.sources} />
-                      </div>
-                    )}
                   </div>
-                </div>
-              )}
-            </div>
+                ) : (
+                  <div className="flex justify-start">
+                    <div className="max-w-xl">
+                      <div
+                        className="rounded-2xl rounded-tl-sm px-4 py-3 text-sm leading-relaxed"
+                        style={{
+                          background: '#f0ece3',
+                          color: '#2c2c2c',
+                          whiteSpace: 'pre-wrap',
+                        }}
+                      >
+                        {text || <StreamingIndicator />}
+                      </div>
+                      {sources.length > 0 && (
+                        <div className="px-2">
+                          <SourceList sources={sources} />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
             );
           })}
 
-          {loading && (
+          {isLoading && messages.length > 0 && messages[messages.length - 1]?.role === 'user' && (
             <div className="flex justify-start">
-              <ResponseSkeleton />
+              <div
+                className="rounded-2xl rounded-tl-sm px-4 py-3"
+                style={{ background: '#f0ece3' }}
+              >
+                <StreamingIndicator />
+              </div>
+            </div>
+          )}
+
+          {error && (
+            <div className="flex justify-start">
+              <div
+                className="rounded-2xl rounded-tl-sm px-4 py-3 max-w-xl text-sm"
+                style={{ background: '#fff4f2', color: '#c0392b', border: '1px solid #f5c6c0' }}
+              >
+                Something went wrong — try again.
+              </div>
             </div>
           )}
 
@@ -334,10 +349,7 @@ export function QAInterface({ initialConversation, onConversationUpdate }: QAInt
       </div>
 
       {/* Input bar */}
-      <div
-        className="border-t px-4 py-4"
-        style={{ borderColor: '#e0d8cc', background: '#faf8f3' }}
-      >
+      <div className="border-t px-4 py-4" style={{ borderColor: '#e0d8cc', background: '#faf8f3' }}>
         <form onSubmit={handleSubmit} className="max-w-2xl mx-auto">
           <div
             className="flex items-end gap-2 rounded-2xl px-4 py-3"
@@ -354,14 +366,14 @@ export function QAInterface({ initialConversation, onConversationUpdate }: QAInt
               onKeyDown={handleKeyDown}
               placeholder="Ask a question…"
               rows={1}
-              disabled={loading}
+              disabled={isLoading}
               maxLength={MAX_CHARS}
               className="flex-1 resize-none bg-transparent text-sm leading-relaxed outline-none placeholder-zinc-400 disabled:opacity-50"
               style={{ color: '#2c2c2c', minHeight: '24px' }}
             />
             <button
               type="submit"
-              disabled={!input.trim() || loading}
+              disabled={!input.trim() || isLoading}
               className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-opacity disabled:opacity-30"
               style={{ background: '#7d8c6e' }}
             >
@@ -393,9 +405,9 @@ export function QAInterface({ initialConversation, onConversationUpdate }: QAInt
       </div>
 
       <style>{`
-        @keyframes shimmer {
-          0%, 100% { opacity: 0.4; }
-          50% { opacity: 1; }
+        @keyframes pulse-dot {
+          0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+          40% { opacity: 1; transform: scale(1); }
         }
       `}</style>
     </div>

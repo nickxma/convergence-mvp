@@ -341,7 +341,18 @@ export default function Home() {
         style={{ borderColor: '#e0d8cc', background: '#faf8f3' }}
       >
         <span className="text-xs" style={{ color: '#b0a898' }}>
-          Convergence · Paradox of Acceptance
+          Convergence ·{' '}
+          <a
+            href="https://paradoxofacceptance.xyz"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="transition-colors"
+            style={{ color: '#b0a898' }}
+            onMouseOver={(e) => (e.currentTarget.style.color = '#7d8c6e')}
+            onMouseOut={(e) => (e.currentTarget.style.color = '#b0a898')}
+          >
+            Paradox of Acceptance ↗
+          </a>
         </span>
       </footer>
     </div>

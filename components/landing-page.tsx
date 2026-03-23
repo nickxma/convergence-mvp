@@ -168,6 +168,17 @@ export function LandingPage() {
               About
             </a>
             <a
+              href="https://paradoxofacceptance.xyz"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs transition-colors"
+              style={{ color: '#9c9080' }}
+              onMouseOver={(e) => (e.currentTarget.style.color = '#5a6b52')}
+              onMouseOut={(e) => (e.currentTarget.style.color = '#9c9080')}
+            >
+              Paradox of Acceptance ↗
+            </a>
+            <a
               href="https://github.com/nickxma/convergence-mvp"
               target="_blank"
               rel="noopener noreferrer"
