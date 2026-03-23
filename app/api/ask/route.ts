@@ -67,19 +67,31 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Support AI SDK format (messages array)
+  // Extract text from either flat content or AI SDK v6 parts format
+  function extractText(msg: { content?: string; parts?: Array<{ type: string; text?: string }> }): string {
+    if (typeof msg.content === 'string') return msg.content;
+    if (Array.isArray(msg.parts)) {
+      return msg.parts
+        .filter((p): p is { type: 'text'; text: string } => p.type === 'text' && typeof p.text === 'string')
+        .map((p) => p.text)
+        .join('');
+    }
+    return '';
+  }
+
+  // Support AI SDK format (messages array — both v5 flat and v6 parts)
   let question: string;
   let priorMessages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
 
-  const messages = body?.messages as Array<{ role: string; content: string }> | undefined;
+  const messages = body?.messages as Array<{ role: string; content?: string; parts?: Array<{ type: string; text?: string }> }> | undefined;
   if (Array.isArray(messages) && messages.length > 0) {
     const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user');
-    question = lastUserMsg?.content?.trim() ?? '';
+    question = lastUserMsg ? extractText(lastUserMsg).trim() : '';
     priorMessages = messages
       .slice(0, -1)
       .filter((m) => m.role === 'user' || m.role === 'assistant')
       .slice(-6)
-      .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+      .map((m) => ({ role: m.role as 'user' | 'assistant', content: extractText(m) }));
   } else {
     // Legacy format
     question = typeof body?.question === 'string' ? body.question.trim() : '';
