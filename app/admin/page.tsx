@@ -311,11 +311,32 @@ export default function AdminPage() {
             )}
           </a>
           <a
+            href="/admin/qa/featured"
+            className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full transition-colors"
+            style={{ background: '#f5f1e8', color: '#7d8c6e', border: '1px solid #e0d8cc' }}
+          >
+            Featured Q&amp;A
+          </a>
+          <a
             href="/admin/corpus"
             className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full transition-colors"
             style={{ background: '#f5f1e8', color: '#7d8c6e', border: '1px solid #e0d8cc' }}
           >
             Corpus gaps
+          </a>
+          <a
+            href="/admin/analytics"
+            className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full transition-colors"
+            style={{ background: '#f5f1e8', color: '#7d8c6e', border: '1px solid #e0d8cc' }}
+          >
+            Q&amp;A Analytics
+          </a>
+          <a
+            href="/admin/launch"
+            className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full transition-colors"
+            style={{ background: '#f5f1e8', color: '#7d8c6e', border: '1px solid #e0d8cc' }}
+          >
+            Launch checklist
           </a>
         </div>
         <div className="flex items-center gap-3">
