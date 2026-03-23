@@ -46,7 +46,7 @@ loadEnvLocal();
 import { Pinecone } from '@pinecone-database/pinecone';
 import OpenAI from 'openai';
 import { CohereClient } from 'cohere-ai';
-import { shouldExpandQuery, expandQuery, reciprocalRankFusion, generateQueryVariants, reciprocalRankFusionByChunkId } from '@/lib/query-expansion';
+import { shouldExpandQuery, expandQuery, reciprocalRankFusion, generateQueryVariants, reciprocalRankFusionByChunkId, generateHypotheticalDocument } from '@/lib/query-expansion';
 
 // ── Pipeline configs ──────────────────────────────────────────────────────────
 
@@ -125,6 +125,8 @@ interface QueryResult {
   rerankUsed: boolean;
   expansionUsed: boolean;
   multiQueryUsed: boolean;
+  hydeUsed: boolean;
+  hydeDoc?: string;
   phrasings?: string[];
   chunks: RetrievedChunk[];
   error?: string;
@@ -215,6 +217,9 @@ async function main() {
   // Generates 3 variants (different perspective, simpler, more technical) per query,
   // retrieves top-5 per variant, deduplicates by chunkId, re-ranks with RRF, returns top-7.
   const useMultiQuery = process.argv.includes('--multi-query');
+  // --hyde flag enables HyDE (OLU-695): generate a hypothetical answer doc and embed
+  // it instead of the raw query. Composes with --multi-query (HyDE replaces base vector).
+  const useHyde = process.argv.includes('--hyde');
 
   console.log(`\n═══ RAG Benchmark — ${QUERIES.length} queries ══════════════════════════════`);
   console.log(`  Pipeline:    ${cfg.label}`);
@@ -222,6 +227,7 @@ async function main() {
   console.log(`  Re-rank:     ${cohere ? 'Cohere rerank-v3.5' : 'disabled (cosine order)'}`);
   console.log(`  Expansion:   ${useExpansion ? 'enabled (≤3-word queries → GPT-4o + RRF)' : 'disabled (use --expand to enable)'}`);
   console.log(`  Multi-query: ${useMultiQuery ? 'enabled (all queries → 3 variants + chunkId RRF, top-7)' : 'disabled (use --multi-query to enable)'}`);
+  console.log(`  HyDE:        ${useHyde ? 'enabled (hypothetical answer doc → richer embedding, OLU-695)' : 'disabled (use --hyde to enable)'}`);
   console.log('─'.repeat(75));
 
   const results: QueryResult[] = [];
@@ -231,6 +237,20 @@ async function main() {
     const t0 = Date.now();
 
     try {
+      // ── HyDE: generate hypothetical answer doc (OLU-695) ─────────────────
+      let hydeUsed = false;
+      let hydeDoc: string | undefined;
+      let hydeVector: number[] | null = null;
+      if (useHyde) {
+        const doc = await generateHypotheticalDocument(query, oai);
+        if (doc) {
+          hydeDoc = doc;
+          hydeVector = await embedQuery(oai, doc, cfg.embedModel, cfg.embedDimensions);
+          hydeUsed = true;
+          process.stdout.write('[hyde] ');
+        }
+      }
+
       // ── Query expansion / multi-query variant generation ─────────────────
       let phrasings: string[] = [query];
       let expansionUsed = false;
@@ -257,10 +277,14 @@ async function main() {
       const activeTopN = multiQueryUsed ? MULTI_QUERY_TOP_N : RERANK_TOP_N;
 
       // ── Retrieve per phrasing ────────────────────────────────────────────
+      // When HyDE is active the base phrasing vector is replaced with the
+      // hypothetical-doc embedding; variant vectors are left unchanged.
       const perPhrasingChunks: Array<Array<{ text: string; speaker: string; source: string; score: number; chunkId?: string }>> = [];
 
-      for (const phrasing of phrasings) {
-        const vector = await embedQuery(oai, phrasing, cfg.embedModel, cfg.embedDimensions);
+      for (let pi = 0; pi < phrasings.length; pi++) {
+        const phrasing = phrasings[pi];
+        // Use HyDE vector for the base phrasing (index 0), raw embedding for variants
+        const vector = (pi === 0 && hydeVector) ? hydeVector : await embedQuery(oai, phrasing, cfg.embedModel, cfg.embedDimensions);
 
         let allMatches: PineconeMatch[];
         if (cfg.summaryNamespace) {
@@ -318,6 +342,8 @@ async function main() {
         rerankUsed,
         expansionUsed,
         multiQueryUsed,
+        hydeUsed,
+        ...(hydeDoc ? { hydeDoc } : {}),
         phrasings: (multiQueryUsed || expansionUsed) ? phrasings : undefined,
         chunks: finalChunks.map((c, i) => ({ rank: i + 1, ...c })),
       });
@@ -329,7 +355,7 @@ async function main() {
     } catch (err) {
       const latencyMs = Date.now() - t0;
       console.log(`ERROR: ${(err as Error).message}`);
-      results.push({ id, query, latencyMs, totalCandidates: 0, rerankUsed: false, expansionUsed: false, multiQueryUsed: false, chunks: [], error: (err as Error).message });
+      results.push({ id, query, latencyMs, totalCandidates: 0, rerankUsed: false, expansionUsed: false, multiQueryUsed: false, hydeUsed: false, chunks: [], error: (err as Error).message });
     }
 
     await new Promise((r) => setTimeout(r, 200));
@@ -360,6 +386,7 @@ async function main() {
     rerankEnabled: !!cohere,
     expansionEnabled: useExpansion,
     multiQueryEnabled: useMultiQuery,
+    hydeEnabled: useHyde,
     multiQueryConfig: useMultiQuery ? { variantsPerQuery: 3, topKPerVariant: MULTI_QUERY_TOP_K, finalTopN: MULTI_QUERY_TOP_N } : null,
     summary: { totalQueries: results.length, queriesWithResults: withResults.length, avgLatencyMs: Math.round(avgLatency), avgTopScore: Number(avgTopScore.toFixed(4)) },
     results,

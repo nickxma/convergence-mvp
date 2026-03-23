@@ -21,7 +21,7 @@ import { monitoredQuery } from '@/lib/db-monitor';
 import { logOpenAIUsage } from '@/lib/openai-usage';
 import { embedOne, embedBatch } from '@/lib/embeddings';
 import { getConceptContext } from '@/lib/concept-graph';
-import { shouldExpandQuery, expandQuery, reciprocalRankFusion, generateQueryVariants, reciprocalRankFusionByChunkId } from '@/lib/query-expansion';
+import { shouldExpandQuery, expandQuery, reciprocalRankFusion, generateQueryVariants, reciprocalRankFusionByChunkId, generateHypotheticalDocument } from '@/lib/query-expansion';
 import { getEssayContext, getCourseSessionContext } from '@/lib/essay-cache';
 import { RagTracer } from '@/lib/rag-tracer';
 import { buildAnswerCacheKey, getAnswerCache, setAnswerCache } from '@/lib/qa-answer-cache';
@@ -274,6 +274,7 @@ export async function POST(req: NextRequest) {
   const oai = new OpenAI({ apiKey: openaiKey });
   const pc = new Pinecone({ apiKey: pineconeKey });
   const enableMultiQuery = process.env.ENABLE_MULTI_QUERY === 'true';
+  const enableHyde = process.env.ENABLE_HYDE === 'true';
 
   const logCtx = `ip=${ip} userId=${userId ?? 'anon'} wallet=${walletAddress ?? 'none'} conv=${conversationId} q="${question.slice(0, 80)}"`;
 
@@ -488,6 +489,31 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // ── HyDE: Hypothetical Document Embedding (OLU-695) ──────────────────────
+  // When ENABLE_HYDE=true, ask the LLM to generate a 2–3 sentence hypothetical
+  // answer document and embed that instead of the raw query for Pinecone retrieval.
+  // This bridges the vocabulary gap between abstract queries ("consciousness",
+  // "non-self") and concrete teaching-transcript language.
+  //
+  // Cache lookup above continues to use the original queryVector — only the
+  // retrieval step uses the richer hypothetical-doc embedding.
+  // Skipped for follow-ups, essay context, and teacher-filtered queries.
+  const canExpand = !isFollowUp && !essayCtx && !teacher;
+  let hydeVector: number[] | null = null;
+  let hydeUsed = false;
+  if (enableHyde && canExpand) {
+    try {
+      const hydeDoc = await generateHypotheticalDocument(question, oai);
+      if (hydeDoc) {
+        hydeVector = await embedOne(hydeDoc, { model: EMBED_MODEL, dimensions: EMBED_DIMENSIONS, client: oai });
+        hydeUsed = true;
+        console.log(`[/api/ask] hyde_active q="${question.slice(0, 60)}" ${logCtx}`);
+      }
+    } catch (hydeErr) {
+      console.warn(`[/api/ask] hyde_failed err=${hydeErr instanceof Error ? hydeErr.message : String(hydeErr)}`);
+    }
+  }
+
   // ── Query expansion / multi-query retrieval ───────────────────────────────
   // Two modes, both gated by canExpand (standalone, no essay/teacher context):
   //
@@ -498,9 +524,11 @@ export async function POST(req: NextRequest) {
   // Fallback (OLU-597): for short/abstract queries (≤ 3 words), expand to 3 richer
   //   phrasings via GPT-4o and fuse with RRF. Applies when multi-query is disabled.
   //
-  // Follow-ups, essay context, and teacher-filtered queries skip both paths since
-  // the context already narrows the query sufficiently.
-  const canExpand = !isFollowUp && !essayCtx && !teacher;
+  // When ENABLE_HYDE=true, the base retrieval vector is replaced with the HyDE
+  // embedding; multi-query variants are still generated from the original question
+  // and compose naturally (hydeVector + 3 variant vectors).
+  //
+  // Follow-ups, essay context, and teacher-filtered queries skip all paths.
   let queryPhrasings: string[] = [embedInput];
   let isMultiQuery = false;
 
@@ -527,16 +555,19 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Embed all phrasings (batch call when >1; falls back to already-computed queryVector for single)
+  // Embed all phrasings (batch call when >1; reuse pre-computed queryVector for single).
+  // When HyDE is active, the base vector (index 0) is replaced with the hypothetical-doc
+  // embedding — variant vectors are left unchanged.
   let queryVectors: number[][];
   if (queryPhrasings.length === 1) {
-    queryVectors = [queryVector];
+    queryVectors = [hydeVector ?? queryVector];
   } else {
     try {
       queryVectors = await embedBatch(queryPhrasings, { model: EMBED_MODEL, dimensions: EMBED_DIMENSIONS, client: oai });
+      if (hydeVector) queryVectors[0] = hydeVector;
     } catch (batchEmbedErr) {
       console.warn(`[/api/ask] batch_embed_failed err=${batchEmbedErr instanceof Error ? batchEmbedErr.message : String(batchEmbedErr)}`);
-      queryVectors = [queryVector];
+      queryVectors = [hydeVector ?? queryVector];
     }
   }
 
@@ -884,7 +915,7 @@ export async function POST(req: NextRequest) {
 
     supabase
       .from('qa_analytics')
-      .insert({ question_hash: questionHash, pinecone_scores: pineconeScores, latency_ms: latencyMs, model_used: CHAT_MODEL, cache_hit: false, semantic_cache_hit: false, ...fmtMetrics })
+      .insert({ question_hash: questionHash, pinecone_scores: pineconeScores, latency_ms: latencyMs, model_used: CHAT_MODEL, cache_hit: false, semantic_cache_hit: false, hyde_used: hydeUsed, ...fmtMetrics })
       .then(({ error }) => { if (error) console.warn(`[/api/ask] analytics_write_error err=${error.message}`); });
 
     // Cache write on miss (standalone questions only, no teacher/essay filter, fire-and-forget)
@@ -1036,7 +1067,7 @@ export async function POST(req: NextRequest) {
         const fmtMetrics = computeFormatMetrics(fullAnswer);
         supabase
           .from('qa_analytics')
-          .insert({ question_hash: questionHash, pinecone_scores: pineconeScores, latency_ms: latencyMs, model_used: CHAT_MODEL, cache_hit: false, semantic_cache_hit: false, ...fmtMetrics })
+          .insert({ question_hash: questionHash, pinecone_scores: pineconeScores, latency_ms: latencyMs, model_used: CHAT_MODEL, cache_hit: false, semantic_cache_hit: false, hyde_used: hydeUsed, ...fmtMetrics })
           .then(({ error }) => { if (error) console.warn(`[/api/ask] analytics_write_error err=${error.message}`); });
 
         // Cache write on miss (standalone questions only, no teacher filter, fire-and-forget)

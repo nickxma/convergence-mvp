@@ -208,6 +208,41 @@ export function reciprocalRankFusionByChunkId(
 }
 
 /**
+ * HyDE (Hypothetical Document Embedding) — generate a plausible answer document
+ * for the given query (OLU-695). The resulting text is embedded instead of the raw
+ * query, providing a richer representation that better matches substantive transcript
+ * chunks.
+ *
+ * Key insight: real answer documents live in the same semantic space as retrieved
+ * chunks. Embedding a hypothetical answer bridges the vocabulary gap between abstract
+ * queries ("consciousness", "non-self") and the concrete language found in teaching
+ * transcripts — so the embedding starts in answer-space rather than question-space.
+ *
+ * Returns null on error so callers can fall back to direct query embedding gracefully.
+ */
+export async function generateHypotheticalDocument(query: string, oai: OpenAI): Promise<string | null> {
+  const prompt = `You are a knowledgeable mindfulness and meditation teacher. A student has asked:
+
+"${query}"
+
+Write a concise, substantive answer (2-3 sentences) as if explaining to an experienced meditator. Use the vocabulary and phrasing found in meditation teaching transcripts — direct, contemplative, specific. Do not use markdown or lists. Return only the answer text.`;
+
+  try {
+    const resp = await oai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.3,
+      max_tokens: 120,
+    });
+    const doc = resp.choices[0]?.message?.content?.trim() ?? '';
+    if (doc.length > 10) return doc;
+  } catch (err) {
+    console.warn(`[query-expansion] hyde_failed query="${query}" err=${err instanceof Error ? err.message : String(err)}`);
+  }
+  return null;
+}
+
+/**
  * Full expanded retrieval pipeline for a single query.
  *
  * 1. Expand query (if short) → up to 4 phrasings
