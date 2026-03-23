@@ -44,6 +44,7 @@ interface CacheChunk {
   source: string;
   score: number;
   chunkId?: string;
+  sourceUrl?: string;
 }
 
 /** Stable chunk identifier: SHA-256 of "source::text_prefix". Matches the
@@ -378,7 +379,7 @@ export async function POST(req: NextRequest) {
       await tracer.trace('rag.response_send', () => Promise.resolve(), { cached: true, type: 'exact' });
       return NextResponse.json({
         answer: cachedAnswer, answerId, conversationId, followUps: cachedFollowUps, cached: true,
-        sources: cachedChunks.map((c) => ({ text: c.text.slice(0, 200), speaker: c.speaker, source: c.source, score: Math.round(c.score * 100) / 100, chunkId: c.chunkId ?? computeChunkId(c.source, c.text) })),
+        sources: cachedChunks.map((c) => ({ text: c.text.slice(0, 200), speaker: c.speaker, source: c.source, score: Math.round(c.score * 100) / 100, chunkId: c.chunkId ?? computeChunkId(c.source, c.text), ...(c.sourceUrl ? { sourceUrl: c.sourceUrl } : {}) })),
         ...(rl !== null ? { rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() } } : {}),
         ...(guestQueriesRemaining !== null ? { guestQueriesRemaining } : {}),
         ...(userQuestionsRemaining !== null ? { userQuestionsRemaining } : {}),
@@ -481,7 +482,7 @@ export async function POST(req: NextRequest) {
       await tracer.trace('rag.response_send', () => Promise.resolve(), { cached: true, type: 'semantic' });
       return NextResponse.json({
         answer: cachedAnswer, answerId, conversationId, followUps: cachedFollowUps, cached: true,
-        sources: cachedChunks.map((c) => ({ text: c.text.slice(0, 200), speaker: c.speaker, source: c.source, score: Math.round(c.score * 100) / 100, chunkId: c.chunkId ?? computeChunkId(c.source, c.text) })),
+        sources: cachedChunks.map((c) => ({ text: c.text.slice(0, 200), speaker: c.speaker, source: c.source, score: Math.round(c.score * 100) / 100, chunkId: c.chunkId ?? computeChunkId(c.source, c.text), ...(c.sourceUrl ? { sourceUrl: c.sourceUrl } : {}) })),
         ...(rl !== null ? { rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() } } : {}),
         ...(guestQueriesRemaining !== null ? { guestQueriesRemaining } : {}),
         ...(userQuestionsRemaining !== null ? { userQuestionsRemaining } : {}),
@@ -578,22 +579,24 @@ export async function POST(req: NextRequest) {
   // When a teacher filter is active, restrict retrieval to that teacher's chunks only.
   const pineconeFilter = teacher ? { speaker: { $eq: teacher } } : undefined;
 
-  function matchesToChunks(matches: PineconeMatch[]): Array<{ text: string; speaker: string; source: string; score: number; chunkId: string }> {
-    const map = new Map<string, { text: string; speaker: string; source: string; score: number; chunkId: string }>();
+  function matchesToChunks(matches: PineconeMatch[]): Array<{ text: string; speaker: string; source: string; score: number; chunkId: string; sourceUrl?: string }> {
+    const map = new Map<string, { text: string; speaker: string; source: string; score: number; chunkId: string; sourceUrl?: string }>();
     for (const m of matches) {
       const meta = m.metadata ?? {};
       const text = meta.text ?? '';
       if (!text || (m.score ?? 0) < 0.4) continue;
       const existing = map.get(text);
       if (!existing || (m.score ?? 0) > existing.score) {
-        const source = meta.source_file ?? '';
-        map.set(text, { text, speaker: meta.speaker ?? '', source, score: m.score ?? 0, chunkId: computeChunkId(source, text) });
+        const source = meta.source_file ?? meta.source ?? '';
+        // source_url: prefer explicit field (Waking Up chunks), fall back to url (PoA essay chunks)
+        const sourceUrl: string | undefined = meta.source_url || meta.url || undefined;
+        map.set(text, { text, speaker: meta.speaker ?? '', source, score: m.score ?? 0, chunkId: computeChunkId(source, text), sourceUrl });
       }
     }
     return Array.from(map.values()).sort((a, b) => b.score - a.score);
   }
 
-  const perPhrasingChunks: Array<Array<{ text: string; speaker: string; source: string; score: number; chunkId: string }>> = [];
+  const perPhrasingChunks: Array<Array<{ text: string; speaker: string; source: string; score: number; chunkId: string; sourceUrl?: string }>> = [];
 
   // Use narrower per-variant topK in multi-query mode: 4 variants × 5 chunks ≈ 20
   // candidates after RRF, which is the same pool size as single-query mode (TOP_K=20).
@@ -773,6 +776,7 @@ export async function POST(req: NextRequest) {
     source: c.source,
     score: Math.round(c.score * 100) / 100,
     chunkId: c.chunkId ?? computeChunkId(c.source, c.text),
+    ...(c.sourceUrl ? { sourceUrl: c.sourceUrl } : {}),
   }));
 
   const answerSources = chunks.slice(0, 3).map((c) => ({
@@ -781,6 +785,7 @@ export async function POST(req: NextRequest) {
     source: c.source,
     score: Math.round(c.score * 100) / 100,
     chunkId: c.chunkId ?? computeChunkId(c.source, c.text),
+    ...(c.sourceUrl ? { sourceUrl: c.sourceUrl } : {}),
   }));
 
   // Shared follow-up messages (same input for both paths)
@@ -823,6 +828,7 @@ export async function POST(req: NextRequest) {
           text: c.text.slice(0, 200), speaker: c.speaker, source: c.source,
           score: Math.round(c.score * 100) / 100,
           chunkId: c.chunkId ?? computeChunkId(c.source, c.text),
+          ...(c.sourceUrl ? { sourceUrl: c.sourceUrl } : {}),
         }));
         let answerId: string | null = null;
         try {
@@ -849,7 +855,7 @@ export async function POST(req: NextRequest) {
         await tracer.trace('rag.response_send', () => Promise.resolve(), { cached: true, type: 'redis' });
         return NextResponse.json({
           answer: cachedAnswer, answerId, conversationId, followUps: cachedFollowUps, cached: true,
-          sources: cachedChunks.map((c) => ({ text: c.text.slice(0, 200), speaker: c.speaker, source: c.source, score: Math.round(c.score * 100) / 100, chunkId: c.chunkId ?? computeChunkId(c.source, c.text) })),
+          sources: cachedChunks.map((c) => ({ text: c.text.slice(0, 200), speaker: c.speaker, source: c.source, score: Math.round(c.score * 100) / 100, chunkId: c.chunkId ?? computeChunkId(c.source, c.text), ...(c.sourceUrl ? { sourceUrl: c.sourceUrl } : {}) })),
           related_concepts: relatedConcepts,
           ...(rl !== null ? { rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() } } : {}),
           ...(guestQueriesRemaining !== null ? { guestQueriesRemaining } : {}),

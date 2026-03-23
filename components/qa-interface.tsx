@@ -29,6 +29,7 @@ interface Source {
   speaker: string;
   source: string;
   score: number;
+  sourceUrl?: string;
 }
 
 const CITATION_BUTTON_STYLE: React.CSSProperties = {
@@ -281,6 +282,32 @@ function SourceList({
                   <p className="leading-relaxed line-clamp-3" style={{ color: 'var(--text-warm)' }}>
                     {s.text}
                   </p>
+                  {s.sourceUrl && (
+                    <a
+                      href={s.sourceUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 mt-1.5 text-xs font-medium transition-opacity hover:opacity-80"
+                      style={{ color: 'var(--sage)' }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {s.sourceUrl.includes('paradoxofacceptance') ? (
+                        <>
+                          <svg className="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                          </svg>
+                          Read full essay
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M15.536 8.464a5 5 0 010 7.072M12 9.75v4.5m0 0a2.25 2.25 0 100-4.5 2.25 2.25 0 000 4.5z" />
+                          </svg>
+                          Listen to episode
+                        </>
+                      )}
+                    </a>
+                  )}
                 </div>
               </div>
             </div>
@@ -954,6 +981,18 @@ function CompareSourceList({ sources }: { sources: Source[] }) {
               <p className="mt-0.5 leading-relaxed" style={{ color: 'var(--text-muted)' }}>
                 {s.text.slice(0, 120)}{s.text.length > 120 ? '…' : ''}
               </p>
+              {s.sourceUrl && (
+                <a
+                  href={s.sourceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 mt-1 text-xs font-medium transition-opacity hover:opacity-80"
+                  style={{ color: 'var(--sage)' }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {s.sourceUrl.includes('paradoxofacceptance') ? 'Read full essay' : 'Listen to episode'}
+                </a>
+              )}
             </div>
           ))}
         </div>

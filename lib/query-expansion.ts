@@ -26,6 +26,7 @@ export interface RankedChunk {
   source: string;
   score: number;
   chunkId?: string;
+  sourceUrl?: string;
 }
 
 /**

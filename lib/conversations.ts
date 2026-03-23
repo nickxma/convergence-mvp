@@ -5,6 +5,7 @@ export interface Source {
   speaker: string;
   source: string;
   score: number;
+  sourceUrl?: string;
 }
 
 export interface CompareColumn {
