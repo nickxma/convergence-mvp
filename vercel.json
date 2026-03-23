@@ -47,6 +47,14 @@
     {
       "path": "/api/cron/agent-health-check",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/trending-topics",
+      "schedule": "0 6 * * 1"
+    },
+    {
+      "path": "/api/cron/audio-generation",
+      "schedule": "* * * * *"
     }
   ]
 }
