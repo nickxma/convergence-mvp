@@ -20,11 +20,11 @@ import { monitoredQuery } from '@/lib/db-monitor';
 import { logOpenAIUsage } from '@/lib/openai-usage';
 import { embedOne } from '@/lib/embeddings';
 import { buildConceptPreamble } from '@/lib/concept-graph';
-import { getEssayContext } from '@/lib/essay-cache';
+import { getEssayContext, getCourseSessionContext } from '@/lib/essay-cache';
 
 const EMBED_MODEL = 'text-embedding-3-large';
 const EMBED_DIMENSIONS = 1536;
-const CHAT_MODEL = 'gpt-4o-mini';
+const CHAT_MODEL = 'gpt-4o';
 const PINECONE_NAMESPACE = 'waking-up';
 const PINECONE_SUMMARY_NAMESPACE = 'waking-up-summaries';
 const TOP_K = 20; // broad retrieval per namespace — merged result is re-ranked below
@@ -45,7 +45,9 @@ Rules:
 - Be warm, direct, and conversational — like a wise friend, not a textbook.
 - Never name specific teachers, authors, or brands. Refer to "teachers in this tradition" or "contemplative traditions" instead.
 - Never refuse to answer. If excerpts are sparse, rely on your own knowledge.
-- No numbered lists or academic structure unless the user asks for it.`;
+- No numbered lists or academic structure unless the user asks for it.
+- Always use clear paragraph breaks between distinct ideas — never write a wall of text.
+- Format your response in markdown, using blank lines between paragraphs.`;
 
 const SYSTEM_PROMPTS: Record<string, string> = {
   detailed: `${SYSTEM_PROMPT_BASE}
@@ -123,6 +125,7 @@ export async function POST(req: NextRequest) {
   const teacher: string | null = typeof body?.teacher === 'string' && body.teacher.trim() ? body.teacher.trim() : null;
   // Essay context: when provided the answer is injected with the essay body and bypasses cache.
   const essaySlug: string | null = typeof body?.essaySlug === 'string' && body.essaySlug.trim() ? body.essaySlug.trim() : null;
+  const courseSlug: string | null = typeof body?.courseSlug === 'string' && body.courseSlug.trim() ? body.courseSlug.trim() : null;
 
   const rawConvId = body?.conversationId;
   const isExistingConversation = isValidConversationId(rawConvId);
@@ -341,8 +344,14 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Fetch essay context (when essaySlug provided) ─────────────────────────
-  // Cached in Upstash for 1 hour. Returns null when essay not found — graceful.
-  const essayCtx = essaySlug ? await getEssayContext(essaySlug).catch(() => null) : null;
+  // When courseSlug is also present, fetch from course_sessions (session pages).
+  // Otherwise fall back to the essays table (standalone essay pages).
+  // Cached in Upstash for 1 hour. Returns null when not found — graceful.
+  const essayCtx = essaySlug
+    ? courseSlug
+      ? await getCourseSessionContext(courseSlug, essaySlug).catch(() => null)
+      : await getEssayContext(essaySlug).catch(() => null)
+    : null;
 
   // ── Embed ─────────────────────────────────────────────────────────────────
   // For standalone questions (no history): embed the raw question.
