@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/nextjs';
 import { randomUUID, createHash } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI, {
@@ -93,6 +94,7 @@ const REFERRED_GUEST_LIMIT = 5; // bumped limit for visitors arriving via referr
 
 export async function POST(req: NextRequest) {
   const requestStart = Date.now();
+  const requestId = randomUUID();
   const tracer = new RagTracer();
   const ip = getClientIp(req);
 
@@ -139,6 +141,14 @@ export async function POST(req: NextRequest) {
   // Teacher filter: restricts Pinecone retrieval to a single teacher's chunks.
   // Bypass cache when active — different teachers yield different results for the same question.
   const teacher: string | null = typeof body?.teacher === 'string' && body.teacher.trim() ? body.teacher.trim() : null;
+
+  // Attach per-request identity to the active Sentry scope so all events from this
+  // request include the wallet address and a stable request ID for correlation.
+  const sentryScope = Sentry.getCurrentScope();
+  sentryScope.setTag('request.id', requestId);
+  if (userId) sentryScope.setUser({ id: userId });
+  if (walletAddress) sentryScope.setTag('wallet.address', walletAddress);
+
   // Essay context: when provided the answer is injected with the essay body and bypasses cache.
   const essaySlug: string | null = typeof body?.essaySlug === 'string' && body.essaySlug.trim() ? body.essaySlug.trim() : null;
   const courseSlug: string | null = typeof body?.courseSlug === 'string' && body.courseSlug.trim() ? body.courseSlug.trim() : null;
@@ -1027,6 +1037,7 @@ export async function POST(req: NextRequest) {
         if (err instanceof Error && err.name === 'AbortError') {
           console.log(`[/api/ask] stream_aborted ${logCtx}`);
         } else {
+          Sentry.withScope((scope) => { scope.setTag('rag.stage', 'llm_call'); scope.setTag('rag.path', 'streaming'); Sentry.captureException(err); });
           const userMsg =
             err instanceof OpenAIRateLimitError
               ? 'AI service is temporarily over capacity. Please try again shortly.'
@@ -1070,29 +1081,36 @@ function handleOpenAIError(err: unknown, stage: string, logCtx: string): NextRes
   }
   if (err instanceof APIConnectionTimeoutError) {
     console.error(`[/api/ask] openai_timeout stage=${stage} ${logCtx}`);
+    Sentry.withScope((scope) => { scope.setTag('rag.stage', stage); Sentry.captureException(err); });
     return errorResponse(504, 'UPSTREAM_TIMEOUT', 'AI service did not respond in time. Please try again.');
   }
   if (err instanceof APIConnectionError) {
     console.error(`[/api/ask] openai_connection_error stage=${stage} ${logCtx}`);
+    Sentry.withScope((scope) => { scope.setTag('rag.stage', stage); Sentry.captureException(err); });
     return errorResponse(502, 'UPSTREAM_UNAVAILABLE', 'Could not reach AI service. Please try again.');
   }
   if (err instanceof OpenAIAuthError) {
     console.error(`[/api/ask] openai_auth_error stage=${stage} ${logCtx}`);
+    Sentry.withScope((scope) => { scope.setTag('rag.stage', stage); Sentry.captureException(err); });
     return errorResponse(503, 'SERVICE_MISCONFIGURED', 'AI service authentication failed. Contact the administrator.');
   }
   if (err instanceof OpenAIServerError) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[/api/ask] openai_server_error stage=${stage} ${logCtx} err=${msg}`);
+    Sentry.withScope((scope) => { scope.setTag('rag.stage', stage); Sentry.captureException(err); });
     return errorResponse(502, 'UPSTREAM_ERROR', 'AI service encountered an error. Please try again.');
   }
   const msg = err instanceof Error ? err.message : String(err);
   console.error(`[/api/ask] openai_unknown stage=${stage} ${logCtx} err=${msg}`);
+  Sentry.withScope((scope) => { scope.setTag('rag.stage', stage); Sentry.captureException(err); });
   return errorResponse(500, 'INTERNAL_ERROR', 'An unexpected error occurred.');
 }
 
 function handlePineconeError(err: unknown, logCtx: string): NextResponse {
   const msg = err instanceof Error ? err.message : String(err);
   const lower = msg.toLowerCase();
+
+  Sentry.withScope((scope) => { scope.setTag('rag.stage', 'vector_search'); Sentry.captureException(err); });
 
   if (lower.includes('timeout') || lower.includes('etimedout') || lower.includes('econnreset')) {
     console.error(`[/api/ask] pinecone_timeout ${logCtx} err=${msg}`);

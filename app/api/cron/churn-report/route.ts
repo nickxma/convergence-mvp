@@ -26,6 +26,7 @@
  *   ADMIN_EMAIL         — recipient for the weekly summary
  *   CRON_SECRET         — optional; enforced when set
  */
+import * as Sentry from '@sentry/nextjs';
 import { Resend } from 'resend';
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
@@ -288,6 +289,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     console.log(`[churn-report] email sent to=${adminEmail}`);
   } catch (err) {
     console.error('[churn-report] resend_error:', err);
+    Sentry.withScope((scope) => {
+      scope.setTag('cron', 'churn-report');
+      scope.setContext('report', { cancelledCount, totalMrrLost, weekStart, weekEnd });
+      Sentry.captureException(err);
+    });
     return NextResponse.json(
       { error: { code: 'EMAIL_ERROR', message: 'Failed to send churn report email.' } },
       { status: 502 },
