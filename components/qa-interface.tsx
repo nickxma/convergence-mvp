@@ -673,6 +673,9 @@ function AssistantMessage({
     });
   }
 
+  // Don't render an empty, non-streaming bubble — prevents ghost bubble before user message
+  if (!content && !streaming) return null;
+
   return (
     <div className="max-w-xl w-full">
       <div
