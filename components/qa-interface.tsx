@@ -5,6 +5,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Components } from 'react-markdown';
 import { useAuth } from '@/lib/use-auth';
+import { useCollaborativeSession } from '@/hooks/use-collaborative-session';
 import {
   type Message,
   type Conversation,
@@ -19,6 +20,7 @@ import { SaveToReadingListButton } from '@/components/save-to-reading-list-butto
 import { exportConversation, exportSingleAnswer } from '@/lib/export';
 import { track } from '@vercel/analytics';
 import { UpgradePrompt } from '@/components/upgrade-prompt';
+import { QAHomepage } from '@/components/qa-homepage';
 
 export type { Message };
 
@@ -1032,11 +1034,13 @@ interface QAInterfaceProps {
   essayContext?: { title: string; courseSlug: string; sessionSlug: string } | null;
   /** When true, hides the input form — used for replay/history viewing mode. */
   readOnly?: boolean;
+  /** UUID of an active collaborative qa_conversation — enables real-time sharing. */
+  collaborativeSessionId?: string;
 }
 
 const TEACHER_STORAGE_KEY = 'wu_teacher_filter';
 
-export function QAInterface({ initialConversation, onConversationUpdate, onNewChat, initialQuestion, actionsRef, essayContext, readOnly }: QAInterfaceProps) {
+export function QAInterface({ initialConversation, onConversationUpdate, onNewChat, initialQuestion, actionsRef, essayContext, readOnly, collaborativeSessionId }: QAInterfaceProps) {
   const { user, login, getAccessToken } = useAuth();
   const walletAddress = user?.wallet?.address ?? null;
   const userId = user?.id ?? null;
@@ -1060,6 +1064,7 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
   );
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Key takeaways — generated async after session completion
   const [sessionTakeaways, setSessionTakeaways] = useState<string[] | null>(null);
@@ -1088,6 +1093,32 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
   const [compareMode, setCompareMode] = useState(false);
   const [compareTeachers, setCompareTeachers] = useState<string[]>([]);
   const [userTier, setUserTier] = useState<'free' | 'pro' | 'team'>('free');
+
+  // ── Collaborative session state ─────────────────────────────────────────────
+  // Share button state (for non-collaborative sessions being promoted)
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [shareLoading, setShareLoading] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
+  const shareCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Access token ref for collaborative hook (avoids stale closure)
+  const accessTokenRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!userId) return;
+    getAccessToken().then((t) => { accessTokenRef.current = t; }).catch(() => {});
+  }, [userId, getAccessToken]);
+
+  // Determine the active collaborative session id:
+  // - propagated from join page via collaborativeSessionId prop, OR
+  // - this session's own serverConversationId once sharing is enabled
+  const activeCollabSessionId = collaborativeSessionId ?? (shareUrl ? serverConversationId : null);
+
+  const { participants, typingUsers, sendTyping, broadcastMessage } = useCollaborativeSession({
+    sessionId: activeCollabSessionId,
+    userId,
+    displayName: walletAddress ? `${walletAddress.slice(0, 6)}…${walletAddress.slice(-4)}` : null,
+    accessToken: accessTokenRef.current,
+  });
 
   // Load answer style on mount/auth change
   useEffect(() => {
@@ -1350,22 +1381,45 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
     setMessages(newMessages);
     setLoading(true);
 
+    // Broadcast user question to collaborative participants
+    if (activeCollabSessionId) {
+      sendTyping(false);
+      broadcastMessage({
+        turnIndex: newMessages.length - 1,
+        role: 'user',
+        content: question,
+        authorUserId: userId ?? undefined,
+        authorDisplayName: walletAddress ? `${walletAddress.slice(0, 6)}…${walletAddress.slice(-4)}` : null,
+      });
+    }
+
+    // Hoisted outside try so abort/error handlers can inspect streaming state and retry body.
+    let streamingStarted = false;
+    let reqBody = '';
+
     try {
+      // Cancel any in-flight request before starting a new one.
+      abortControllerRef.current?.abort();
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
       const history = baseMessages.map((m) => ({ role: m.role, content: m.content }));
+      reqBody = JSON.stringify({
+        question,
+        history,
+        walletAddress,
+        ...(serverConversationId ? { conversationId: serverConversationId } : {}),
+        ...(selectedTeacher ? { teacher: selectedTeacher } : {}),
+        ...(answerStyle !== 'detailed' ? { answerStyle } : {}),
+        ...(!essayContextDismissed && essayContext
+          ? { essaySlug: essayContext.sessionSlug, courseSlug: essayContext.courseSlug }
+          : {}),
+      });
       const res = await fetch('/api/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          question,
-          history,
-          walletAddress,
-          ...(serverConversationId ? { conversationId: serverConversationId } : {}),
-          ...(selectedTeacher ? { teacher: selectedTeacher } : {}),
-          ...(answerStyle !== 'detailed' ? { answerStyle } : {}),
-          ...(!essayContextDismissed && essayContext
-            ? { essaySlug: essayContext.sessionSlug, courseSlug: essayContext.courseSlug }
-            : {}),
-        }),
+        signal: controller.signal,
+        body: reqBody,
       });
 
       if (!res.ok) {
@@ -1400,7 +1454,6 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
-        let streamingStarted = false;
         let accumulatedContent = '';
 
         while (true) {
@@ -1457,6 +1510,16 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
               ];
               setMessages(finalMessages);
               persistConversation(finalMessages, conversationId, convId ?? serverConversationId);
+              // Broadcast completed turn to other collaborative participants
+              if (activeCollabSessionId) {
+                sendTyping(false);
+                broadcastMessage({
+                  turnIndex: finalMessages.length - 1,
+                  role: 'assistant',
+                  content: accumulatedContent,
+                  authorUserId: userId ?? undefined,
+                });
+              }
               if (event.rateLimit && typeof event.rateLimit === 'object') {
                 const rl = event.rateLimit as { remaining?: unknown; resetAt?: unknown };
                 if (typeof rl.remaining === 'number' && typeof rl.resetAt === 'string') {
@@ -1534,13 +1597,71 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
         }
         fetchRelated(question);
       }
-    } catch {
-      setMessages((prev) => [
-        ...prev,
-        { role: 'assistant', content: 'Something went wrong — try again.', error: true },
-      ]);
+    } catch (err) {
+      const isAbort = err instanceof DOMException && err.name === 'AbortError';
+      if (isAbort) {
+        // User cancelled — keep any partial content already in state, just remove the streaming flag.
+        setMessages((prev) => {
+          const msgs = [...prev];
+          const last = msgs[msgs.length - 1];
+          if (last?.role === 'assistant' && last.streaming) {
+            if (last.content) {
+              msgs[msgs.length - 1] = { ...last, streaming: undefined };
+              persistConversation(msgs, conversationId, serverConversationId);
+            } else {
+              msgs.pop(); // Remove empty streaming bubble that never received content
+            }
+          }
+          return msgs;
+        });
+      } else if (!streamingStarted) {
+        // SSE/network failed before any tokens arrived — retry as non-streaming JSON.
+        try {
+          const fallbackRes = await fetch('/api/ask?stream=false', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: reqBody,
+          });
+          if (fallbackRes.ok) {
+            const data = await fallbackRes.json();
+            const newServerConvId = data.conversationId ?? null;
+            if (newServerConvId && !serverConversationId) setServerConversationId(newServerConvId);
+            const fallbackMessages: Message[] = [
+              ...newMessages,
+              {
+                role: 'assistant',
+                content: data.answer ?? '',
+                sources: data.sources ?? [],
+                followUps: data.followUps ?? [],
+                relatedConcepts: Array.isArray(data.related_concepts) ? (data.related_concepts as RelatedConcept[]) : [],
+                answerId: data.answerId ?? undefined,
+                fromCache: data.cached === true,
+              },
+            ];
+            setMessages(fallbackMessages);
+            persistConversation(fallbackMessages, conversationId, newServerConvId ?? serverConversationId);
+            fetchRelated(question);
+          } else {
+            setMessages([...newMessages, { role: 'assistant', content: 'Something went wrong — try again.', error: true }]);
+          }
+        } catch {
+          setMessages([...newMessages, { role: 'assistant', content: 'Something went wrong — try again.', error: true }]);
+        }
+      } else {
+        // Stream started but failed mid-way — preserve partial content without error indicator.
+        setMessages((prev) => {
+          const msgs = [...prev];
+          const last = msgs[msgs.length - 1];
+          if (last?.role === 'assistant' && last.streaming) {
+            msgs[msgs.length - 1] = { ...last, streaming: undefined };
+            if (last.content) persistConversation(msgs, conversationId, serverConversationId);
+          }
+          return msgs;
+        });
+      }
     } finally {
       setLoading(false);
+      abortControllerRef.current = null;
     }
   }
 
@@ -1901,6 +2022,10 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
     }
   }
 
+  function handleAbort() {
+    abortControllerRef.current?.abort();
+  }
+
   // Expose imperative actions to parent (for keyboard shortcuts)
   useEffect(() => {
     if (!actionsRef) return;
@@ -1913,6 +2038,23 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
 
   const isEmpty = messages.length === 0 && !loading;
   const showRelatedPanel = relatedLoading || relatedQuestions.length > 0;
+
+  // Rotating placeholder text for the input when empty
+  const ROTATING_PLACEHOLDERS = [
+    'What is the relationship between mindfulness and suffering?',
+    'How can I be more present in everyday life?',
+    'What does Sam Harris say about the nature of the self?',
+  ] as const;
+  const [inputPlaceholderIdx, setInputPlaceholderIdx] = useState(0);
+  useEffect(() => {
+    if (!isEmpty) return;
+    const id = setInterval(() => {
+      setInputPlaceholderIdx((i) => (i + 1) % ROTATING_PLACEHOLDERS.length);
+    }, 3500);
+    return () => clearInterval(id);
+  // ROTATING_PLACEHOLDERS is a const defined in render scope — stable reference
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEmpty]);
 
   return (
     <>
@@ -1944,19 +2086,61 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
               </button>
             )}
             <ExportConversationButton messages={messages} />
+            {/* Share Session button — only for authenticated owners of non-read-only sessions */}
+            {userId && !readOnly && !collaborativeSessionId && serverConversationId && (
+              <ShareSessionButton
+                sessionId={serverConversationId}
+                shareUrl={shareUrl}
+                loading={shareLoading}
+                copied={shareCopied}
+                onShare={async () => {
+                  if (shareUrl) {
+                    await navigator.clipboard.writeText(shareUrl).catch(() => {});
+                    setShareCopied(true);
+                    if (shareCopyTimerRef.current) clearTimeout(shareCopyTimerRef.current);
+                    shareCopyTimerRef.current = setTimeout(() => setShareCopied(false), 2000);
+                    return;
+                  }
+                  setShareLoading(true);
+                  try {
+                    const token = await getAccessToken();
+                    const res = await fetch(`/api/qa/sessions/${serverConversationId}/share`, {
+                      method: 'POST',
+                      headers: token ? { Authorization: `Bearer ${token}` } : {},
+                    });
+                    if (res.ok) {
+                      const data = await res.json() as { joinUrl: string };
+                      setShareUrl(data.joinUrl);
+                      await navigator.clipboard.writeText(data.joinUrl).catch(() => {});
+                      setShareCopied(true);
+                      if (shareCopyTimerRef.current) clearTimeout(shareCopyTimerRef.current);
+                      shareCopyTimerRef.current = setTimeout(() => setShareCopied(false), 2000);
+                    }
+                  } catch { /* swallow */ } finally {
+                    setShareLoading(false);
+                  }
+                }}
+              />
+            )}
           </div>
-          <button
-            onClick={handleClear}
-            disabled={loading}
-            className="flex items-center gap-1.5 text-xs px-3 min-h-[44px] rounded-full border transition-colors disabled:opacity-40"
-            style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}
-            aria-label="Clear conversation"
-          >
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
-            </svg>
-            New conversation
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Participant avatars for collaborative sessions */}
+            {activeCollabSessionId && participants.length > 0 && (
+              <CollabParticipantAvatars participants={participants} />
+            )}
+            <button
+              onClick={handleClear}
+              disabled={loading}
+              className="flex items-center gap-1.5 text-xs px-3 min-h-[44px] rounded-full border transition-colors disabled:opacity-40"
+              style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}
+              aria-label="Clear conversation"
+            >
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+              </svg>
+              New conversation
+            </button>
+          </div>
         </div>
       )}
 
@@ -2107,91 +2291,13 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
             </div>
           )}
 
-          {isEmpty && showOnboardingPanel === true && (
-            /* First-time user: full onboarding welcome panel */
-            <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
-              <div
-                className="w-14 h-14 rounded-full flex items-center justify-center mb-5"
-                style={{ background: 'var(--bg-chip)' }}
-              >
-                <svg
-                  className="w-7 h-7"
-                  style={{ color: 'var(--sage)' }}
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={1.5}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M12 18.75a6 6 0 0 0 6-6v-1.5m-6 7.5a6 6 0 0 1-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 0 1-3-3V4.5a3 3 0 1 1 6 0v8.25a3 3 0 0 1-3 3Z"
-                  />
-                </svg>
-              </div>
-              <h2 className="font-semibold text-base mb-1" style={{ color: 'var(--sage-dark)' }}>
-                Ask anything about mindfulness
-              </h2>
-              <p className="text-xs mb-4 max-w-xs" style={{ color: 'var(--text-muted)' }}>
-                Answers drawn from 760+ hours of Waking Up content — talks, guided meditations, and conversations.
-              </p>
-              {!walletAddress && (
-                <p
-                  className="text-xs mb-5 px-3 py-2 rounded-lg max-w-xs"
-                  style={{ background: 'var(--bg-surface)', color: 'var(--sage)' }}
-                >
-                  Connect a wallet in your{' '}
-                  <a href="/profile" style={{ textDecoration: 'underline' }}>
-                    profile
-                  </a>{' '}
-                  to save your conversation history.
-                </p>
-              )}
-              <div className="flex flex-col gap-2 w-full max-w-sm">
-                {STARTER_QUESTIONS.map((prompt) => (
-                  <button
-                    key={prompt}
-                    onClick={() => setInput(prompt)}
-                    className="text-left rounded-xl px-4 py-3 text-sm transition-colors"
-                    style={{
-                      background: 'var(--bg-surface)',
-                      color: 'var(--text-warm)',
-                      border: '1px solid var(--border-subtle)',
-                    }}
-                  >
-                    {prompt}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {isEmpty && showOnboardingPanel === false && (
-            /* Returning user: minimal empty state */
-            <div className="flex flex-col items-center justify-center h-64 text-center">
-              <p className="text-sm font-medium" style={{ color: 'var(--text-warm)' }}>
-                Ask a question to explore mindfulness teachings
-              </p>
-              <p className="text-xs mt-1 mb-5" style={{ color: 'var(--text-muted)' }}>
-                Sourced from 760+ hours of mindfulness content
-              </p>
-              <div className="flex flex-wrap justify-center gap-2 max-w-md">
-                {STARTER_QUESTIONS.map((prompt) => (
-                  <button
-                    key={prompt}
-                    onClick={() => setInput(prompt)}
-                    className="rounded-full px-3 py-1.5 text-xs transition-colors"
-                    style={{
-                      background: 'var(--bg-surface)',
-                      color: 'var(--text-warm)',
-                      border: '1px solid var(--border-subtle)',
-                    }}
-                  >
-                    {prompt}
-                  </button>
-                ))}
-              </div>
-            </div>
+          {isEmpty && showOnboardingPanel !== null && (
+            <QAHomepage
+              onSelectQuestion={(q) => {
+                setInput(q);
+                textareaRef.current?.focus();
+              }}
+            />
           )}
 
           {messages.map((msg, i) => (
@@ -2509,6 +2615,21 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
               </div>
             </div>
           )}
+          {/* Collaborative typing indicators */}
+          {activeCollabSessionId && typingUsers.length > 0 && (
+            <div className="flex items-center gap-1.5 mb-2 px-1">
+              <div className="flex items-center gap-0.5">
+                <span className="w-1 h-1 rounded-full animate-bounce" style={{ background: 'var(--sage)', animationDelay: '0ms' }} />
+                <span className="w-1 h-1 rounded-full animate-bounce" style={{ background: 'var(--sage)', animationDelay: '150ms' }} />
+                <span className="w-1 h-1 rounded-full animate-bounce" style={{ background: 'var(--sage)', animationDelay: '300ms' }} />
+              </div>
+              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                {typingUsers.map((u) => u.displayName ?? 'Someone').join(', ')}
+                {typingUsers.length === 1 ? ' is typing…' : ' are typing…'}
+              </span>
+            </div>
+          )}
+
           {/* Answer style segmented control */}
           <div className="flex items-center gap-1 mb-2 px-1">
             <span className="text-xs mr-1" style={{ color: 'var(--text-faint)' }}>Style:</span>
@@ -2545,11 +2666,14 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
               <textarea
                 ref={textareaRef}
                 value={input}
-                onChange={(e) => setInput(e.target.value.slice(0, MAX_CHARS))}
+                onChange={(e) => {
+                setInput(e.target.value.slice(0, MAX_CHARS));
+                if (activeCollabSessionId) sendTyping(e.target.value.length > 0);
+              }}
                 onKeyDown={handleKeyDown}
                 onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
                 onFocus={() => { if (suggestions.length > 0 && input.length >= 3) setShowSuggestions(true); }}
-                placeholder="Ask a question…"
+                placeholder={isEmpty ? ROTATING_PLACEHOLDERS[inputPlaceholderIdx] : 'Ask a follow-up…'}
                 rows={1}
                 disabled={loading || rateLimit?.remaining === 0}
                 maxLength={MAX_CHARS}
@@ -2561,25 +2685,46 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
                 className="flex-1 resize-none bg-transparent text-sm leading-relaxed outline-none placeholder-zinc-400 disabled:opacity-50"
                 style={{ color: 'var(--text)', minHeight: '24px' }}
               />
-              <button
-                type="submit"
-                title="Submit (Enter or Ctrl+Enter)"
-                aria-label="Submit question"
-                disabled={!input.trim() || loading || rateLimit?.remaining === 0 || guestLimitReached || freeTierLimitReached || (compareMode && compareTeachers.length < 2)}
-                className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-opacity disabled:opacity-30"
-                style={{ background: 'var(--sage)' }}
-              >
-                <svg
-                  aria-hidden="true"
-                  className="w-4 h-4 text-white"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={2}
+              {loading ? (
+                <button
+                  type="button"
+                  onClick={handleAbort}
+                  title="Stop generating"
+                  aria-label="Stop generating"
+                  className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-opacity"
+                  style={{ background: 'var(--bg-chip)', border: '1px solid var(--border)' }}
                 >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 10.5 12 3m0 0 7.5 7.5M12 3v18" />
-                </svg>
-              </button>
+                  <svg
+                    aria-hidden="true"
+                    className="w-3 h-3"
+                    fill="currentColor"
+                    viewBox="0 0 24 24"
+                    style={{ color: 'var(--text-muted)' }}
+                  >
+                    <rect x="5" y="5" width="14" height="14" rx="2" />
+                  </svg>
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  title="Submit (Enter or Ctrl+Enter)"
+                  aria-label="Submit question"
+                  disabled={!input.trim() || rateLimit?.remaining === 0 || guestLimitReached || freeTierLimitReached || (compareMode && compareTeachers.length < 2)}
+                  className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-opacity disabled:opacity-30"
+                  style={{ background: 'var(--sage)' }}
+                >
+                  <svg
+                    aria-hidden="true"
+                    className="w-4 h-4 text-white"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 10.5 12 3m0 0 7.5 7.5M12 3v18" />
+                  </svg>
+                </button>
+              )}
             </div>
 
             {/* Suggestion dropdown */}
@@ -2708,4 +2853,91 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
     </div>
     </>
   );
+}
+
+// ── Collaborative UI helpers ──────────────────────────────────────────────────
+
+import type { Participant } from '@/hooks/use-collaborative-session';
+
+function ShareSessionButton({
+  shareUrl,
+  loading,
+  copied,
+  onShare,
+}: {
+  sessionId: string;
+  shareUrl: string | null;
+  loading: boolean;
+  copied: boolean;
+  onShare: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onShare}
+      disabled={loading}
+      className="flex items-center gap-1.5 text-xs px-3 min-h-[44px] rounded-full border transition-colors disabled:opacity-40"
+      style={
+        shareUrl
+          ? { borderColor: 'var(--sage)', color: 'var(--sage)', background: 'var(--sage-bg, #e8f0ec)' }
+          : { borderColor: 'var(--border)', color: 'var(--text-muted)' }
+      }
+      aria-label="Share session"
+      title={shareUrl ? 'Copy join link' : 'Share this session'}
+    >
+      {loading ? (
+        <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+        </svg>
+      ) : copied ? (
+        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+        </svg>
+      ) : (
+        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.935 2.186 2.25 2.25 0 0 0-3.935-2.186zm0-12.814a2.25 2.25 0 1 0 3.933-2.185 2.25 2.25 0 0 0-3.933 2.185z" />
+        </svg>
+      )}
+      {copied ? 'Copied!' : shareUrl ? 'Copy link' : 'Share session'}
+    </button>
+  );
+}
+
+function CollabParticipantAvatars({ participants }: { participants: Participant[] }) {
+  const shown = participants.slice(0, 5);
+  const extra = participants.length - shown.length;
+  return (
+    <div className="flex items-center gap-0.5 flex-shrink-0" title={`${participants.length} participant${participants.length !== 1 ? 's' : ''}`}>
+      {shown.map((p) => (
+        <div
+          key={p.userId}
+          title={p.displayName ?? p.userId}
+          className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium border flex-shrink-0"
+          style={{
+            background: p.isSelf ? 'var(--sage)' : 'var(--bg-chip)',
+            color: p.isSelf ? '#fff' : 'var(--text)',
+            borderColor: p.isOwner ? 'var(--sage)' : 'var(--border)',
+          }}
+        >
+          {collabInitials(p.displayName ?? p.userId)}
+        </div>
+      ))}
+      {extra > 0 && (
+        <div
+          className="w-6 h-6 rounded-full flex items-center justify-center text-xs flex-shrink-0"
+          style={{ background: 'var(--bg-chip)', color: 'var(--text-muted)', border: '1px solid var(--border)' }}
+        >
+          +{extra}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function collabInitials(name: string): string {
+  if (!name) return '?';
+  if (name.startsWith('0x') && name.length >= 4) return name.slice(2, 4).toUpperCase();
+  if (name.startsWith('…')) return name.slice(-2).toUpperCase();
+  return name.slice(0, 2).toUpperCase();
 }
