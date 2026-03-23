@@ -25,6 +25,7 @@ import { shouldExpandQuery, expandQuery, reciprocalRankFusion, generateQueryVari
 import { getEssayContext, getCourseSessionContext } from '@/lib/essay-cache';
 import { RagTracer } from '@/lib/rag-tracer';
 import { buildAnswerCacheKey, getAnswerCache, setAnswerCache } from '@/lib/qa-answer-cache';
+import { enhanceQuery } from '@/lib/query-normalization';
 
 const EMBED_MODEL = 'text-embedding-3-large';
 const EMBED_DIMENSIONS = 1536;
@@ -305,11 +306,24 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // ── Query enhancement (OLU-792) ───────────────────────────────────────────
+  // Runs synchronously before the cache lookup (~1 ms, pure computation).
+  //   normalizedQuery  — spell-corrected + normalized; used as cache key
+  //   enhancedQuery    — synonym-expanded; used as embedding input for retrieval
+  //   correctedQuery   — non-null only when spell correction fired (shown in UI)
+  const {
+    normalizedQuery,
+    enhancedQuery,
+    spellCorrected,
+    correctedQuery,
+  } = enhanceQuery(question);
+
   // ── Cache flags ───────────────────────────────────────────────────────────
   // Semantic threshold from env; default 0.92.
   const semanticThreshold = parseFloat(process.env.SEMANTIC_CACHE_THRESHOLD ?? '0.92');
-  // Cache key: SHA-256 of lowercased+trimmed question (independent of questionHash in analytics).
-  const cacheKey = createHash('sha256').update(question.toLowerCase()).digest('hex');
+  // Cache key: SHA-256 of normalized query so typos share a cache entry with
+  // the correctly-spelled equivalent.
+  const cacheKey = createHash('sha256').update(normalizedQuery).digest('hex');
   // Pro users and teacher-filtered queries always get fresh answers (bypass semantic cache).
   // Bypass cache when answer style is non-default — cached answers were generated with the 'detailed' prompt.
   const noCacheParam = req.nextUrl.searchParams.get('noCache') === '1' || isProUser || teacher !== null || essaySlug !== null || answerStyle !== 'detailed';
@@ -364,7 +378,7 @@ export async function POST(req: NextRequest) {
       const questionHash = createHash('sha256').update(question).digest('hex');
       const fmtMetrics = computeFormatMetrics(cachedAnswer);
       supabase.from('qa_analytics')
-        .insert({ question_hash: questionHash, pinecone_scores: [], latency_ms: latencyMs, model_used: CHAT_MODEL, cache_hit: true, semantic_cache_hit: false, ...fmtMetrics })
+        .insert({ question_hash: questionHash, pinecone_scores: [], latency_ms: latencyMs, model_used: CHAT_MODEL, cache_hit: true, semantic_cache_hit: false, original_query: question, normalized_query: normalizedQuery, spell_corrected: spellCorrected, ...fmtMetrics })
         .then(({ error }) => { if (error) console.warn(`[/api/ask] analytics_write_error err=${error.message}`); });
 
       const updatedHistory = appendTurn(effectiveHistory, question, cachedAnswer);
@@ -380,6 +394,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         answer: cachedAnswer, answerId, conversationId, followUps: cachedFollowUps, cached: true,
         sources: cachedChunks.map((c) => ({ text: c.text.slice(0, 200), speaker: c.speaker, source: c.source, score: Math.round(c.score * 100) / 100, chunkId: c.chunkId ?? computeChunkId(c.source, c.text), ...(c.sourceUrl ? { sourceUrl: c.sourceUrl } : {}) })),
+        ...(correctedQuery ? { correctedQuery } : {}),
         ...(rl !== null ? { rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() } } : {}),
         ...(guestQueriesRemaining !== null ? { guestQueriesRemaining } : {}),
         ...(userQuestionsRemaining !== null ? { userQuestionsRemaining } : {}),
@@ -405,7 +420,10 @@ export async function POST(req: NextRequest) {
   // When an essay context is present, append essay title + tags to the embed input so
   // Pinecone retrieval is biased toward chunks topically related to the essay.
   const queryText = buildQueryText(question, effectiveHistory);
-  const baseEmbedInput = isFollowUp ? queryText : question;
+  // For standalone questions use the synonym-expanded form so retrieval covers
+  // related terms. Follow-ups already include rich context from conversation
+  // history, so enhancement adds little and enhancedQuery is skipped.
+  const baseEmbedInput = isFollowUp ? queryText : enhancedQuery;
   const embedInput = essayCtx
     ? `${baseEmbedInput}\n\nEssay topic: ${essayCtx.title}${essayCtx.tags.length ? `. Tags: ${essayCtx.tags.join(', ')}` : ''}`
     : baseEmbedInput;
@@ -467,7 +485,7 @@ export async function POST(req: NextRequest) {
       const questionHash = createHash('sha256').update(question).digest('hex');
       const fmtMetrics = computeFormatMetrics(cachedAnswer);
       supabase.from('qa_analytics')
-        .insert({ question_hash: questionHash, pinecone_scores: [], latency_ms: latencyMs, model_used: CHAT_MODEL, cache_hit: true, semantic_cache_hit: true, ...fmtMetrics })
+        .insert({ question_hash: questionHash, pinecone_scores: [], latency_ms: latencyMs, model_used: CHAT_MODEL, cache_hit: true, semantic_cache_hit: true, original_query: question, normalized_query: normalizedQuery, spell_corrected: spellCorrected, ...fmtMetrics })
         .then(({ error }) => { if (error) console.warn(`[/api/ask] analytics_write_error err=${error.message}`); });
 
       const updatedHistory = appendTurn(effectiveHistory, question, cachedAnswer);
@@ -483,6 +501,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         answer: cachedAnswer, answerId, conversationId, followUps: cachedFollowUps, cached: true,
         sources: cachedChunks.map((c) => ({ text: c.text.slice(0, 200), speaker: c.speaker, source: c.source, score: Math.round(c.score * 100) / 100, chunkId: c.chunkId ?? computeChunkId(c.source, c.text), ...(c.sourceUrl ? { sourceUrl: c.sourceUrl } : {}) })),
+        ...(correctedQuery ? { correctedQuery } : {}),
         ...(rl !== null ? { rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() } } : {}),
         ...(guestQueriesRemaining !== null ? { guestQueriesRemaining } : {}),
         ...(userQuestionsRemaining !== null ? { userQuestionsRemaining } : {}),
@@ -821,7 +840,7 @@ export async function POST(req: NextRequest) {
         const fmtMetrics = computeFormatMetrics(cachedAnswer);
 
         supabase.from('qa_analytics')
-          .insert({ question_hash: questionHash, pinecone_scores: chunks.slice(0, 3).map((c) => c.score), latency_ms: latencyMs, model_used: CHAT_MODEL, cache_hit: true, semantic_cache_hit: false, ...fmtMetrics })
+          .insert({ question_hash: questionHash, pinecone_scores: chunks.slice(0, 3).map((c) => c.score), latency_ms: latencyMs, model_used: CHAT_MODEL, cache_hit: true, semantic_cache_hit: false, original_query: question, normalized_query: normalizedQuery, spell_corrected: spellCorrected, ...fmtMetrics })
           .then(({ error }) => { if (error) console.warn(`[/api/ask] analytics_write_error err=${error.message}`); });
 
         const hitSources = cachedChunks.slice(0, 3).map((c) => ({
@@ -857,6 +876,7 @@ export async function POST(req: NextRequest) {
           answer: cachedAnswer, answerId, conversationId, followUps: cachedFollowUps, cached: true,
           sources: cachedChunks.map((c) => ({ text: c.text.slice(0, 200), speaker: c.speaker, source: c.source, score: Math.round(c.score * 100) / 100, chunkId: c.chunkId ?? computeChunkId(c.source, c.text), ...(c.sourceUrl ? { sourceUrl: c.sourceUrl } : {}) })),
           related_concepts: relatedConcepts,
+          ...(correctedQuery ? { correctedQuery } : {}),
           ...(rl !== null ? { rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() } } : {}),
           ...(guestQueriesRemaining !== null ? { guestQueriesRemaining } : {}),
           ...(userQuestionsRemaining !== null ? { userQuestionsRemaining } : {}),
@@ -921,7 +941,7 @@ export async function POST(req: NextRequest) {
 
     supabase
       .from('qa_analytics')
-      .insert({ question_hash: questionHash, pinecone_scores: pineconeScores, latency_ms: latencyMs, model_used: CHAT_MODEL, cache_hit: false, semantic_cache_hit: false, hyde_used: hydeUsed, ...fmtMetrics })
+      .insert({ question_hash: questionHash, pinecone_scores: pineconeScores, latency_ms: latencyMs, model_used: CHAT_MODEL, cache_hit: false, semantic_cache_hit: false, hyde_used: hydeUsed, original_query: question, normalized_query: normalizedQuery, spell_corrected: spellCorrected, ...fmtMetrics })
       .then(({ error }) => { if (error) console.warn(`[/api/ask] analytics_write_error err=${error.message}`); });
 
     // Cache write on miss (standalone questions only, no teacher/essay filter, fire-and-forget)
@@ -983,6 +1003,7 @@ export async function POST(req: NextRequest) {
       sources: sourcesPayload,
       related_concepts: relatedConcepts,
       cached: false,
+      ...(correctedQuery ? { correctedQuery } : {}),
       ...(rl !== null ? { rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() } } : {}),
       ...(guestQueriesRemaining !== null ? { guestQueriesRemaining } : {}),
       ...(userQuestionsRemaining !== null ? { userQuestionsRemaining } : {}),
@@ -1073,7 +1094,7 @@ export async function POST(req: NextRequest) {
         const fmtMetrics = computeFormatMetrics(fullAnswer);
         supabase
           .from('qa_analytics')
-          .insert({ question_hash: questionHash, pinecone_scores: pineconeScores, latency_ms: latencyMs, model_used: CHAT_MODEL, cache_hit: false, semantic_cache_hit: false, hyde_used: hydeUsed, ...fmtMetrics })
+          .insert({ question_hash: questionHash, pinecone_scores: pineconeScores, latency_ms: latencyMs, model_used: CHAT_MODEL, cache_hit: false, semantic_cache_hit: false, hyde_used: hydeUsed, original_query: question, normalized_query: normalizedQuery, spell_corrected: spellCorrected, ...fmtMetrics })
           .then(({ error }) => { if (error) console.warn(`[/api/ask] analytics_write_error err=${error.message}`); });
 
         // Cache write on miss (standalone questions only, no teacher filter, fire-and-forget)
@@ -1140,6 +1161,7 @@ export async function POST(req: NextRequest) {
             sources: sourcesPayload,
             related_concepts: relatedConcepts,
             cached: false,
+            ...(correctedQuery ? { correctedQuery } : {}),
             ...(rl !== null ? { rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() } } : {}),
             ...(guestQueriesRemaining !== null ? { guestQueriesRemaining } : {}),
             ...(userQuestionsRemaining !== null ? { userQuestionsRemaining } : {}),
