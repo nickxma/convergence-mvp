@@ -23,6 +23,7 @@ import { getConceptContext } from '@/lib/concept-graph';
 import { shouldExpandQuery, expandQuery, reciprocalRankFusion } from '@/lib/query-expansion';
 import { getEssayContext, getCourseSessionContext } from '@/lib/essay-cache';
 import { RagTracer } from '@/lib/rag-tracer';
+import { buildAnswerCacheKey, getAnswerCache, setAnswerCache } from '@/lib/qa-answer-cache';
 
 const EMBED_MODEL = 'text-embedding-3-large';
 const EMBED_DIMENSIONS = 1536;
@@ -668,6 +669,62 @@ export async function POST(req: NextRequest) {
   // NON-STREAMING FALLBACK
   // ============================================================
   if (!streamMode) {
+    // ── Redis answer cache check ───────────────────────────────────────────
+    // Key combines the normalised question with the top-3 chunk fingerprints so
+    // an answer is only reused when both the query and retrieved context match.
+    // Skip for follow-ups, filtered queries, and any bypass condition already
+    // captured by noCacheParam (pro users, teacher filter, essay context, etc.).
+    const redisAnswerKey = buildAnswerCacheKey(question, chunks);
+    if (!noCacheParam && !isFollowUp) {
+      const redisHit = await getAnswerCache(redisAnswerKey);
+      if (redisHit) {
+        console.log(`[/api/ask] redis_answer_cache_hit ${logCtx}`);
+        const { answer: cachedAnswer, followUps: cachedFollowUps, chunks: cachedChunks } = redisHit;
+        const latencyMs = Date.now() - requestStart;
+        const questionHash = createHash('sha256').update(question).digest('hex');
+        const fmtMetrics = computeFormatMetrics(cachedAnswer);
+
+        supabase.from('qa_analytics')
+          .insert({ question_hash: questionHash, pinecone_scores: chunks.slice(0, 3).map((c) => c.score), latency_ms: latencyMs, model_used: CHAT_MODEL, cache_hit: true, semantic_cache_hit: false, ...fmtMetrics })
+          .then(({ error }) => { if (error) console.warn(`[/api/ask] analytics_write_error err=${error.message}`); });
+
+        const hitSources = cachedChunks.slice(0, 3).map((c) => ({
+          text: c.text.slice(0, 200), speaker: c.speaker, source: c.source,
+          score: Math.round(c.score * 100) / 100,
+        }));
+        let answerId: string | null = null;
+        try {
+          const { data: ar, error: ae } = await supabase
+            .from('qa_answers')
+            .insert({ question, answer: cachedAnswer, sources: hitSources, conversation_id: conversationId, cache_hash: redisAnswerKey, ...(userId ? { user_id: userId } : {}) })
+            .select('id').single();
+          if (ae) console.warn(`[/api/ask] qa_answer_write_error err=${ae.message}`);
+          else answerId = ar?.id ?? null;
+        } catch (err) {
+          console.warn(`[/api/ask] qa_answer_exception err=${err instanceof Error ? err.message : String(err)}`);
+        }
+
+        const updatedHistory = appendTurn(effectiveHistory, question, cachedAnswer);
+        const sessionTitle = updatedHistory.find((m) => m.role === 'user')?.content.slice(0, 120) ?? question.slice(0, 120);
+        supabase.from('conversation_sessions')
+          .upsert({ id: conversationId, history: updatedHistory, expires_at: new Date(Date.now() + SESSION_TTL_MS).toISOString(), updated_at: new Date().toISOString(), message_count: updatedHistory.length, ...(userId ? { user_id: userId } : {}), ...(isExistingConversation ? {} : { title: sessionTitle }) }, { onConflict: 'id' })
+          .then(({ error }) => { if (error) console.warn(`[/api/ask] supabase_session_error conv=${conversationId} err=${error.message}`); });
+        setConversationHistory(conversationId, updatedHistory).catch(() => {});
+        supabase.from('qa_conversations')
+          .upsert({ id: conversationId, messages: updatedHistory, updated_at: new Date().toISOString(), ...(userId ? { user_id: userId } : {}) }, { onConflict: 'id' })
+          .then(({ error }) => { if (error) console.warn(`[/api/ask] qa_conv_error conv=${conversationId} err=${error.message}`); });
+
+        return NextResponse.json({
+          answer: cachedAnswer, answerId, conversationId, followUps: cachedFollowUps, cached: true,
+          sources: cachedChunks.map((c) => ({ text: c.text.slice(0, 200), speaker: c.speaker, source: c.source, score: Math.round(c.score * 100) / 100 })),
+          related_concepts: relatedConcepts,
+          ...(rl !== null ? { rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() } } : {}),
+          ...(guestQueriesRemaining !== null ? { guestQueriesRemaining } : {}),
+          ...(userQuestionsRemaining !== null ? { userQuestionsRemaining } : {}),
+        }, { headers: { ...dailyRlHeaders, 'X-Cache': 'HIT' } });
+      }
+    }
+
     let answer: string;
     let followUps: string[] = [];
     try {
@@ -734,6 +791,8 @@ export async function POST(req: NextRequest) {
             console.warn(`[/api/ask] cache_write_error err=${error.message}`);
           }
         });
+      // Redis answer cache write — 1hr TTL, faster than Supabase for repeat queries
+      setAnswerCache(redisAnswerKey, { answer, followUps, chunks }).catch(() => {});
     }
 
     let answerId: string | null = null;
@@ -782,7 +841,7 @@ export async function POST(req: NextRequest) {
       ...(rl !== null ? { rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() } } : {}),
       ...(guestQueriesRemaining !== null ? { guestQueriesRemaining } : {}),
       ...(userQuestionsRemaining !== null ? { userQuestionsRemaining } : {}),
-    }, { headers: dailyRlHeaders });
+    }, { headers: { ...dailyRlHeaders, 'X-Cache': 'MISS' } });
   }
 
   // ============================================================
