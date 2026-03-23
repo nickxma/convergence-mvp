@@ -19,7 +19,8 @@
     "backup:db": "tsx scripts/backup-db.ts",
     "export:subscribers": "tsx scripts/export-subscribers.ts",
     "benchmark:embeddings": "tsx scripts/benchmark-embeddings.ts",
-    "build:concept-graph": "tsx scripts/build-concept-graph.ts"
+    "build:concept-graph": "tsx scripts/build-concept-graph.ts",
+    "eval:concept-graph": "tsx scripts/eval-concept-graph.ts"
   },
   "dependencies": {
     "@pinecone-database/pinecone": "^7.1.0",
