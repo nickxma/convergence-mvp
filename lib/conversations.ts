@@ -7,17 +7,35 @@ export interface Source {
   score: number;
 }
 
+export interface CompareColumn {
+  teacher: string;
+  content: string;
+  sources: Source[];
+  /** Transient: true while this column's SSE stream is in progress. */
+  streaming?: boolean;
+  followUps?: string[];
+}
+
+export interface RelatedConcept {
+  name: string;
+  definition_excerpt: string | null;
+  url: string;
+}
+
 export interface Message {
   role: 'user' | 'assistant';
   content: string;
   sources?: Source[];
   followUps?: string[];
+  relatedConcepts?: RelatedConcept[];
   answerId?: string;
   error?: boolean;
   /** Transient UI state: true while SSE stream is still in progress. Never persisted. */
   streaming?: boolean;
   /** True when the answer was served from cache (exact-hash or semantic). Never persisted. */
   fromCache?: boolean;
+  /** When set, renders side-by-side teacher comparison columns instead of a normal answer. */
+  compareColumns?: CompareColumn[];
 }
 
 export interface Conversation {

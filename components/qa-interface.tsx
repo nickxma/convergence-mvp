@@ -9,6 +9,7 @@ import {
   type Message,
   type Conversation,
   type CompareColumn,
+  type RelatedConcept,
   loadConversations,
   saveConversation,
   newConversationId,
@@ -636,6 +637,30 @@ function FollowUpChips({
   );
 }
 
+function RelatedConceptsList({ concepts }: { concepts: RelatedConcept[] }) {
+  if (concepts.length === 0) return null;
+  return (
+    <div className="mt-3">
+      <p className="text-xs font-medium mb-1.5" style={{ color: 'var(--text-muted)' }}>
+        Related concepts
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {concepts.map((c) => (
+          <a
+            key={c.name}
+            href={c.url}
+            className="text-xs rounded-full px-3 py-1 transition-colors"
+            style={{ background: 'var(--bg-chip)', color: 'var(--text-warm)', border: '1px solid var(--border-subtle)' }}
+            title={c.definition_excerpt ?? undefined}
+          >
+            {c.name}
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /**
  * Wrapper for an assistant message bubble.
  * Coordinates citation clicks → source panel open + scroll-to-source.
@@ -645,6 +670,7 @@ function AssistantMessage({
   content,
   sources,
   followUps,
+  relatedConcepts,
   isError,
   onFollowUp,
   answerId,
@@ -655,6 +681,7 @@ function AssistantMessage({
   content: string;
   sources?: Source[];
   followUps?: string[];
+  relatedConcepts?: RelatedConcept[];
   isError?: boolean;
   onFollowUp?: (q: string) => void;
   answerId?: string;
@@ -753,6 +780,9 @@ function AssistantMessage({
               sourceRefs={sourceRefs}
               qaId={answerId}
             />
+          )}
+          {relatedConcepts && relatedConcepts.length > 0 && (
+            <RelatedConceptsList concepts={relatedConcepts} />
           )}
           {followUps && followUps.length > 0 && onFollowUp && (
             <FollowUpChips questions={followUps} onSelect={onFollowUp} />
@@ -1418,6 +1448,7 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
                   content: accumulatedContent,
                   sources: Array.isArray(event.sources) ? (event.sources as Source[]) : [],
                   followUps: Array.isArray(event.followUps) ? (event.followUps as string[]) : [],
+                  relatedConcepts: Array.isArray(event.related_concepts) ? (event.related_concepts as RelatedConcept[]) : [],
                   answerId: typeof event.answerId === 'string' ? event.answerId : undefined,
                   fromCache: event.cached === true,
                 },
@@ -1476,6 +1507,7 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
             content: data.answer ?? '',
             sources: data.sources ?? [],
             followUps: data.followUps ?? [],
+            relatedConcepts: Array.isArray(data.related_concepts) ? (data.related_concepts as RelatedConcept[]) : [],
             answerId: data.answerId ?? undefined,
             fromCache: data.cached === true,
           },
@@ -2182,6 +2214,7 @@ export function QAInterface({ initialConversation, onConversationUpdate, onNewCh
                     content={msg.content}
                     sources={msg.sources}
                     followUps={loading || msg.streaming ? [] : msg.followUps}
+                    relatedConcepts={msg.streaming ? undefined : msg.relatedConcepts}
                     isError={msg.error}
                     onFollowUp={submit}
                     answerId={msg.answerId}
