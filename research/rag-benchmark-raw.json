@@ -1,0 +1,1039 @@
+{
+  "timestamp": "2026-03-23T01:03:37.899Z",
+  "mode": "baseline",
+  "pipeline": "BASELINE (text-embedding-3-small, __default__ namespace)",
+  "indexName": "convergence-mvp",
+  "corpusState": {
+    "wakingUpVectors": 0,
+    "defaultVectors": 28713
+  },
+  "rerankEnabled": false,
+  "summary": {
+    "totalQueries": 20,
+    "queriesWithResults": 20,
+    "avgLatencyMs": 545,
+    "avgTopScore": 0.6665
+  },
+  "results": [
+    {
+      "id": "Q01",
+      "query": "What does Sam Harris say about the default mode network?",
+      "latencyMs": 3902,
+      "totalCandidates": 20,
+      "rerankUsed": false,
+      "chunks": [
+        {
+          "rank": 1,
+          "text": "Yeah, we will discuss the default mode network in a separate chapter here. But it's called the default mode network for a reason. It is the brain's idling state between tasks in all of these neuroimaging experiments, and its activity tends to get suppressed when a person pays attention to anything, whatever the paradigm. It could have nothing to do with the topic of meditation. So, for me, this is an indication of something that I think people can appreciate directly in their own experience that there is a kind of...",
+          "speaker": "Sam Harris",
+          "source": "Science-of-Mindfulness-Part-2",
+          "score": 0.654562831
+        },
+        {
+          "rank": 2,
+          "text": "And this came to be known as the default mode network because the idea is that when the brain isn't doing anything specific, that it just falls back into this mode of activity. And since it expends so much energy doing this kind of default mode, it must be important and it must have a value. And therefore, it's really important for us to understand.",
+          "speaker": "Jonas Kaplan",
+          "source": "The-Default-Mode",
+          "score": 0.653239489
+        },
+        {
+          "rank": 3,
+          "text": "So, today we're going to talk about a network of regions in the brain that many people have heard of because it's been so often referenced in the context of talking about meditation and psychedelics actually. And that's the default mode network. We probably won't get to the relevance to meditation until the end. But let's talk about this because this is an interesting discovery that's about 20, 25 years old or so. Tell us, what is the default mode network and how do we come to know anything about it?",
+          "speaker": "Sam Harris",
+          "source": "The-Default-Mode",
+          "score": 0.620202363
+        },
+        {
+          "rank": 4,
+          "text": "And one of ways that we identify this network is by looking for synchrony among the nodes. So, all of these nodes tend to have a fluctuation, they fluctuate together, and we can identify the default mode network that way. One of the things you see in experienced meditators is that the fluctuations tend to desynchronize with each other. So you're not seeing the same sort of coherence among all the different brain regions that are part of the default mode network. The-Default-Mode (Completed 03/28/23) Transcript by Rev.com Page 5 of 7 This transcript was exported on Jun 19, 2025 - view latest version here.",
+          "speaker": "Jonas Kaplan",
+          "source": "The-Default-Mode",
+          "score": 0.606532
+        },
+        {
+          "rank": 5,
+          "text": "And I, I think there's some, you know, neuroscience now that supports the fact that there'd be similar processes going on there. We talked in a, in an early con- earlier conversation about the Default Mode Network. It's this set of brain regions that tends to be active when people are, are mind wandering, thinking about other times and places leaving the present moment. And what you see when you look at Sleep-and-Dreams-1 (Completed 03/28/23) Transcript by Rev.com Page 11 of 16 This transcript was exported on Jun 19, 2025 - view latest version here. sleep is that during the non REM phases of sleep, the Default Mode Network decreases in activity and becomes less connected with itself. And then during REM is kind of pops back, just like it does during waking life. And there, there's some indication that the Default Mode Network might actually be more active during REM sleep than it is duringSam Harris (34:56): Hmm.",
+          "speaker": "Jonas Kaplan",
+          "source": "Sleep-and-Dreams-1",
+          "score": 0.602429926
+        },
+        {
+          "rank": 6,
+          "text": "Let's start with activation studies first. Probably the most common result from activation studies is a deactivation during meditation of a set of brain regions that's come to be known as the default mode network. And I think you and I are going to talk about this network a little bit more. But just a brief summary, the default mode network is an interconnected set of brain structures involving brain structures in the midline of the brain, and the frontal cortex, and in the parietal cortex, and also in the lateral parietal cortices, in the angular gyrus that are interconnected with each other.",
+          "speaker": "Jonas Kaplan",
+          "source": "Science-of-Mindfulness-Part-2",
+          "score": 0.594346
+        }
+      ]
+    },
+    {
+      "id": "Q02",
+      "query": "What does Adyashanti teach about the end of suffering?",
+      "latencyMs": 585,
+      "totalCandidates": 19,
+      "rerankUsed": false,
+      "chunks": [
+        {
+          "rank": 1,
+          "text": "abstract. It says very specifically what qualities in the mind which creates suffering are uprooted when one is awakened or enlightened. Because often the Buddha would refer to what he teaches as being, teaching suffering in the end of suffering. So that's really the bottom line. And he said that he knew much more about the nature of the world, the universe, perhaps the mysterious things. So his knowledge was vast, but what he taught was just that which led to the end of suffering. And so that becomes, I think a really a pragmatic measure for us to assess our own practice, even all along the way, Day-1-Body-Final-V2 (Completed 03/25/25) Transcript by Rev.com Page 2 of 34 This transcript was exported on Jun 19, 2025 - view latest version here. Speaker 5 (00:06:28): Are we suffering less or more? And it Speaker 2 (00:06:32): Becomes pretty obvious through some degree of awareness and mindfulness and meditative insight that greed, hatred, delusion are causes of suffering and generosity, love, wisdom, the causes of greater happiness. So this is not mystical, and I think it, it's easily verifiable in one's own experience all along the way. So that's why I like that particular frame. There are other more ways of understanding enlightenment that are not so easily verifiable for most people. So that's why this one I think really serves that purpose. Speaker 3 (00:07:12): It might be worth saying a little bit about what suffering is, because I think to a lay ear that sounds like, oh, I'm chained to a rock and crows are pecking up my innards. But there's a pretty specific, well, Speaker 2 (00:07:24): Where is that? Speaker 3 (00:07:24): That's a flavor that is on offer if you find the right person to tie you up. But you talk about the constituents parts being greed, hatred, and delusion. Maybe just unpack that a little bit. Speaker 2 (00:07:37): Well, in a way, those are two different questions, or they're related, but somewhat different. I came across online someplace I should remember where for me, the perfect definition of suffering and suffering is the translation of the poly ward dukkha. And it's not a very good translation because generally we think",
+          "speaker": "Unknown",
+          "source": "Day-1-Body-Final-V2",
+          "score": 0.612375438
+        },
+        {
+          "rank": 2,
+          "text": "Anyway. So I say it's one of the more difficult things to any human being to really come to grips with. It's also one of the—and Buddha, of course, talked about this. He just lumped it all together and said, part of 5-an-undivided-life-adyashanti (Completed 01/20/24) Transcript by Rev.com Page 4 of 8 This transcript was exported on Jun 18, 2025 - view latest version here. being is... To be is to... You will suffer, and suffering is part of being. That was the unfortunate truth that he held up in front of everybody. Which made me wonder for years, even when I was a Buddhist, made me wonder, like, why was anybody attracted to this message? If the first noble truth is you're going to suffer, where do you get all your disciples? \"Sign me up, I'm interested.\"",
+          "speaker": "Adyashanti",
+          "source": "5-an-undivided-life-adyashanti",
+          "score": 0.589055061
+        },
+        {
+          "rank": 3,
+          "text": "So, when we start to look, if something, even around 90 to 95% of our suffering is sort of optional, if it's not actually innate, that maybe 5 or 10% of suffering is innate. If you, like the great—one of the early Zen masters in this country, Suzuki Roshi, he died a very painful death from cancer. Dying a painful death 5-an-undivided-life-adyashanti (Completed 01/20/24) Transcript by Rev.com Page 6 of 8 This transcript was exported on Jun 18, 2025 - view latest version here. with cancer would kind of fall into that tragic element of life. From one perspective, even that's not a tragedy, that's just kind of what happens. But from a human lived experience, well, it's less than bliss, let's put it that way. And it was painful. And at times he suffered because it was so painful. And he told his own students, if when you see me suffering from this, don't be concerned about me, because it's just Buddha suffering. Now, there's a little enlightenment. There's a little enlightenment.",
+          "speaker": "Adyashanti",
+          "source": "5-an-undivided-life-adyashanti",
+          "score": 0.583245277
+        },
+        {
+          "rank": 4,
+          "text": "You have suffering, its cause, what are its cause? Identify its causes and then you'll get rid of suffering, through the practice of the path that leads you to nirvana. I think that's all wrong, frankly. I think that's just Buddhist dogma that has grown up upon what probably started life as a set of four injunction, which are there in the Buddhist first discourse, in the turning of the wheel of dharma discourse. If you look at the conclusion, this is basically how the text ends. It says that, and I'll quote the Buddha here. The conclusion of his first discourse, or what's claimed to be his first discourse, he says, \"It was not until my knowledge and vision were entirely clear about the recognition, the performance and the accomplishment of these four tasks: knowing dukkha, letting go of reactivity, seeing it stopping and cultivating the path. I did not claim to have achieved a peerless awakening in this world.\"",
+          "speaker": "Stephen Batchelor",
+          "source": "Skeptical-Buddhism-Fixed",
+          "score": 0.572698832
+        },
+        {
+          "rank": 5,
+          "text": "While Adya began teaching at the request of his teacher, Arvis Justi, he doesn't teach Zen, per se. He certainly doesn't bill himself as a Buddhist, much less a Zen teacher, and is really just teaching within his own framework. He's also the author of eight books, including The End of Your World, The Most Important Thing and The Way of Liberation, and more information about his work can be found at adyashanti.org.",
+          "speaker": "Sam Harris",
+          "source": "Effort-and-Effortlessness-Fixed",
+          "score": 0.567765176
+        },
+        {
+          "rank": 6,
+          "text": "But once we have that met, from that point on, suffering is optional. Suffering is optional. It's an inside job. It all has to do with how you're interpreting what's happening. Or if you even actually give much value to your interpretation of what's happening. That's the good news, right? The good news is, suffering is optional. That kind of suffering is optional. And most of it is having some deep connection to this, the natural state of our own conscious experience, or our consciousness itself. 2-Natural-Clarity-adyashanti (Completed 01/20/24) Transcript by Rev.com Page 15 of 15",
+          "speaker": "Adyashanti",
+          "source": "2-Natural-Clarity-adyashanti",
+          "score": 0.564401388
+        }
+      ]
+    },
+    {
+      "id": "Q03",
+      "query": "How does Tara Brach describe the practice of RAIN?",
+      "latencyMs": 320,
+      "totalCandidates": 20,
+      "rerankUsed": false,
+      "chunks": [
+        {
+          "rank": 1,
+          "text": "Yeah. I've had more people tell me, \"RAIN saved my life,\" in terms of daily life, helping to bring them back to who they knew they were. My most recent book, Radical Compassion, focuses on the RAIN meditation, and RAIN is an acronym that stands for recognize, allow, investigate and nurture. And the key of RAIN is what I call after the RAIN, which is after there's been those more deliberate practices, there's a recognition of the quality of the presence that comes out. There's kind of a turning towards and being that and the understanding is that when we bring mindfulness to what's here and we hold what's here with compassion, it loosens the selfing, all the identification in a way that allows us to recognize the awareness that's here. RAIN is applied to times when we feel like we're stuck, when there's an emotional tangle.",
+          "speaker": "Tara Brach",
+          "source": "The-Bridge-to-Compassion-Fixed",
+          "score": 0.715196609
+        },
+        {
+          "rank": 2,
+          "text": "I'll share one story and then the practice, that I have been teaching RAIN for years and the acronym was first taught by Michelle O'Donnell and she had the N of RAIN as non-identification and nonidentification's the fruit of it, but it's not a doing. You can't not identify. And what was missing for me was compassion, 'cause when people are really emotionally stuck, there's a lot of pain and we need the softening and the dissolving of compassion. I shifted nurture into it. I did it for a lot of years. People kept giving me the feedback of how much it changed their lives.",
+          "speaker": "Tara Brach",
+          "source": "The-Bridge-to-Compassion-Fixed",
+          "score": 0.656383
+        },
+        {
+          "rank": 3,
+          "text": "I did RAIN then and I sat down and I recognized what was going on inside me and allowed it to be there. Allow, I usually say, \"This belongs. It's just part of the waves of the ocean right now,\" and investigate and I found underneath the anxiety that very old fear of failure place, and investigation in RAIN is very somatic. It's not conceptual. I could just feel the squeeze, and I brought kindness to it and felt a more spacious feeling and just noticed that wakeful openness, hone in on what is, and just tenderness for the whole process.",
+          "speaker": "Tara Brach",
+          "source": "The-Bridge-to-Compassion-Fixed",
+          "score": 0.6504668
+        },
+        {
+          "rank": 4,
+          "text": "Mostly, my website, TaraBrach.com, and I do have a weekly podcast also. And my most recent book, Radical Compassion is where you'll find a lot of guidance in using RAIN.",
+          "speaker": "Tara Brach",
+          "source": "The-Bridge-to-Compassion-Fixed",
+          "score": 0.641361237
+        },
+        {
+          "rank": 5,
+          "text": "Well, the key is pausing. Once we get on a roll, we just tumble into the future where we're just on a reactive roll. And so the first step is knowing okay, there's a... Because most people when they're in reactivity, that's when mindfulness is utterly unavailable, you can't even remember the way back. So there's some value to have kind of a tool, which is easy to remember when our mind is scrambled, that this is okay. It's recognize, allow, investigate, nurture, and then notice the presence. Open to it, be it. So people do it on the spot, it's a light rain and then people also do it on the sidelines when they're working an issue, sometimes building it into their meditation practice. And now there are more and more people, Sam, that are doing this as rain partners, which I really love. Because when Jack and I do teacher trainings, we have all the teachers to have a rain partner for the year or whatever. Because it actually makes it less personal that when I share with you, here's what I'm working on, you share with me, here's this stuck place, it's just more we get it that okay, this is our human conditioning. And it also provides a container so we can be a little more accountable to the practice and a space of kindness that itself softens and brightens things. So being partners is really a lovely way of having relational practice together.",
+          "speaker": "Tara Brach",
+          "source": "The-Bridge-to-Compassion-Fixed",
+          "score": 0.639362633
+        },
+        {
+          "rank": 6,
+          "text": "With mindfulness, we can begin to see the changing nature of these emotions, that they're more like weather patterns moving through us rather than something solid and permanent. So to work with this, it's helpful to use an acronym called \"RAINN.\"",
+          "speaker": "Diana Winston",
+          "source": "Working-with-Emotions",
+          "score": 0.611749649
+        }
+      ]
+    },
+    {
+      "id": "Q04",
+      "query": "What does Joseph Goldstein say about insight meditation?",
+      "latencyMs": 323,
+      "totalCandidates": 19,
+      "rerankUsed": false,
+      "chunks": [
+        {
+          "rank": 1,
+          "text": "... That you kill through meditationJoseph Goldstein (14:55): Correct. Correct.",
+          "speaker": "Sam Harris",
+          "source": "Meditation-and-Mental-Health",
+          "score": 0.555876791
+        },
+        {
+          "rank": 2,
+          "text": "But retrospectively, whenever they're asked, whenever they're tapped on the shoulderJoseph Goldstein (16:00): Meditation-and-Mental-Health (Completed 03/29/23) Transcript by Rev.com Page 10 of 14 This transcript was exported on Jun 19, 2025 - view latest version here. Mm-hmm.",
+          "speaker": "Sam Harris",
+          "source": "Meditation-and-Mental-Health",
+          "score": 0.54852
+        },
+        {
+          "rank": 3,
+          "text": "What I'm tending to do when I speak dualistically and give kind of the standard mindfulness instruction, I tend to punctuate that or undermine it with the occasional counterpoint that is non-dualistic, and the thing I'm hoping to avoid and hoping to help any users of Waking Up avoid is the misunderstanding that there's something intrinsically gradual and of necessity very protracted about the path from zero to real insight. You're given this practice of meditation, and it's very, very easy to get the message that just by definition you're gonna find this hard, and if you find it hard you are very far away from your goal. Right? There's not much you're gonna notice about anything in this first session or the second session or the 100th session that is going to be profound or much less synonymous with the mind of the Buddha, right? And you can hear me go round and round with my friend Joseph Goldstein on this topic.",
+          "speaker": "Sam Harris",
+          "source": "The-Truth-of-Non-duality(1)",
+          "score": 0.543254614
+        },
+        {
+          "rank": 4,
+          "text": "One insight in meditation can be \"I am not my thoughts.\" However, this does not mean that we can't work skillfully with them in this way to have deeper insight into what they may be pointing us to: both a lived wisdom for our life and also a deeper knowing.",
+          "speaker": "Kelly Boys",
+          "source": "4-meeting-thoughts-kelly-boys",
+          "score": 0.54306227
+        },
+        {
+          "rank": 5,
+          "text": "... When you get intoJoseph Goldstein (07:00): Yes.",
+          "speaker": "Sam Harris",
+          "source": "Meditation-and-Mental-Health",
+          "score": 0.520362735
+        },
+        {
+          "rank": 6,
+          "text": "Yeah, and I've spoken about the liability of the ordinary vipassana curriculum a lot. I mean I badgered Joseph Goldstein about this a bunch in some podcast. He's a great friend, he's one of my first meditation teachers and I studied with his teacher U Pandita Sayadaw and was trained in that Burmese style of kinda micro attention to the contents of consciousness, but it is just a machine of dualistic fixation which is the training. And I have no doubt that people can eventually get beyond that by that path, but it does set up a kind of false point of view and seems to ramify it for the longest time, even if you're having spontaneous experiences of the union between the observer and the observed and in moments there's just hearing or just seeing and the self seems to drop away, that dropping away seems haphazard and it seems born of intense concentration. Nondual-Mindfulness-Fixed (Completed 04/13/23) Transcript by Rev.com Page 9 of 27 This transcript was exported on Jun 19, 2025 - view latest version here.",
+          "speaker": "Sam Harris",
+          "source": "Nondual-Mindfulness-Fixed",
+          "score": 0.51796186
+        }
+      ]
+    },
+    {
+      "id": "Q05",
+      "query": "How does Rupert Spira describe the experience of pure awareness?",
+      "latencyMs": 321,
+      "totalCandidates": 20,
+      "rerankUsed": false,
+      "chunks": [
+        {
+          "rank": 1,
+          "text": "So, pure awareness, pure subjectivity.",
+          "speaker": "Stephan Bodian",
+          "source": "A-Conversation-with-Stephan-Bodian-yaknow-edit-Fixed",
+          "score": 0.640191197
+        },
+        {
+          "rank": 2,
+          "text": "... doesn't matter. It's interesting that you and I could choose to see things differently at that level, but let's table all of that and just talk about the raw experience ofRupert Spira (00:28:22): Okay. The-Nature-of-Awareness-Fixed (Completed 04/12/23) Transcript by Rev.com Page 7 of 26 This transcript was exported on Jun 19, 2025 - view latest version here.",
+          "speaker": "Sam Harris",
+          "source": "The-Nature-of-Awareness-Fixed",
+          "score": 0.629369378
+        },
+        {
+          "rank": 3,
+          "text": "There's this pure experience of being. It's like a direct awareness of one's own existence moment to moment. There's consciousness, there's the cognizant quality of that being. And then there's what they're calling Ananda, what they're calling bliss. Now, bliss may sound like too much of a term there, one is not incapacitated by pleasure. But it's also not quite wrong, either. I mean, and it can certainly be, there are experiences to have here. Certainly, if you take psychedelics or if you're on a long meditation retreat, and you've got a tremendous amount of concentration, there are experiences that are quite incapacitating in the degree of immersion in mental pleasure here. It's the drug-like aspect of meditation and insight.",
+          "speaker": "Sam Harris",
+          "source": "Non-duality--Behavioral-Change",
+          "score": 0.610857785
+        },
+        {
+          "rank": 4,
+          "text": "That dark, sort of velvety spaciousness is what the context of what consciousness itself is experienced like. It's not a passing experience. It's actually the intuitive sense of your own awareness, of that great, awake context in which every experience arises and passes away. And as you're just resting with that, just notice the moment of arising of any part of the content of experience: a sound, a feeling, a thought. Just pay attention to the way that each content, each thought, each sensation, each sound just comes into being. Just notice that point where any part of the content just comes quite literally out of nowhere. Notice how spontaneous everything that arises in your awareness is. Everything's happening completely on its own, and just notice. Every moment of experience just appears. And in the same way, each moment of experience also just disappears. You can watch it just trail off right into that velvety silence, right into the context.",
+          "speaker": "Adyashanti",
+          "source": "8-black-velvet-silence-adyashanti",
+          "score": 0.607372344
+        },
+        {
+          "rank": 5,
+          "text": "Gazing with sheer awareness into sheer awareness, as a Buddhist teaching puts it.",
+          "speaker": "Stephan Bodian",
+          "source": "6-mystery-beyond-all-knowing-stephen-bodian",
+          "score": 0.604509532
+        },
+        {
+          "rank": 6,
+          "text": "They can get like, \"Oh, I feel totally connected to everything.\" Okay, so now where are you aware of that from? Are you aware from kinda subtle body or is there kind of a foundation of this spacious pure awareness? And once they get that, they're like, \"Oh my god, that's incredible.\"",
+          "speaker": "Loch Kelly",
+          "source": "Nondual-Mindfulness-Fixed",
+          "score": 0.599846542
+        }
+      ]
+    },
+    {
+      "id": "Q06",
+      "query": "What is non-self?",
+      "latencyMs": 421,
+      "totalCandidates": 20,
+      "rerankUsed": false,
+      "chunks": [
+        {
+          "rank": 1,
+          "text": "(laughs) Okay, so these are really important questions because non-self is such a key understanding. First to say I would be careful about naming a particular experience as being non-self because in a very fundamental way the self is not there in the first place, right? It's just a concept. And so it's not something we have to get rid of.",
+          "speaker": "Joseph Goldstein",
+          "source": "PAUSE-Retreat-QnA-Final",
+          "score": 0.591819525
+        },
+        {
+          "rank": 2,
+          "text": "In what sense is the self not as it seems?",
+          "speaker": "Sam Harris",
+          "source": "Live-at-the-Wiltern-Fixed",
+          "score": 0.542142928
+        },
+        {
+          "rank": 3,
+          "text": "Absolutely. At this point, the Buddhist might say, \"Well, if this is what you call the self, it's clearly not a self at all.\" This is not the way we use the word self. You are using the word self in an entirely different way now. And I would tend to agree, absolutely. So this witness consciousness, this bare awareness, it is quite unlike a self, which is a common sense understanding whether upon inquiry or without inquiry, just a day-to-day understanding of the self, this bare awareness, is vastly different from our conception of a self. Now, the Buddhist would be perfectly within his right to say that I would call this the non-self. And I think there is no problem if you call this the non-self. What the Advaita does is, very phenomenological. You are searching for who or what you are.",
+          "speaker": "Swami Sarvapriyananda",
+          "source": "Swami-Sarvapriyananda-Final-1",
+          "score": 0.539598048
+        },
+        {
+          "rank": 4,
+          "text": "What do you mean by non-duality? This that can or cannot be recognized, which can be seen and then no longer attended to?",
+          "speaker": "Jim Newman",
+          "source": "Wrestling-the-Paradox-Fixed",
+          "score": 0.497554123
+        },
+        {
+          "rank": 5,
+          "text": "Then your identity shifts and it loses its power over you, and the point isn't even to have a freedom from self. This is an interesting one, at least for me because that language is used. I see self and selflessness just like the lungs breathe and the heart pumps and the cerebral spinal fluid does stuff. Everything is in both expansion and contraction. Self and no self also appear and disappear. Self is tentative. It's not solid. You can't find a center to it, but there's a self that we use to orient and remember our zip code and bank account number and so forth.",
+          "speaker": "Jack Kornfield",
+          "source": "Reflections-on-the-Path-Fixed",
+          "score": 0.492760628
+        },
+        {
+          "rank": 6,
+          "text": "And what can happen is that rather than identifying with the contents of one particular part of your generative model, like the phenomenal self-model, you can stop identifying with it. You can either identify with the whole model itself, the whole space of the model, the whole perceptual space, the nondual awareness. And that's sometimes called true self or capital S self. Or you could come at this from a different perspective, you say an early Buddhist perspective and say no-self. There is just the buzzing, burbling phenomena arising and passing within awareness. And that's kind of no-self view.",
+          "speaker": "Shamil Chandaria",
+          "source": "Making_Sense_320_Shamil_Chandaria-app",
+          "score": 0.492618948
+        }
+      ]
+    },
+    {
+      "id": "Q07",
+      "query": "What is the relationship between love and emptiness in meditation?",
+      "latencyMs": 300,
+      "totalCandidates": 20,
+      "rerankUsed": false,
+      "chunks": [
+        {
+          "rank": 1,
+          "text": "... What is meant by emptiness in Buddhism.",
+          "speaker": "Sam Harris",
+          "source": "Meditation-and-Mental-Health",
+          "score": 0.616425037
+        },
+        {
+          "rank": 2,
+          "text": "So emptiness meaning to go beyond concept, to really connect with our fundamental quality. Then we practice the emptiness meditation. So your mind connected with the presence, the clarity, the subluminosity, which is already beyond concept, to just be in that state. But no need to look back out there. It's just there with you. You need to recognize and be with that. And when you be in that, whatever the phenomena, perception, part, emotion, let them come, let them go. So then you will really feel the deeper level of the freedom, sense of what we call liberation, meaning we are not caught up by the unhealthy sense of self.",
+          "speaker": "Mingyur Rinpoche",
+          "source": "Live-at-the-Wiltern-Fixed",
+          "score": 0.606008828
+        },
+        {
+          "rank": 3,
+          "text": "Into what, in Buddhist terms, is called sunyata. Emptiness. Emptiness is not nothing. Emptiness is, on one level, everything. Am I making sense amongst all this? Sometimes when people get Lojong teachings, where it says you have to put yourself lowest and put everyone up, it plugs into their own low selfesteem, and then they end up feeling totally depressed. Every time they want to have a chocolate, they feel bad about it, because that's a self-cherishing mind. And it just increases their lack of confidence and their lack of love for themselves. Whereas the Buddha said that when you have loving-kindness and compassion, you start with yourself. If we don't have love inside ourselves, we're not friends with ourselves, how are we going to be friends with the rest of the world?",
+          "speaker": "Jetsunma Tenzin Palmo",
+          "source": "2-from-healthy-self-to-no-self-jetsunma-tenzin-palmo",
+          "score": 0.597719312
+        },
+        {
+          "rank": 4,
+          "text": "Speaker 1 (00:00): Zazen Master ine. Kagyu once said, spiritual communion is the true meaning of emptiness. Spiritual communion is the true meaning of emptiness, but how could that be? The idea of spiritual communion sounds comforting. The essence of true love while the idea of emptiness doesn't sound comforting at all. Recently, someone told me of a woman who quit her Buddhist meditation practice because it was too non-dual, meaning it kept draining away her sense of self leaving an empty void, where before there was the richness of being the particular person. She was, I want to be a me. She protested. Speaker 1 (01:02): We can sympathize, can't we? This sense of meanness is our most familiar refuge, our home base. From it, we judge whether the world we meet is friendly or not. My me is what plans to make things better. It has ambitions and picks and chooses what it likes and doesn't like. As a refuge. My me is private, a private space I can open up or close down according to how safe I feel. When I feel very safe, I can say to another person's private space, I love you. This feels like communion, a connection, however fragile between my me space and yours, I love you also implies future safety and pleasure. You will be safe and happy with me in the future because I love you. Speaker 1 (02:17): But as we've all probably found out, most of the I love you, messages we've given or received in our lives have had a limited shelf life. The person we were so in love with at age 22 may no longer be someone we love. So what's the deal here? Is love the spiritual communion. We experience an impermanent transaction between two mes or do we perhaps have this confused? If you look carefully into the nature of your me, how it actually is, you see that it has no solidity. You can check this out right now. Look directly into your sense of self, how it is to be your me. You can't help but come up empty handed. That's because me is an idea, not a thing. Your me is empty of everything, including",
+          "speaker": "Unknown",
+          "source": "6-spiritual-communion-elias-amidon",
+          "score": 0.588293672
+        },
+        {
+          "rank": 5,
+          "text": "That-that's why I-I guess emptiness, the concept of emptiness, gets at it a little more. Meditation-and-Mental-Health (Completed 03/29/23) Transcript by Rev.com Page 5 of 14 This transcript was exported on Jun 19, 2025 - view latest version here.",
+          "speaker": "Sam Harris",
+          "source": "Meditation-and-Mental-Health",
+          "score": 0.582090735
+        },
+        {
+          "rank": 6,
+          "text": "She was just bestowing her mehta, her love, along with that sense of being completely empty. So, that's what was really inspiring to me, love as a manifestation of emptiness.",
+          "speaker": "Joseph Goldstein",
+          "source": "A-Conversation-with-Joseph-Goldstein-Fixed",
+          "score": 0.58002305
+        }
+      ]
+    },
+    {
+      "id": "Q08",
+      "query": "How do you rest in awareness without effort?",
+      "latencyMs": 336,
+      "totalCandidates": 20,
+      "rerankUsed": false,
+      "chunks": [
+        {
+          "rank": 1,
+          "text": "Let yourself rest as this silent, open, unconditional awareness or presence for as long as you like. No effort, no manipulation, no cultivation, no doing, and no need to constantly check to make sure you're doing it right. Just rest as awareness, let go of all doing, and let everything be as it is, inside and outside.",
+          "speaker": "Stephan Bodian",
+          "source": "05-Rest-and-Allow-Master",
+          "score": 0.77428931
+        },
+        {
+          "rank": 2,
+          "text": "So as you rest as awareness, you're not trying to be more aware or less aware. You're not utilizing awareness. You're not directing awareness. All of that's let go of. You're just resting as the field of awareness.",
+          "speaker": "Adyashanti",
+          "source": "1-The-Three-Commitments-V5-Final",
+          "score": 0.757203221
+        },
+        {
+          "rank": 3,
+          "text": "It's a natural functioning of the mind. So if that's present for you, simply notice it with kindness, kind of an inner generosity toward whatever is in your experience. And then come back to resting as awareness itself. Perhaps you notice a clear mind and a rested body. If so, can you bring that quality of patience to the practice, where you notice if there's a jumping to the next thing, and you allow attention to return back to this deep rest practice. Pema Chödrön wrote a book called \"The Wisdom of No Escape,\" and I felt the title said it all. There's actually nowhere to go that's outside of what we encounter as awareness. We can even practice as we shift into states of sleep, noticing if there's an awareness that's aware of the body and mind, shifting in and out of states of sleep. When you begin to attune to the simplicity of resting as awareness, notice the impact on thoughts, on how you're viewing or holding memories.",
+          "speaker": "Kelly Boys",
+          "source": "9-Resting-as-Awareness-Final-V1",
+          "score": 0.735416174
+        },
+        {
+          "rank": 4,
+          "text": "And in this stillness, there's a completely natural state of awareness. You notice that no effort need be made to become aware. By simply being still, by relaxing into stillness, the field of awareness is naturally present.",
+          "speaker": "Adyashanti",
+          "source": "1-The-Three-Commitments-V5-Final",
+          "score": 0.710092247
+        },
+        {
+          "rank": 5,
+          "text": "Let's do a deep rest practice called \"Resting as Awareness.\" However you'd like to get comfortable, feel free to settle in. You may be lying down or reclining. Or if it feels better to you, could be sitting up. There will be a lot of space in this meditation practice where we are simply resting as awareness. I'd invite you to explore what that means for you, rather than me describing it. But to really inquire, what would it be, in this very moment, to simply rest as awareness? When we deeply welcome all that's present without refusing it or resisting it or getting overly involved, and rest back into this quality of awareness itself, so that we're, in a sense, being awareness. Some deep rest can come into our bodies, our minds. So let's try this out.",
+          "speaker": "Kelly Boys",
+          "source": "9-Resting-as-Awareness-Final-V1",
+          "score": 0.707241058
+        },
+        {
+          "rank": 6,
+          "text": "You may have the sense of awareness coming and going, of somehow losing awareness when you get caught up, lost in thought, and then recovering it in some way when you come back. In this way, we miss the constancy of awareness. But like right now, you're aware. Could you turn it off, even if you wanted to? Give it a try. Just for a moment now, for the next few seconds, try not to be aware. Stop. Stop being aware. Don't be aware of anything, right? You can't. You can't extinguish awareness. So just let yourself rest into this \"always here\" quality, this \"naturally awake\" quality. Sitting in awareness. Breathing in awareness. The more we see the naturalness, the immediacy, the availability of awareness, the more we relax. We're no longer trying to be aware, but rather recognizing that \"Oh, I'm already aware.\" Very important in meditation practice that we give up trying to be the agent or the owner of awareness; that we learn to relax into a feel of natural awareness, always available—an awareness which is right here, hearing these words, sensing this moment, animating our experience.",
+          "speaker": "Martin Aylward",
+          "source": "Foundation-Meditation---martin-aylward",
+          "score": 0.704278231
+        }
+      ]
+    },
+    {
+      "id": "Q09",
+      "query": "Can you be aware of awareness itself?",
+      "latencyMs": 309,
+      "totalCandidates": 20,
+      "rerankUsed": false,
+      "chunks": [
+        {
+          "rank": 1,
+          "text": "So where, oh where, is awareness? Let's look at how awake awareness is normally hidden in the background, identified with thought or caught in the middle of our way of perceiving. In Western psychology, and even in our common speech, we often use the words \"awareness,\" \"conscious,\" and \"attention\" to mean the same thing. For example: \"I am aware of what I am reading; I am conscious of what I am reading.\" \"Bring your attention to what you're hearing; bring your awareness to what you're hearing.\" In this way, we regard awareness as a limited type of consciousness that is between me, as the subject, and an object, as in: \"I am aware of that cup.\" In this case, awareness is considered the medium, the link, between you, the one who is looking, and the cup, which is the object being seen.",
+          "speaker": "Loch Kelly",
+          "source": "3-Turn-the-Light-of-Awake-Awareness-Around-Final",
+          "score": 0.712338686
+        },
+        {
+          "rank": 2,
+          "text": "Yes. I would say awareness is simply awareness. It's aware. And we can even direct that awareness, in particular ways, for example, right left. Or we can also look at subtle aspects of experience like closed or contracted or open. And bring that curiosity in and bring that curious awareness right in to whatever our experience is. In any moment, we can be checking with ourselves to see oh, am I contracting or am I expanding? And what are the conditions that are leading to contraction, so that we can show our brains this, right?",
+          "speaker": "Judson Brewer",
+          "source": "Mindfulness-and-Addiction-Fixed",
+          "score": 0.705926895
+        },
+        {
+          "rank": 3,
+          "text": "Awareness is simply the consciousness of whatever's happening.",
+          "speaker": "Adyashanti",
+          "source": "The-Context-of-Content-Final",
+          "score": 0.705247879
+        },
+        {
+          "rank": 4,
+          "text": "Before you try to be, say, more aware, or get ready to be aware, is awareness not already completely and fully present?",
+          "speaker": "Adyashanti",
+          "source": "Non-Distraction-Final",
+          "score": 0.704083
+        },
+        {
+          "rank": 5,
+          "text": "The confusion that people sometimes have is they try to see awareness as if they're looking at their hand or something that they can see outside of themselves. But you can't see awareness; you can't make it into an object of perception. Awareness is the perceiving of this moment. You can't see your seen any more than you can hear your hearing. And yet, there is a kind of simple, intuitive recognition that awareness is present, even though you can't see it, even though it can never be turned into an object of observation. There is this simple, intuitive sense of awareness that it is present and it is functioning. And notice how even an effort to be more aware or to understand is itself just another object within awareness. And you may be able to intuitively sense that somehow you stand prior to all this that's arising. So you need do absolutely nothing to be aware. Awareness itself is the prior fact or the prior condition of every moment of experience. 5-a-simple-presence-adyashanti (Completed 04/03/25) Transcript by Rev.com Page 1 of 2 This transcript was exported on Jun 17, 2025 - view latest version here.",
+          "speaker": "Adyashanti",
+          "source": "5-a-simple-presence-adyashanti",
+          "score": 0.699843466
+        },
+        {
+          "rank": 6,
+          "text": "Sometimes we can talk about this practice as \"awareness of awareness.\" People tend to notice awareness of awareness in one of three ways: They experience it as that which contains everything, that which knows, or that which is. We will play with all of these in the course of the next few meditations.",
+          "speaker": "Diana Winston",
+          "source": "Natural-Awareness-The-Spectrum-of-Awareness",
+          "score": 0.697206
+        }
+      ]
+    },
+    {
+      "id": "Q10",
+      "query": "What is the difference between mindfulness and concentration?",
+      "latencyMs": 770,
+      "totalCandidates": 20,
+      "rerankUsed": false,
+      "chunks": [
+        {
+          "rank": 1,
+          "text": "So, it's this repeated placing of attention that is the initial training. And that is, in fact, training in what is called \"concentration\" within the Buddhist teachings—\"samadhi\" or \"shamatha\" in Pali and Sanskrit. Concentration and mindfulness are not the same, but you need a certain degree of concentration to successfully practice mindfulness. And you can take this concentration practice much further. You can place attention on a single object, whether the breath or the mental state of loving-kindness in metta practice, or any object in your visual field. It literally can be anything.",
+          "speaker": "Sam Harris",
+          "source": "What-Is-Mindfulness-Fundamentals",
+          "score": 0.678775847
+        },
+        {
+          "rank": 2,
+          "text": "You can place attention on a single object so successfully that the character of your conscious experience begins to radically change. Thoughts no longer arise, and very positive emotions of rapture and bliss What-Is-Mindfulness-Fundamentals (Completed 04/12/23) Transcript by Rev.com Page 1 of 4 This transcript was exported on Jun 17, 2025 - view latest version here. begin to flood the mind. It becomes incredibly pleasurable to have a concentrated mind. And there's a whole stream of practice in various contemplative traditions around becoming a kind of athlete of concentration. And of course, concentration is a wonderfully useful property of the mind to have in any other area of life. To be able to concentrate on one's work, or when playing a sport, is a very good thing to be able to do. And you need some significant concentration to be able to practice mindfulness successfully. But fairly early on in the practice, one no longer attempts to focus on one object to the exclusion of anything else. One simply wants a kind of momentary concentration, which enables you to notice whatever in fact you do notice.",
+          "speaker": "Sam Harris",
+          "source": "What-Is-Mindfulness-Fundamentals",
+          "score": 0.665586352
+        },
+        {
+          "rank": 3,
+          "text": "I'd like to take a few minutes to clarify the concept of mindfulness, because I and many other people use this term in a variety of ways. We can use it to describe a state of mind, or a property of the mind, or a kind of action, a behavior. And needless to say, a type of meditation practice. And it's easily conflated with other terms, like \"meditation,\" or \"concentration,\" \"attention,\" \"awareness,\" \"consciousness,\" \"focus,\" \"cognition,\" \"perception.\" And it's also entangled with many other attributes, like tranquility, and insight, and wisdom, and awakening, being in the present moment. So there's kind of a word cloud of associations here.",
+          "speaker": "Sam Harris",
+          "source": "What-Is-Mindfulness-Fundamentals",
+          "score": 0.66338861
+        },
+        {
+          "rank": 4,
+          "text": "So, those are actually very different cognitive processes that are subsumed under this term meditation. I think what we're going to try to do today is to focus a little bit on the specific concept of mindfulness, and most of the studies on meditation in the brain are about mindfulness involving some kind of focus attention, or open awareness, or combination of the two. Sam, how do you define mindfulness?",
+          "speaker": "Jonas Kaplan",
+          "source": "Science-of-Mindfulness-Part-2",
+          "score": 0.630959
+        },
+        {
+          "rank": 5,
+          "text": "ourselves to that level of mindfulness and attentiveness with everything. And so instead of an in breath being one thing in, when we really connected to the feeling of it, there are so many subtle sensations and vibrations involved in a single in breath. So this is all by way of saying that through the strengthening of mindfulness and concentration, our perception of the law of change or the truth of change gets very, very refined. And one implication of that, in addition to seeing the impermanence of it, and it's ultimately unsatisfying nature of any particular moment because it's Day-4-Body-Final (Completed 03/25/25) Transcript by Rev.com Page 11 of 14 This transcript was exported on Jun 19, 2025 - view latest version here. changing and it's in personality, it really decondition clinging because things don't last enough to clinging to. Speaker 2 (45:20): And so when our mind has come to that place, that level of refinement of perception, that becomes the vector for liberation, for freeing the mind from grasping at different things, different experiences that arise because we're seeing how quickly they're changing. So all of this, the practice itself is very simple, practicing mindfulness, practicing steadiness, un distractedness of mind, but then what's revealed through the development of those qualities is enormous and has enormous applications with respect to our suffering or our freedom. And so this is why this whole eightfold path is such a cornerstone of what the Buddha taught. He described it as the path to liberation, the path to peace, the path to happiness. Speaker 3 (46:12): So you just described concentration as in two forms as it relates to meditation, the one pointedness that can take you through the janah and the momentary concentration that is necessary for Vipassana. But there's also this more general differentiation in the teachings between mere concentration practice and what is called insight practice. Vipassana is the poly word for insight or clear scene, which leads to wisdom and liberation, which concentration. So I dunno if you want to say something about concentration as a kind of deviation point or limited project meditation, because some people think of meditation as essentially just some sort of concentration like attainment where thoughts are no",
+          "speaker": "Unknown",
+          "source": "Day-4-Body-Final",
+          "score": 0.627804756
+        },
+        {
+          "rank": 6,
+          "text": "Now it is true that for the longest time for many people, there does seem to be this dichotomy between paying attention clearly, noticing what you're noticing clearly with mindfulness and thinking. So thought does seem to be the enemy for quite some time because it is the thing that is pulling you away or seems to be pulling you away from the practice. And it clearly is, in a true concentration practice, it is the enemy because every moment where you're even noticing thought you're being pulled away from the object of concentration, but for mindfulness practice, in general, thoughts can ultimately, as you say, become fit objects of mindfulness, and it's quite clear that the goal is not to stop thinking or to block thinking. In mindfulness practice you want to recognize there's this wider space of awareness in which thoughts arise.",
+          "speaker": "Sam Harris",
+          "source": "A-Good-Life-Fixed",
+          "score": 0.617558658
+        }
+      ]
+    },
+    {
+      "id": "Q11",
+      "query": "How do I work with fear and difficult emotions in meditation?",
+      "latencyMs": 320,
+      "totalCandidates": 20,
+      "rerankUsed": false,
+      "chunks": [
+        {
+          "rank": 1,
+          "text": "Settle into a posture that's comfortable, taking a breath or two to settle, and notice if there's a particular emotion present for you right now, a challenging emotion, and there may or may not be. If there isn't, let yourself bring to mind an emotion that happened recently that you'd like to work with for this meditation, and don't pick the hardest thing that's happened to you. Just pick something mild or moderate.",
+          "speaker": "Diana Winston",
+          "source": "Working-with-Emotions",
+          "score": 0.630516052
+        },
+        {
+          "rank": 2,
+          "text": "That's a tough question to (laughs) answer, but one of the ones that comes to mind when you ask that question. So I talked about fear, so the next step beyond this is what I've just been talking about of getting comfortable with uncertainty is using all of our most negative emotions. This is still meditation, but it's just not our usual version of meditation. So you can use anger, you can use intense fear. So go ahead and do the scariest thing you can imagine. Imagine yourself putting yourself at the edge of that and just staying there and then using the fear as a pathway basically to wisdom, as a meditation. Or, let's say you're incredibly angry and just let that flame up. (laughs) You can use that as well and just let yourself be in the anger and explore it, which is exactly the opposite of what most people wanna do. The-Wisdom-of-Uncertainty-Fixed (Completed 04/13/23) Transcript by Rev.com Page 18 of 24 This transcript was exported on Jun 19, 2025 - view latest version here.",
+          "speaker": "Leo Babauta",
+          "source": "The-Wisdom-of-Uncertainty-Fixed",
+          "score": 0.618027568
+        },
+        {
+          "rank": 3,
+          "text": "Intense emotions are among the most challenging experiences we can have on the journey of awakening because they tend to hijack and fixate our attention and seduce it away from our natural state of openness and ease. So in this meditation, you'll have an opportunity to investigate the nature of your emotions.",
+          "speaker": "Stephan Bodian",
+          "source": "09-Welcoming-Emotions--Master",
+          "score": 0.593762755
+        },
+        {
+          "rank": 4,
+          "text": "And now remind yourself of the difficult emotion that you're working with and give it a label. You could say fear, sadness, frustration, jealousy. You don't have to be absolutely precise, but something in the ballpark is fine. And now let's bring our attention back to our hands or feet, or to the image, or memory, letting yourself rest there, taking a breath.",
+          "speaker": "Diana Winston",
+          "source": "Working-with-Emotions",
+          "score": 0.588308275
+        },
+        {
+          "rank": 5,
+          "text": "When you start this exercise, you'll be invited to bring your awareness within your body and find any emotion that is here now. You can do this exercise with any emotion, pleasant or unpleasant, but for the first time, it's best to choose an unpleasant emotion, like sadness, fear, or anger. If you don't currently have an unpleasant emotion, you can come back later and do this, or you can just recall one from your recent experience. You can choose your usual one or your flavor of the week that comes up often. This way you'll have some practice in embodying emotion from awakened consciousness.",
+          "speaker": "Loch Kelly",
+          "source": "Awakening-Emotions",
+          "score": 0.572255373
+        },
+        {
+          "rank": 6,
+          "text": "Strong negative emotions can be extremely compelling, and they can seduce the most experienced meditators into believing the stories they tell. At the same time, they can be difficult to connect with in an exercise like this, so feel free to pause the recording if you need more time.",
+          "speaker": "Stephan Bodian",
+          "source": "09-Welcoming-Emotions--Master",
+          "score": 0.566091061
+        }
+      ]
+    },
+    {
+      "id": "Q12",
+      "query": "What is the pointing out instruction in Dzogchen or rigpa?",
+      "latencyMs": 321,
+      "totalCandidates": 19,
+      "rerankUsed": false,
+      "chunks": [
+        {
+          "rank": 1,
+          "text": "In the Dzogchen tradition it's called pointing out instructions. In Zen it's called live words that point directly to our true nature. And so, those words have a tremendous power and value, and then, to contemplate them, to sit with those, is one of the ways this path works.",
+          "speaker": "Stephan Bodian",
+          "source": "A-Conversation-with-Stephan-Bodian-yaknow-edit-Fixed",
+          "score": 0.735446095
+        },
+        {
+          "rank": 2,
+          "text": "As you might recall from my discussion in those lessons, the highest non-dual teachings in the Tibetan tradition are the Dzogchen teachings, which begin with a teacher giving what is called the pointing out instructions. Now traditionally, a Dzogchen master won't give these teachings to anyone who hasn't done a long course of preliminary practice. And this often entails hundreds of thousands of repetitions of mantras, and prostrations, and visualizations. There's a whole sequence in the traditional Vajrayana or Tibetan Buddhist context. And there's certainly reasons for that. There is a potential downside to giving the highest, most refined, least conceptual teachings up front. So some of these concerns seem justified to me, but some don't. And I walk the line as I see fit in this course.",
+          "speaker": "Sam Harris",
+          "source": "Live-at-the-Wiltern-Fixed",
+          "score": 0.63582015
+        },
+        {
+          "rank": 3,
+          "text": "Okay, so again, in my understanding of Dzogchen practice, there's kind of... One could say part of the methodology as I understand it is, in one way or another, having what are called pointing out instructions, which really means some way or another of understanding or experiencing the nature of mind, and in Dzogchen, as you well know, it's described as the union of clarity and emptiness, or awareness and emptiness. So again, in my understanding of Dzogchen, it's somehow getting a hit, or a genuine experience of that, and then trying to stabilize that experience.",
+          "speaker": "Joseph Goldstein",
+          "source": "A-Conversation-with-Joseph-Goldstein-Fixed",
+          "score": 0.635293067
+        },
+        {
+          "rank": 4,
+          "text": "Ultimately, there's more to the Dzogchen teachings than just pointing out the non-duality of awareness. There's supporting practices that are actually unique to the tradition, but the essence of the teaching, that the self is an illusion and that this can be recognized directly... And that thereafter, the practice of meditation is just a matter of becoming more and more familiar with this intrinsic non-duality of consciousness... That is an empirical truth held in common with other contemplative traditions, both within Buddhism and without. And that is something that I'm trying to describe, and discuss, and direct people to as clearly as possible throughout this course. So in this live event where Rinpoche was meeting me for the first time and speaking to the general public, he communicated the general attitude of Dzogchen.",
+          "speaker": "Sam Harris",
+          "source": "Live-at-the-Wiltern-Fixed",
+          "score": 0.627855957
+        },
+        {
+          "rank": 5,
+          "text": "Mm-hmm. This gets to what really are the, I mean, unique strengths and liabilities of this way of pointing because, you know, I've been convinced for a long time that what Douglas was getting at here really is the fundamental insight into selflessness that is provoked in Dzogchen pointing out instruction or is sought by really every method of meditation, certainly in the East. And it's what the Invita teachers are talking about. People like Raman Armaji.",
+          "speaker": "Sam Harris",
+          "source": "The-Illusory-Self-Fixed",
+          "score": 0.625524282
+        },
+        {
+          "rank": 6,
+          "text": "Yeah. Tsoknyi's one of the sons of Tulku Urgyen Rinpoche who was my primary Dzogchen teacher, and I've sat with Tsoknyi as well and he definitely teaches in the style of his father. And many people ask who they might study with who's still living, a lot of great Dzogchen masters died over the last few decades. But Tsoknyi is definitely someone I would recommend and as I would recommend his younger brother Mingyur Rinpoche. But so yeah. So just to fit in Dzogchen where I see it, where it fits on the map here, that we've been sketching. I do view the pointing out instruction in Dzogchen essentially as a direct pointing to the truth of anatta, right? The truth of selflessness. I mean they don't tend to describe it this way, but I mean that is what it is in my experience.",
+          "speaker": "Sam Harris",
+          "source": "Nikki-Mirghafori-EDIT-extra-mastering-and-leveling-Fixed",
+          "score": 0.614608288
+        }
+      ]
+    },
+    {
+      "id": "Q13",
+      "query": "How do I integrate meditation insights into daily life?",
+      "latencyMs": 323,
+      "totalCandidates": 20,
+      "rerankUsed": false,
+      "chunks": [
+        {
+          "rank": 1,
+          "text": "I'd been using my meditation to try to escape my experience and to inhabit some kind of fantasy, idealized experience. So as I gradually moved into the acceptance phase, I realized that I needed to use my meditation practice to come closer to my experience, as it were, to really rest inside my body, to befriend my body, and to come to terms with it much, much more deeply. So rather than trying to escape to some other experience, I needed to learn how to inhabit this experience with a profoundly different attitude. And I also needed to learn how to take my mindfulness practice, my awareness practice, my compassion practice out of meditation into my daily life. That was also very, very important. And that's why in this course, I've brought daily-life practice very much into each of the modules. How can you take the learning into all the moments of your day?",
+          "speaker": "Vidyamala Burch",
+          "source": "1-introduction-to-the-series-vidyamala_V2",
+          "score": 0.666025698
+        },
+        {
+          "rank": 2,
+          "text": "What do you think is necessary beyond meditation practice for a person to integrate wisdom and compassion into their life?",
+          "speaker": "Sam Harris",
+          "source": "The-Bridge-to-Compassion-Fixed",
+          "score": 0.636664569
+        },
+        {
+          "rank": 3,
+          "text": "You can also deliberately celebrate the successes you have and you can look forward to those celebrations, but then I do think you can start to reflect on some of the differences you're making and I have personally found meditation practice very good for this where you can take yourself out of the busyness of everyday moment and, over time, contemplate the impact you might be having, the change you might be having on the world and, over time, that can settle into your gut feelings and you start to appreciate it on a deeper level.",
+          "speaker": "William MacAskill",
+          "source": "How-to-Be-a-Moral-Hero",
+          "score": 0.620201468
+        },
+        {
+          "rank": 4,
+          "text": "Do you have any thoughts about how people can make meditation itself a habit? And so sort of leverage some of our addictive propensities to acquiring a very useful and effortless commitment to just doing it every day?",
+          "speaker": "Sam Harris",
+          "source": "Mindfulness-and-Addiction-Fixed",
+          "score": 0.595803559
+        },
+        {
+          "rank": 5,
+          "text": "What advice do you have for people who are facing the challenge of integrating this way of being in their daily lives? Right? So I, I guess, in this case, let's, let's assume for the moment. I, I think we maybe need to come back to, um, the recognition of non-duality in a moment, but, but l-let's assume someone has recognized this and are practicing from that place, so they've had some kind of awakening, which is now the basis for their practice, but they're confronting the, the realization at the end of more or less every day that they spent most of the day lost. You know, despite their, their ability to practice. And that's either, you know, sobering, or, or dis-spiriting, or a basis for regret or concern. How do you think about, in your own daily life, making your life your practice?",
+          "speaker": "Sam Harris",
+          "source": "Integrating-Mindfulness",
+          "score": 0.595417559
+        },
+        {
+          "rank": 6,
+          "text": "And when you lose sight of this project—because old habits have totally taken over your life—you must decide to engage it all over again. Living in the general vicinity of the present moment isn't good enough, and sort of maintaining your deepest values isn't good enough either. How could it be? There really is no reason to hedge your bet here. The future doesn't have to be uncertain. I mean, ask yourself, Do you think you're gonna brush your teeth every day for the rest of your life? Barring some crazy emergency, you will, right? Can you make the same decision about meditation practice? Of course, the goal with meditation isn't to become a meditator or have a meditation practice; it's to recognize the way the mind always already is and to have the whole of one's life permeated by this recognition. But if you aren't tending to do this when you're working or watching television or talking to your friends, then you need to train deliberately until recognizing the nature of mind becomes effortless.",
+          "speaker": "Sam Harris",
+          "source": "The-Power-of-Regret",
+          "score": 0.592889309
+        }
+      ]
+    },
+    {
+      "id": "Q14",
+      "query": "What happens at the moment of awakening?",
+      "latencyMs": 319,
+      "totalCandidates": 20,
+      "rerankUsed": false,
+      "chunks": [
+        {
+          "rank": 1,
+          "text": "So, what do you consider your moment of awakening? What was the moment that you didn't get as a Zen practitioner? And what was the context in which it occurred?",
+          "speaker": "Sam Harris",
+          "source": "A-Conversation-with-Stephan-Bodian-yaknow-edit-Fixed",
+          "score": 0.695228577
+        },
+        {
+          "rank": 2,
+          "text": "The awakening is typically, when it first comes, it's a glimpse of that as a real possibility, and ongoing training is generally toward making it more palpable, more real, more stable. And that's what these koans are for. We can look at it that way. They're like little records of, I guess, sort of mellow people. I mean, mellow, but very alive, very energized people, who'd found this real happiness that wasn't conditional, and they're sort of trying to release these little snippets that express that unconditional well-being. Somehow, if we get in the right sort of groove in our meditation, we can receive them, and they can open us up in ways we didn't expect to this nonconditioned well-being, noncircumstantial, noncaused.",
+          "speaker": "Henry Shukman",
+          "source": "No-Beard",
+          "score": 0.666298449
+        },
+        {
+          "rank": 3,
+          "text": "Awakening is simply being present, allowing things to reveal themselves and to dissolve naturally in their own time, in the light of awareness. And this is always more of a not doing than it is about doing something. Words such as \"opening,\" \"surrendering,\" \"allowing,\" \"melting,\" \"letting go,\" \"relaxing,\" \"releasing,\" or \"dissolving\" all point to an effortless present-moment shift, from thinking to simply being present, from identifying ourselves as the separate, encapsulated, deficient little me and struggling to make something happen, to relaxing and falling open into simply being here as this spacious unbound awaring presence and the flow of experiencing just as it is.",
+          "speaker": "Joan Tollifson",
+          "source": "6-attention-and-awareness-joan-tollifson",
+          "score": 0.660143912
+        },
+        {
+          "rank": 4,
+          "text": "Now, that's getting closer to awakening, but personally I was still sort of... I mean, maybe I'm a stickler, but I'd still kind of draw a line between flow states and awakening. But much as I think flow states are marvelous thing in... By the way, all these sort of benefits from practice and all these attenuations and lightenings of the senses are all greatly positive. But it seems to me the thing about awakening is that it's a clear moment of seeing that this point of return called me, this thing that I've always taken to be there and assume and know is there and it's who I am and it's just lodged in the heart of me somewhere, that has actually never been there that way.",
+          "speaker": "Henry Shukman",
+          "source": "Acceptance-and-Resilience",
+          "score": 0.656083167
+        },
+        {
+          "rank": 5,
+          "text": "But on your point about the differences in apparent depth of awakenings, there's certainly a difference in what follows in the case of any one person's psycho biography from this first moment of awakening. In my case, it was my being given a capacity to no longer overlook this thing, whenever I can remember, to recognize it. It became the basis for my mindfulness for lo, these 30 years. But in other cases, if someone gets hit in the face with a sandal or some other provocation and they become Milarepa or Marpa or the next Buddha or somebody, for whom there was no possibility, apparently, of overlooking this thing ever again.",
+          "speaker": "Sam Harris",
+          "source": "Acceptance-and-Resilience",
+          "score": 0.646927595
+        },
+        {
+          "rank": 6,
+          "text": "The first stage of spiritual awakening is to recognize that you're not any of the content that arises in your awareness. You're not your thoughts or your feelings. You're not the stories you tell yourself about who you are. This insight is often the result of practicing some form of awareness meditation. The next stage is to awaken to what you actually are: pure awareness, pure subjectivity. The context in which all the contents of awareness arise. This often sudden and surprising recognition is the initial kensho mentioned in the Zen koans. But as amazing and transformative as this realization may be, it's still inherently dualistic. Pure awareness here, and all those objects over there. The final stage of awakening, and the fruition of the spiritual journey, is the recognition that awareness and the objects of awareness—self and other, context and content, that which is looking and that which is looked at—are nondual, not separate, not two.",
+          "speaker": "Stephan Bodian",
+          "source": "4-waking-to-the-nondual-stephan-bodian",
+          "score": 0.644037306
+        }
+      ]
+    },
+    {
+      "id": "Q15",
+      "query": "How can I stop identifying with my thoughts?",
+      "latencyMs": 322,
+      "totalCandidates": 20,
+      "rerankUsed": false,
+      "chunks": [
+        {
+          "rank": 1,
+          "text": "Remember that this isn't intended to be a form of avoidance. In fact, it's the opposite: a way of accepting troubling thoughts by looking at them from a different angle. You can gain cognitive distance if you keep a record of your automatic thoughts, visualize them written over there on the wall, imagine stepping to one side to observe yourself thinking, repeat your thoughts more rapidly or more slowly for a while, or talk to them and tell them that they're merely some thoughts and not the whole story. Employing any one of these techniques can help you to foster a greater sense of detachment from your own thoughts. In fact, even just reminding yourself of Epictetus's saying that it's not events that upset us, but rather our opinions, may often be enough to notice the lenses through which you're experiencing the world. 6-cognitive-distancing-donald-robertson (Completed 01/09/25) Transcript by Rev.com Page 3 of 3",
+          "speaker": "Donald Robertson",
+          "source": "6-cognitive-distancing-donald-robertson",
+          "score": 0.635646641
+        },
+        {
+          "rank": 2,
+          "text": "And the moment you notice that you're captured by thought, identified with it, thinking without knowing that you're thinking, become clearly aware of that present thought and watch it unwind and disappear.",
+          "speaker": "Sam Harris",
+          "source": "60-Minute-Meditation-4",
+          "score": 0.623936057
+        },
+        {
+          "rank": 3,
+          "text": "Over time, and with practice, you won't have to go through a whole analysis of your thoughts; you'll start to recognize where a thought's coming from, like knowing what station a radio is playing, and you can just brush off those helpful thoughts. It's like, \"Oh, here comes that failure thought again. I've seen this before.\" And you don't have to take it too seriously. So instead of an \"Oh no!\" reaction, it's more like \"Oh well.\" That's a mindful reaction to the thought. You're not trying to change it or wrestle with it; you're just changing how you relate to it. It's just a mental event.",
+          "speaker": "Seth Gillihan",
+          "source": "4---Addressing-Core-Beliefs-Final-V1",
+          "score": 0.618339956
+        },
+        {
+          "rank": 4,
+          "text": "to acknowledge that they are yours, and they will dissolve and disappear before your eyes. Don't be deluded by your thoughts or your mental tendencies. They are always trying to trick you into believing that you are a real person and that the world is real, and that all your problems are real. But don't fight them, just ignore them. Jayasāra (10:21): Don't accept delivery of all the wrong ideas that keep coming to you. Establish yourself in the conviction that you are the self and that nothing can stick to you or affect you. Once you have that conviction, you will find that you can automatically ignore the habits of the mind. When the rejection of mental activities becomes continuous and automatic, you will begin to have the experience of the real self, the reality. Treat the contents of your mind with disinterest. Instead of filling your mind with thoughts and organizing fights between them, pay no attention to the mind at all. Jayasāra (12:36): Rest quietly in the feeling of I am, which is consciousness, and cultivate the attitude that all thoughts or perceptions are not me. When you have learnt to regard your mind as a distant stranger, you will not pay attention to all the obstacles it keeps inventing for you. Mental problems feed on the attention that you give them. The more you worry about them, the stronger they become. But, if you ignore them, they lose their power and finally vanish. 8---Annamalai-Swami----Consciousness-Itself-with... (Completed 03/28/23) Transcript by Rev.com Page 1 of 1",
+          "speaker": "Unknown",
+          "source": "8---Annamalai-Swami----Consciousness-Itself-with-Jayasara-Music-louder",
+          "score": 0.613615096
+        },
+        {
+          "rank": 5,
+          "text": "we really know what thinking is? Do we know how to think? Let's try a little experiment here. Imagine something, anything, and see if you can find where that thought came from. Speaker 1 (03:32): Did you create it? Why did that particular thought appear and not a different one? Look carefully. See if you can discover the exact place or moment in which you make a specific thought. As I attempt this myself looking to see how I discover when I'm writing the next words in a sentence, I can't find how I do it. First the word is not there, and then it's sometimes a word arises and it seems okay, but after a few moments I discover it's not exactly right and I try another word or phrase. The new word or phrase appears just as magically as the first one out of nowhere. Speaker 1 (04:35): Here's another seemingly magical quality of thought. Watch the stream of thoughts in your mind and see if you can find where a particular thought goes After it's finished, what do you find? It vanishes the little thought leaves no trace simply dissolving into thin air. If you've stayed with this thought experiment so far, you might see that your thoughts are less substantial than you assumed. They come out of nowhere and vanish into nowhere. This insubstantiality of thoughts is easy to see with the random thoughts of our experiment, but much more difficult to see with thoughts that matter, thoughts we believe in, and clinging to when our thoughts tell us that we're not good enough or that we have to improve ourselves or that other people are not good enough or this is to blame or that's wrong, or something bad might happen. These kinds of thoughts hook us Huang po. A ninth century zazen master once remarked, your soul concern should be as thought, succeeds, thought to avoid clinging to any of them. Speaker 1 (06:26): How can we do that? How can we avoid clinging to our thoughts, especially when our wellbeing seems to be at stake? Here's where it's helpful to apply a simple practice first with less important thoughts, and then 5-surrender-that-thought-elias-amidon (Completed 06/12/25) Transcript by Rev.com Page",
+          "speaker": "Unknown",
+          "source": "5-surrender-that-thought-elias-amidon",
+          "score": 0.608750284
+        },
+        {
+          "rank": 6,
+          "text": "So, instead of trying to stop thinking of myself as a thing, which I am unable to do, I can simply look and see that I'm not a thing, that I'm space for things. This means that I don't go down the route of trying to get rid of my self-image, my ego, which I would say is neither possible nor wise. Instead of seeing my self-image or ego as a negative thing, I can realize that it's very useful—in fact vital—for being selfconscious.",
+          "speaker": "Richard Lang",
+          "source": "Practice-The-Headless-Way",
+          "score": 0.608056247
+        }
+      ]
+    },
+    {
+      "id": "Q16",
+      "query": "What is non-dual awareness?",
+      "latencyMs": 398,
+      "totalCandidates": 20,
+      "rerankUsed": false,
+      "chunks": [
+        {
+          "rank": 1,
+          "text": "What do you mean by non-duality? This that can or cannot be recognized, which can be seen and then no longer attended to?",
+          "speaker": "Jim Newman",
+          "source": "Wrestling-the-Paradox-Fixed",
+          "score": 0.692719
+        },
+        {
+          "rank": 2,
+          "text": "And in failing to find that center to awareness, and failing to find it conclusively, so that you have the experience of the center being absent—there's an experience of open awareness that eventually becomes synonymous with one's mindfulness. And this is where I tend to talk about \"nondual\" or \"nondualistic\" mindfulness. But again, at every stage and even in the very beginning, mindfulness is the antithesis of, and the antidote for, distraction and identification with thought. It is the thing that breaks the spell and returns us to direct awareness of what's appearing in the present.",
+          "speaker": "Sam Harris",
+          "source": "What-Is-Mindfulness-Fundamentals",
+          "score": 0.667642474
+        },
+        {
+          "rank": 3,
+          "text": "So it's the same kind of move like look out at the object, now look back at your head. You're not actually looking back. You're shifting to actually the awareness that's aware of itself, by itself, as itself. But it's kind of that little half move where okay I'm aware of my face, I'm aware of behind my face, I'm aware of the back, now just well just be aware of awareness. But if you said, \"That's already aware by itself,\" you might be like, \"What? Wait a minute.\" But if you just say, \"Just be aware of the awareness that's aware of all three of those.\" And then just rest as that awareness and now just be aware of that awareness and then see what the relationship from awareness to contents of consciousness. And that's where the non-dual starts to be interesting.",
+          "speaker": "Loch Kelly",
+          "source": "Looking-for-the-Looker",
+          "score": 0.644898534
+        },
+        {
+          "rank": 4,
+          "text": "This a question directly for you Loch. How can I describe non-dual awareness to a friend who has absolutely no idea what I'm talking about? What is the simplest way to describe this?",
+          "speaker": "Sam Harris",
+          "source": "Non-Dual-Awareness-Lock-Kelly-and-Sam-Harris",
+          "score": 0.642415941
+        },
+        {
+          "rank": 5,
+          "text": "The whole practice is non-dual practice, and yet, it's often talked about as consciousness, this kind of awareness, this context, awake awareness, and then the contents within that. I get why you could frame that in a non-dualistic way, because even the contents are parts of the awake awareness, or the context like waves in an ocean, which is an analogy that you and other use which I find helpful, but it does seem like there is a distinction being made between, and the thing we're supposed to try to identify with is the thing that isn't the contents, or at least isn't identified with the contents that are going.",
+          "speaker": "Tamler Sommers",
+          "source": "What-Is-Emptiness",
+          "score": 0.637890577
+        },
+        {
+          "rank": 6,
+          "text": "... non-duality. How do you get from one consciousness to non-duality?",
+          "speaker": "Swami Sarvapriyananda",
+          "source": "Swami-Sarvapriyananda-Final-1",
+          "score": 0.633179903
+        }
+      ]
+    },
+    {
+      "id": "Q17",
+      "query": "Is enlightenment permanent?",
+      "latencyMs": 326,
+      "totalCandidates": 20,
+      "rerankUsed": false,
+      "chunks": [
+        {
+          "rank": 1,
+          "text": "And what about enlightenment?",
+          "speaker": "Sam Harris",
+          "source": "Awakening",
+          "score": 0.731423
+        },
+        {
+          "rank": 2,
+          "text": "Is there something beyond enlightenment?",
+          "speaker": "Sam Harris",
+          "source": "Live-at-the-Wiltern-Fixed",
+          "score": 0.693676353
+        },
+        {
+          "rank": 3,
+          "text": "Enlightenment is just there with you, within ourselves, so let's say we did this ... you're talking about the looking at me, right? Maybe? And you cannot find it. So that's the claims of the freedom, non-conceptual experience. But, of course, at the beginning, it will not last long. Just glimpse and gone. And next day, you cannot do it. Still, like stock market, up and down. But if you practice again and again, this recognition become more clear, the recognition of awareness, compassion, wisdom, which is within you. So that become more clear, more clear.",
+          "speaker": "Mingyur Rinpoche",
+          "source": "Live-at-the-Wiltern-Fixed",
+          "score": 0.615639329
+        },
+        {
+          "rank": 4,
+          "text": "Right. Although, would you expect that enlightenment would be synonymous with the absence of all persona?",
+          "speaker": "Sam Harris",
+          "source": "A-Conversation-with-Joseph-Goldstein-Fixed",
+          "score": 0.594720483
+        },
+        {
+          "rank": 5,
+          "text": "The ultimate wisdom of enlightenment, whatever it is, cannot be a matter of having fleeting experiences. The goal of meditation is to uncover a form of well-being that is inherent to the nature of our minds. It must, therefore, be available in the context of ordinary sights, sounds, sensations, and even thoughts. Peak experiences are fine, but real freedom must be coincident with normal waking life.",
+          "speaker": "Sam Harris",
+          "source": "Gradual-vs-Sudden-Realization",
+          "score": 0.589691758
+        },
+        {
+          "rank": 6,
+          "text": "Beyond that, there's enlightenment or not, something like that? Audience Member 3 (01:14:34): Yeah, what's beyond enlightenment? Live-at-the-Wiltern-Fixed (Completed 04/13/23) Transcript by Rev.com Page 32 of 42 This transcript was exported on Jun 19, 2025 - view latest version here.",
+          "speaker": "Mingyur Rinpoche",
+          "source": "Live-at-the-Wiltern-Fixed",
+          "score": 0.56695652
+        }
+      ]
+    },
+    {
+      "id": "Q18",
+      "query": "What is consciousness?",
+      "latencyMs": 321,
+      "totalCandidates": 20,
+      "rerankUsed": false,
+      "chunks": [
+        {
+          "rank": 1,
+          "text": "Awareness is simply the consciousness of whatever's happening.",
+          "speaker": "Adyashanti",
+          "source": "The-Context-of-Content-Final",
+          "score": 0.644837439
+        },
+        {
+          "rank": 2,
+          "text": "Consciousness itself is undefined.",
+          "speaker": "Sam Harris",
+          "source": "Walking_in_Public-FinalV1",
+          "score": 0.644349515
+        },
+        {
+          "rank": 3,
+          "text": "... or consciousness.",
+          "speaker": "Sam Harris",
+          "source": "A-Conversation-with-Stephan-Bodian-yaknow-edit-Fixed",
+          "score": 0.620866179
+        },
+        {
+          "rank": 4,
+          "text": "Now, I generally refer to the context of experience as \"consciousness,\" or \"awareness,\" or \"the nature of mind.\" It's merely the fact that things seem to be any way at all. There are sights, sounds, sensations, intentions, emotions, memories, plans, judgments, all ceaselessly arising.",
+          "speaker": "Sam Harris",
+          "source": "You-Cant-Get-There-From-Here",
+          "score": 0.593068123
+        },
+        {
+          "rank": 5,
+          "text": "All that consciousness could be.",
+          "speaker": "Sam Harris",
+          "source": "Making_Sense_322_Andy_Clark-app-1",
+          "score": 0.589602053
+        },
+        {
+          "rank": 6,
+          "text": "There's simply consciousness conscious of this moment.",
+          "speaker": "Adyashanti",
+          "source": "Total-Spontaneity",
+          "score": 0.585362434
+        }
+      ]
+    },
+    {
+      "id": "Q19",
+      "query": "Suffering",
+      "latencyMs": 340,
+      "totalCandidates": 20,
+      "rerankUsed": false,
+      "chunks": [
+        {
+          "rank": 1,
+          "text": "Depends on what you call suffering.",
+          "speaker": "Jim Newman",
+          "source": "Wrestling-the-Paradox-Fixed",
+          "score": 0.710963249
+        },
+        {
+          "rank": 2,
+          "text": "How does this relate to suffering?",
+          "speaker": "Sam Harris",
+          "source": "Wrestling-the-Paradox-Fixed",
+          "score": 0.702082634
+        },
+        {
+          "rank": 3,
+          "text": "Pain and painful circumstances are an unavoidable part of life. Suffering is all the ways we think about and resist pain and painful circumstances. Suffering becomes more and more optional as we see more and more clearly how it is created and as we learn to allow it to dissolve. In my experience, suffering always involves emotion-thought and the sense of being separate. It's always psychological, emotional, and somatic. It's always a kind of contraction. At the level of somatic sensation, the illusory separate me has often been likened to a tight fist. It can be very obvious and unmistakable sometimes, but it can also be very subtle and pervasive, and it may require a great deal of sensitivity and open attention to even begin to detect it. It takes effort to sustain a fist. It feels tense and contracted. Before long, it hurts. The spiritual 4-exploring-the-self-contraction-joan-tollifson (Completed 06/24/24) Transcript by Rev.com Page 1 of 3 This transcript was exported on Jun 18, 2025 - view latest version here. journey involves noticing this contraction or tightness throughout the body-mind in emotion, thought, and sensation in ever-subtler ways.",
+          "speaker": "Joan Tollifson",
+          "source": "4-exploring-the-self-contraction-joan-tollifson",
+          "score": 0.609152794
+        },
+        {
+          "rank": 4,
+          "text": "Yeah, I do believe that actually. This is something that I think is part of the nature of suffering. We're not talking just about physical pain here, we're talking about mental suffering that involves- science-in-solitude-Fixed (Completed 03/28/23) Transcript by Rev.com Page 31 of 41 This transcript was exported on Jun 19, 2025 - view latest version here.",
+          "speaker": "Evan Thompson",
+          "source": "science-in-solitude-Fixed",
+          "score": 0.559545219
+        },
+        {
+          "rank": 5,
+          "text": "You see, I don't see suffering as something to be gotten rid of, at least not in a sort of momentary sense. I see suffering, whether it's, as I say, a psychological distress that I may have, or a worry, or a problem in the family, or whatever, in the four task model. The first step is to say yes to that situation, to be completely open and transparent to that situation.",
+          "speaker": "Stephen Batchelor",
+          "source": "Skeptical-Buddhism-Fixed",
+          "score": 0.554820836
+        },
+        {
+          "rank": 6,
+          "text": "Pain and painful circumstances are an unavoidable part of life, but the ways we think about and resist them is what I call suffering. That's a mental overlay as well as a bodily contraction or tensing up. And most, if not all, of our suffering and confusion is generated in the realm of thinking and resisting what is. So the next time you have physical or emotional pain, you might explore this, tune into it as sensation rather than thinking about it. Instead of resisting it, open fully to it, go into it with awareness. Go to the very core of it so there's no imaginary gap between you and it. Notice that any gap is only a mental image, a creation of thinking.",
+          "speaker": "Joan Tollifson",
+          "source": "4-coming-to-your-senses-joan-tollifson",
+          "score": 0.535510063
+        }
+      ]
+    },
+    {
+      "id": "Q20",
+      "query": "Choiceless awareness vs acceptance — what is the difference?",
+      "latencyMs": 319,
+      "totalCandidates": 20,
+      "rerankUsed": false,
+      "chunks": [
+        {
+          "rank": 1,
+          "text": "By the way, it's called \"choiceless awareness,\" because it's as though rather than you choosing what you'll focus on, the objects choose you. You simply attend to what's arising.",
+          "speaker": "Diana Winston",
+          "source": "Letting-Go-of-the-Anchor",
+          "score": 0.635596335
+        },
+        {
+          "rank": 2,
+          "text": "That's the difference between will it be called choiceless awareness or open awareness, right? So if you did that and you were aware of the awareness that's aware by itself, you can kinda feel the kinda big sky awareness or the spacious awareness that's aware of your face, the middle of your head, and the back of your head, right? And then if you were to just be curious, okay, now are the contents of consciousness coming and going, arising and passing, then you have choiceless awareness or open awareness. Or is there a consciousness, meaning the awareness, does it feel like the sensation and sound is made of awareness or made of consciousness itself. That there's not two things going on. That there's kind of an ocean of consciousness that's primarily awareness but arising as movement and appearance that's empty and yet here.",
+          "speaker": "Loch Kelly",
+          "source": "Looking-for-the-Looker",
+          "score": 0.633535624
+        },
+        {
+          "rank": 3,
+          "text": "In choiceless awareness, attention is much broader than with the other types we've explored. It takes variable effort, so sometimes we have to work at it and sometimes we don't, and it's still object-based.",
+          "speaker": "Diana Winston",
+          "source": "Choiceless-Awareness",
+          "score": 0.632962227
+        },
+        {
+          "rank": 4,
+          "text": "Awareness is the transformative power in my experience, and in knowing ourselves or feeling ourselves as awareness rather than as the little me, there is freedom for the person to be much more authentic and genuine and carefree. But don't believe what I say, rather, I encourage you not to pick up or cling to any beliefs or ideas about all this, but rather to live with these questions and see what you discover. 2-decisions-and-choices-joan-tollifson (Completed 06/24/24) Transcript by Rev.com Page 2 of 2",
+          "speaker": "Joan Tollifson",
+          "source": "2-decisions-and-choices-joan-tollifson",
+          "score": 0.602101088
+        },
+        {
+          "rank": 5,
+          "text": "The third type is called \"choiceless awareness,\" which heads towards taking a panoramic-lens photograph. This is when our attention is no longer linked to a main focus, like the breathing. We allow our attention to be drawn to whatever is arising in the moment. It's broadly focused, the effort varies, and it's object based.",
+          "speaker": "Diana Winston",
+          "source": "Overview-The-Spectrum-of-Awareness",
+          "score": 0.589481115
+        },
+        {
+          "rank": 6,
+          "text": "Awareness doesn't distinguish between you and me. It doesn't care for for and against. It's not concerned with better and worse. It doesn't identify with or reject. It doesn't label things as good or bad. And to know that your natural, inherent awareness is already free of so many of those qualities that contribute to the conflict and make it more difficult, and rather that it's simply notice what is occurring and can allow it to pass through without lots of reactions and negativity. It's unbiased, it's unfazed, it recognizes our patterning, it acknowledges impermanence and the interdependency of all things. One of the most powerful things about conflict is how intimate it is. It's intimate, right? Because we can't have a conflict without another, and we can't experience ourselves as fully wanting or needing something when someone else is opposing it. When someone else opposes it, wow, it heightens how much we feel and care about something.",
+          "speaker": "Diane Musho Hamilton",
+          "source": "2-the-importance-of-intention-attention-and-awareness-diane-hamilton-V2",
+          "score": 0.588629
+        }
+      ]
+    }
+  ]
+}
