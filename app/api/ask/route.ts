@@ -1,1326 +1,391 @@
-import * as Sentry from '@sentry/nextjs';
-import { randomUUID, createHash } from 'node:crypto';
-import { NextRequest, NextResponse } from 'next/server';
-import OpenAI, {
-  APIConnectionTimeoutError,
-  APIConnectionError,
-  RateLimitError as OpenAIRateLimitError,
-  AuthenticationError as OpenAIAuthError,
-  InternalServerError as OpenAIServerError,
-} from 'openai';
-import { CohereClient } from 'cohere-ai';
+import { randomUUID } from 'node:crypto';
+import { NextRequest } from 'next/server';
+import { streamText, createUIMessageStreamResponse } from 'ai';
+import type { UIMessageChunk } from 'ai';
+import { openai } from '@ai-sdk/openai';
+import OpenAI from 'openai';
 import { Pinecone } from '@pinecone-database/pinecone';
-import { checkRateLimitWithFallback, checkDailyLimit, getClientIp, isInternalRequest, MINUTE_MS, getTokenTier, getCachedTokenBalance, setCachedTokenBalance } from '@/lib/rate-limit';
-import { verifyRequest } from '@/lib/privy-auth';
+import { CohereClientV2 } from 'cohere-ai';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { supabase } from '@/lib/supabase';
-import { getUserSubscription, FREE_TIER_DAILY_LIMIT } from '@/lib/subscription';
+import { RagTracer } from '@/lib/rag-tracer';
 import { isValidConversationId, buildQueryText, appendTurn } from '@/lib/conversation-session';
 import type { HistoryMessage } from '@/lib/conversation-session';
-import { getConversationHistory, setConversationHistory } from '@/lib/conversation-cache';
-import { monitoredQuery } from '@/lib/db-monitor';
-import { logOpenAIUsage } from '@/lib/openai-usage';
-import { embedOne, embedBatch } from '@/lib/embeddings';
-import { getConceptContext } from '@/lib/concept-graph';
-import { shouldExpandQuery, expandQuery, reciprocalRankFusion, generateQueryVariants, reciprocalRankFusionByChunkId, generateHypotheticalDocument } from '@/lib/query-expansion';
-import { getEssayContext, getCourseSessionContext } from '@/lib/essay-cache';
-import { RagTracer } from '@/lib/rag-tracer';
-import { buildAnswerCacheKey, getAnswerCache, setAnswerCache } from '@/lib/qa-answer-cache';
-import { enhanceQuery } from '@/lib/query-normalization';
+import { isCacheEnabled, getSemanticCache, setSemanticCache } from '@/lib/semantic-answer-cache';
+import type { CachedSource } from '@/lib/semantic-answer-cache';
 
-const EMBED_MODEL = 'text-embedding-3-large';
-const EMBED_DIMENSIONS = 1536;
+const EMBED_MODEL = 'text-embedding-3-small';
 const CHAT_MODEL = 'gpt-4o';
-const PINECONE_NAMESPACE = 'waking-up';
-const PINECONE_SUMMARY_NAMESPACE = 'waking-up-summaries';
-const TOP_K = 20; // broad retrieval per namespace — merged result is re-ranked below
-const RERANK_TOP_N = 6; // final chunk count after Cohere re-ranking
-const MULTI_QUERY_TOP_K = 5; // per-variant retrieval count (ENABLE_MULTI_QUERY mode)
-const MULTI_QUERY_TOP_N = 7; // final chunk count for multi-query (more variants → wider coverage)
-const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24h
-const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const TOP_K = 20;
+const RERANK_MODEL = 'rerank-v3.5';
+const RERANK_TOP_N = 5;
+const SCORE_THRESHOLD = 0.4;
+const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 
-interface CacheChunk {
-  text: string;
-  speaker: string;
-  source: string;
-  score: number;
-  chunkId?: string;
-  sourceUrl?: string;
-}
-
-/** Stable chunk identifier: SHA-256 of "source::text_prefix". Matches the
- *  format expected by citation_feedback.chunk_id. */
-function computeChunkId(source: string, text: string): string {
-  return createHash('sha256').update(source + '::' + text.slice(0, 100)).digest('hex');
-}
-
-const SYSTEM_PROMPT_BASE = `You are a knowledgeable mindfulness guide with deep expertise in meditation, consciousness, non-dual awareness, and contemplative traditions.
+const SYSTEM_PROMPT = `You are a knowledgeable mindfulness guide with deep expertise in meditation, consciousness, non-dual awareness, and contemplative traditions.
 Answer any question with your full knowledge — mindfulness, psychology, neuroscience, philosophy of mind, contemplative practice. When transcript excerpts are provided, weave their insights naturally into your answer as enrichment.
 Rules:
+- Keep answers concise: 2-4 short paragraphs max. No walls of text.
 - Be warm, direct, and conversational — like a wise friend, not a textbook.
 - Never name specific teachers, authors, or brands. Refer to "teachers in this tradition" or "contemplative traditions" instead.
 - Never refuse to answer. If excerpts are sparse, rely on your own knowledge.
-- No numbered lists or academic structure unless the user asks for it.
-- Always use clear paragraph breaks between distinct ideas — never write a wall of text.
-- Format your response in markdown, using blank lines between paragraphs.`;
+- No numbered lists or academic structure unless the user asks for it.`;
 
-const SYSTEM_PROMPTS: Record<string, string> = {
-  detailed: `${SYSTEM_PROMPT_BASE}
-- Keep answers concise: 2-4 short paragraphs max. No walls of text.
-- Use inline citations like [1], [2] when weaving in specific passage insights.`,
-  brief: `${SYSTEM_PROMPT_BASE}
-- Keep answers very concise: 2-3 short paragraphs max.
-- Do not include inline citation markers — synthesize insights seamlessly without referencing specific sources.`,
-  citations_first: `${SYSTEM_PROMPT_BASE}
-- Structure your answer in two parts:
-  1. Key insights: 2-3 brief pull-quotes or paraphrases from the provided excerpts (one per line, introduced with a dash). Each should stand alone and be clearly attributed with its citation number e.g. [1].
-  2. Synthesis: 1-2 paragraphs weaving the insights together with your own knowledge.
-- If excerpts are sparse, skip Part 1 and answer directly.`,
-};
+type PromptVariant = { id: string; name: string; system_prompt: string; traffic_pct: number };
 
-/** Compute response-quality format metrics for qa_analytics logging. No text is stored — only counts/flags. */
-function computeFormatMetrics(text: string) {
-  const wordCount = text.trim() ? text.trim().split(/\s+/).length : 0;
-  const paragraphCount = text.split(/\n\n+/).filter((p) => p.trim().length > 0).length;
-  const hasHeaders = /^#{1,6}\s/m.test(text);
-  const hasBullets = /^[\-\*]\s/m.test(text);
-  return { word_count: wordCount, paragraph_count: paragraphCount, has_headers: hasHeaders, has_bullets: hasBullets };
+/** Select a variant by weighted random. Returns null if no variants are active / configured. */
+function selectVariant(variants: PromptVariant[]): PromptVariant | null {
+  const total = variants.reduce((s, v) => s + v.traffic_pct, 0);
+  if (total <= 0 || variants.length === 0) return null;
+  let rand = Math.random() * total;
+  for (const v of variants) {
+    rand -= v.traffic_pct;
+    if (rand <= 0) return v;
+  }
+  return variants[variants.length - 1];
 }
 
-/** Structured error response helper. */
-function errorResponse(
-  status: number,
-  code: string,
-  message: string,
-  headers?: Record<string, string>,
-): NextResponse {
-  return NextResponse.json({ error: { code, message } }, { status, headers });
-}
-
-// Per-minute rate limits — overridden by token tier for authenticated users
-const RATE_LIMIT_ANON = 5;    // unauthenticated requests per minute
-const GUEST_LIMIT = 3; // free questions per IP per 24h (Supabase-tracked overall cap)
-const REFERRED_GUEST_LIMIT = 5; // bumped limit for visitors arriving via referral link
-
-/** Resolve a user's token balance: Redis cache first, then Supabase, default 0. */
-async function resolveTokenBalance(walletAddress: string): Promise<number> {
-  const cached = await getCachedTokenBalance(walletAddress);
-  if (cached !== null) return cached;
-
-  const { data } = await supabase
-    .from('token_balances')
-    .select('token_balance')
-    .eq('wallet_address', walletAddress)
-    .single();
-
-  const balance = data ? Number(data.token_balance) : 0;
-  setCachedTokenBalance(walletAddress, balance).catch(() => {}); // fire-and-forget
-  return balance;
-}
-
-/** Append a rate-limit hit record to the audit table. Non-blocking. */
-function logRateLimitHit(opts: {
-  endpoint: string;
-  userId: string | null;
-  walletAddress: string | null;
-  ipHash: string;
-  tier: string;
-  tokenBalance: number | null;
-  limitApplied: number | null;
-}): void {
-  supabase.from('rate_limit_hits').insert({
-    endpoint:       opts.endpoint,
-    user_id:        opts.userId,
-    wallet_address: opts.walletAddress,
-    ip_hash:        opts.ipHash,
-    tier:           opts.tier,
-    token_balance:  opts.tokenBalance,
-    limit_applied:  opts.limitApplied,
-  }).then(({ error }) => {
-    if (error) console.warn('[/api/ask] rate_limit_hit log failed:', error.message);
+function buildCacheHitResponse(
+  answer: string,
+  sources: CachedSource[],
+  conversationId: string,
+): Response {
+  const textId = randomUUID();
+  const stream = new ReadableStream<UIMessageChunk>({
+    start(controller) {
+      controller.enqueue({ type: 'text-start', id: textId });
+      controller.enqueue({ type: 'text-delta', delta: answer, id: textId });
+      controller.enqueue({ type: 'text-end', id: textId });
+      controller.enqueue({
+        type: 'finish',
+        finishReason: 'stop',
+        messageMetadata: { sources, conversationId, cached: true } as unknown,
+      });
+      controller.close();
+    },
   });
+  return createUIMessageStreamResponse({ stream });
+}
+
+function getClientIp(req: NextRequest): string {
+  const forwarded = req.headers.get('x-forwarded-for');
+  if (forwarded) return forwarded.split(',')[0].trim();
+  return req.headers.get('x-real-ip') ?? 'unknown';
+}
+
+function isAuthenticated(req: NextRequest): boolean {
+  const auth = req.headers.get('authorization') ?? '';
+  return auth.toLowerCase().startsWith('bearer ');
 }
 
 export async function POST(req: NextRequest) {
-  const requestStart = Date.now();
-  const requestId = randomUUID();
-  const tracer = new RagTracer();
+  const queryStartMs = Date.now();
+  const queryId = randomUUID();
+
   const ip = getClientIp(req);
+  const authenticated = isAuthenticated(req);
+  const rateLimit = authenticated ? 60 : 10;
+  const rateLimitLabel = authenticated ? 'auth' : 'anon';
 
-  // rag.query_receive — point-in-time span marking request receipt
-  tracer.trace('rag.query_receive', () => Promise.resolve()).catch(() => {});
+  // ── Rate limiting ──
+  const rl = checkRateLimit(`ask:${rateLimitLabel}:${ip}`, rateLimit);
+  if (!rl.allowed) {
+    const retryAfterSec = Math.ceil((rl.resetAt - Date.now()) / 1000);
+    return new Response(
+      JSON.stringify({ error: { code: 'RATE_LIMIT_EXCEEDED', message: 'Too many requests — please wait before trying again.' } }),
+      {
+        status: 429,
+        headers: {
+          'Content-Type': 'application/json',
+          'Retry-After': String(retryAfterSec),
+        },
+      },
+    );
+  }
 
-  // ── Identify caller ───────────────────────────────────────────────────────
-  const authResult = await verifyRequest(req);
-  const userId = authResult?.userId ?? null;
-
-  // ── Parse body (needed early for wallet address → token tier lookup) ────────
+  // ── Parse body ──
   let body: Record<string, unknown> | null = null;
   try {
     body = await req.json();
   } catch {
-    return errorResponse(400, 'INVALID_JSON', 'Request body must be valid JSON.');
-  }
-
-  const question: string = typeof body?.question === 'string' ? body.question.trim() : '';
-  const history: HistoryMessage[] = Array.isArray(body?.history) ? (body.history as HistoryMessage[]) : [];
-  const walletAddress: string | null = typeof body?.walletAddress === 'string' ? body.walletAddress : null;
-
-  // ── Token-tier rate limit (bypassed for internal/agent calls) ────────────
-  // Authenticated users: per-minute limit scales with on-chain token balance.
-  // Unauthenticated users: flat 5 req/min regardless of tier.
-  const ipHash = createHash('sha256').update(ip).digest('hex');
-  let tokenBalance: number | null = null;
-  let tierName = 'anon';
-  let rateLimit: number | null = RATE_LIMIT_ANON;
-
-  if (userId) {
-    tokenBalance = walletAddress ? await resolveTokenBalance(walletAddress) : 0;
-    const tier = getTokenTier(tokenBalance);
-    tierName = tier.name;
-    rateLimit = tier.rateLimit; // null = unlimited
-  }
-
-  const rateLimitKey = userId ? `ask:user:${userId}` : `ask:anon:${ipHash}`;
-  const rl =
-    isInternalRequest(req) || rateLimit === null
-      ? null
-      : await checkRateLimitWithFallback(rateLimitKey, rateLimit, MINUTE_MS);
-
-  if (rl !== null && !rl.allowed) {
-    const retryAfterSec = Math.ceil((rl.resetAt - Date.now()) / 1000);
-    console.warn(
-      `[/api/ask] rate_limit ip=${ip} userId=${userId ?? 'anon'} tier=${tierName} balance=${tokenBalance ?? 'n/a'} store=${rl.store}`,
+    return new Response(
+      JSON.stringify({ error: { code: 'INVALID_JSON', message: 'Request body must be valid JSON.' } }),
+      { status: 400, headers: { 'Content-Type': 'application/json' } },
     );
-    logRateLimitHit({
-      endpoint: '/api/ask',
-      userId,
-      walletAddress,
-      ipHash,
-      tier: tierName,
-      tokenBalance,
-      limitApplied: rateLimit,
-    });
-    return errorResponse(429, 'RATE_LIMIT_EXCEEDED', 'Too many requests — please wait before trying again.', {
-      'Retry-After': String(retryAfterSec),
-      'X-RateLimit-Limit': String(rateLimit),
-      'X-RateLimit-Remaining': '0',
-      'X-RateLimit-Reset': String(Math.ceil(rl.resetAt / 1000)),
-      'X-RateLimit-Tier': tierName,
-    });
   }
-  // Answer style — controls which system prompt variant is used. Unauthenticated users always get 'detailed'.
-  const rawStyle = typeof body?.answerStyle === 'string' ? body.answerStyle : 'detailed';
-  const answerStyle: string = userId && rawStyle in SYSTEM_PROMPTS ? rawStyle : 'detailed';
-  const activeSystemPrompt = SYSTEM_PROMPTS[answerStyle] ?? SYSTEM_PROMPTS.detailed;
-  // Teacher filter: restricts Pinecone retrieval to a single teacher's chunks.
-  // Bypass cache when active — different teachers yield different results for the same question.
-  const teacher: string | null = typeof body?.teacher === 'string' && body.teacher.trim() ? body.teacher.trim() : null;
 
-  // Attach per-request identity to the active Sentry scope so all events from this
-  // request include the wallet address and a stable request ID for correlation.
-  const sentryScope = Sentry.getCurrentScope();
-  sentryScope.setTag('request.id', requestId);
-  if (userId) sentryScope.setUser({ id: userId });
-  if (walletAddress) sentryScope.setTag('wallet.address', walletAddress);
+  // Support AI SDK format (messages array)
+  let question: string;
+  let priorMessages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
 
-  // Essay context: when provided the answer is injected with the essay body and bypasses cache.
-  const essaySlug: string | null = typeof body?.essaySlug === 'string' && body.essaySlug.trim() ? body.essaySlug.trim() : null;
-  const courseSlug: string | null = typeof body?.courseSlug === 'string' && body.courseSlug.trim() ? body.courseSlug.trim() : null;
+  const messages = body?.messages as Array<{ role: string; content: string }> | undefined;
+  if (Array.isArray(messages) && messages.length > 0) {
+    const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user');
+    question = lastUserMsg?.content?.trim() ?? '';
+    priorMessages = messages
+      .slice(0, -1)
+      .filter((m) => m.role === 'user' || m.role === 'assistant')
+      .slice(-6)
+      .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+  } else {
+    // Legacy format
+    question = typeof body?.question === 'string' ? body.question.trim() : '';
+    const history: HistoryMessage[] = Array.isArray(body?.history) ? (body.history as HistoryMessage[]) : [];
+    priorMessages = history.slice(-6).map((m) => ({ role: m.role, content: m.content }));
+  }
+
+  const walletAddress: string | null = typeof body?.walletAddress === 'string' ? body.walletAddress : null;
 
   const rawConvId = body?.conversationId;
   const isExistingConversation = isValidConversationId(rawConvId);
   const conversationId: string = isExistingConversation ? rawConvId : randomUUID();
 
   if (!question) {
-    return errorResponse(400, 'MISSING_QUESTION', 'question is required and must be a non-empty string.');
+    return new Response(
+      JSON.stringify({ error: { code: 'MISSING_QUESTION', message: 'question is required.' } }),
+      { status: 400, headers: { 'Content-Type': 'application/json' } },
+    );
   }
 
-  const MAX_QUESTION_LENGTH = 500;
-  if (question.length > MAX_QUESTION_LENGTH) {
-    return errorResponse(400, 'QUESTION_TOO_LONG', `question must be ${MAX_QUESTION_LENGTH} characters or fewer.`);
-  }
-
-  // Prompt injection guard — reject questions containing common override patterns
-  const INJECTION_PATTERNS = [
-    /ignore\s+(all\s+)?(previous|prior|above)\s+instructions?/i,
-    /disregard\s+(all\s+)?(previous|prior|above)\s+instructions?/i,
-    /forget\s+(all\s+)?(previous|prior|above)\s+instructions?/i,
-    /\bsystem\s*:/i,
-    /\boverride\s+(your\s+)?(instructions?|rules?|guidelines?)/i,
-    /you\s+are\s+now\s+/i,
-    /act\s+as\s+(if\s+you\s+are\s+)?a\s+/i,
-    /\bjailbreak\b/i,
-    /\bdan\s+mode\b/i,
-  ];
-  if (INJECTION_PATTERNS.some((re) => re.test(question))) {
-    console.warn(`[/api/ask] prompt_injection_attempt ip=${ip} userId=${userId ?? 'anon'} q="${question.slice(0, 80)}"`);
-    return errorResponse(400, 'INVALID_QUESTION', 'question contains disallowed content.');
-  }
-
-  // ── Daily rate limit state (for response headers) ─────────────────────────
-  let dailyRlHeaders: Record<string, string> = {};
-  let guestQueriesRemaining: number | null = null;
-  let userQuestionsRemaining: number | null = null;
-  let isProUser = false;
-
-  // ── Guest rate limit ──────────────────────────────────────────────────────
-  // Referred visitors (those with a `ref` cookie) get 5 free questions instead of 3.
-  // Uses Upstash Redis keyed by IP hash + UTC date; fails open on Redis error.
-  if (!userId) {
-    const hasRefCookie = Boolean(req.cookies.get('ref')?.value?.trim());
-    const effectiveGuestLimit = hasRefCookie ? REFERRED_GUEST_LIMIT : GUEST_LIMIT;
-    const guestRl = await checkDailyLimit(`guest:${ipHash}`, effectiveGuestLimit);
-    dailyRlHeaders = {
-      'X-RateLimit-Limit': String(effectiveGuestLimit),
-      'X-RateLimit-Remaining': String(Math.max(0, guestRl.remaining)),
-      'X-RateLimit-Reset': String(Math.ceil(guestRl.resetAt / 1000)),
-    };
-    if (!guestRl.allowed) {
-      console.warn(`[/api/ask] guest_daily_limit ip=${ip} store=${guestRl.store}`);
-      return NextResponse.json(
-        {
-          error: 'rate_limited',
-          limit: effectiveGuestLimit,
-          reset_at: new Date(guestRl.resetAt).toISOString(),
-          upgrade_url: '/subscribe',
-        },
-        {
-          status: 429,
-          headers: { ...dailyRlHeaders, 'Retry-After': String(Math.ceil((guestRl.resetAt - Date.now()) / 1000)) },
-        },
-      );
-    }
-    guestQueriesRemaining = guestRl.remaining;
-  }
-
-  // ── Free-tier authenticated user daily limit ──────────────────────────────
-  // Pro/team users bypass this; free users are capped at FREE_TIER_DAILY_LIMIT/day.
-  // Uses Upstash Redis keyed by userId + UTC date; fails open on Redis error.
-  if (userId && !isInternalRequest(req)) {
-    const sub = await getUserSubscription(userId);
-    isProUser = sub.tier === 'pro' || sub.tier === 'team';
-    if (!isProUser) {
-      const userRl = await checkDailyLimit(`user:${userId}`, FREE_TIER_DAILY_LIMIT);
-      dailyRlHeaders = {
-        'X-RateLimit-Limit': String(FREE_TIER_DAILY_LIMIT),
-        'X-RateLimit-Remaining': String(Math.max(0, userRl.remaining)),
-        'X-RateLimit-Reset': String(Math.ceil(userRl.resetAt / 1000)),
-      };
-      if (!userRl.allowed) {
-        console.warn(`[/api/ask] user_daily_limit userId=${userId} store=${userRl.store}`);
-        return NextResponse.json(
-          {
-            error: 'rate_limited',
-            limit: FREE_TIER_DAILY_LIMIT,
-            reset_at: new Date(userRl.resetAt).toISOString(),
-            upgrade_url: '/subscribe',
-          },
-          {
-            status: 429,
-            headers: { ...dailyRlHeaders, 'Retry-After': String(Math.ceil((userRl.resetAt - Date.now()) / 1000)) },
-          },
-        );
-      }
-      userQuestionsRemaining = userRl.remaining;
-    }
-  }
-
-  // ── Env / config check ────────────────────────────────────────────────────
+  // ── Env check ──
   const openaiKey = process.env.OPENAI_API_KEY;
   const pineconeKey = process.env.PINECONE_API_KEY;
   const pineconeIndex = process.env.PINECONE_INDEX ?? 'convergence-mvp';
+  const cohereKey = process.env.COHERE_API_KEY;
+  const rerankingEnabled = process.env.ENABLE_RERANKING === 'true' && !!cohereKey;
 
   if (!openaiKey || !pineconeKey) {
-    console.error('[/api/ask] missing required env vars: OPENAI_API_KEY or PINECONE_API_KEY');
-    return errorResponse(503, 'SERVICE_UNAVAILABLE', 'Service is not configured. Contact the administrator.');
+    return new Response(
+      JSON.stringify({ error: { code: 'SERVICE_UNAVAILABLE', message: 'Service is not configured.' } }),
+      { status: 503, headers: { 'Content-Type': 'application/json' } },
+    );
   }
 
+  // ── Load active prompt variants and select one ──
+  let activeVariant: PromptVariant | null = null;
+  try {
+    const { data } = await supabase
+      .from('prompt_variants')
+      .select('id, name, system_prompt, traffic_pct')
+      .eq('is_active', true)
+      .order('created_at');
+    if (data && data.length > 0) {
+      activeVariant = selectVariant(data as PromptVariant[]);
+    }
+  } catch {
+    // Non-fatal — fall through to default prompt
+  }
+
+  const effectiveSystemPrompt = activeVariant?.system_prompt ?? SYSTEM_PROMPT;
+
+  const tracer = new RagTracer();
   const oai = new OpenAI({ apiKey: openaiKey });
   const pc = new Pinecone({ apiKey: pineconeKey });
-  const enableMultiQuery = process.env.ENABLE_MULTI_QUERY === 'true';
-  const enableHyde = process.env.ENABLE_HYDE === 'true';
 
-  const logCtx = `ip=${ip} userId=${userId ?? 'anon'} wallet=${walletAddress ?? 'none'} conv=${conversationId} q="${question.slice(0, 80)}"`;
-
-  // ── Load server-side history if conversationId provided but client sent no history ──
-  // Primary: Upstash Redis (2h TTL, fast). Fallback: Supabase conversation_sessions.
-  let effectiveHistory = history;
-  if (isExistingConversation && history.length === 0) {
-    const cached = await getConversationHistory(conversationId);
-    if (cached) {
-      effectiveHistory = cached;
-    } else {
-      try {
-        const { data } = await monitoredQuery('conversation_sessions.fetch', () =>
-          supabase
-            .from('conversation_sessions')
-            .select('history')
-            .eq('id', conversationId)
-            .gt('expires_at', new Date().toISOString())
-            .single(),
-        );
-        if (data?.history && Array.isArray(data.history)) {
-          effectiveHistory = data.history as HistoryMessage[];
-        }
-      } catch {
-        // Proceed without server-side history — not fatal
-      }
-    }
-  }
-
-  // ── Query enhancement (OLU-792) ───────────────────────────────────────────
-  // Runs synchronously before the cache lookup (~1 ms, pure computation).
-  //   normalizedQuery  — spell-corrected + normalized; used as cache key
-  //   enhancedQuery    — synonym-expanded; used as embedding input for retrieval
-  //   correctedQuery   — non-null only when spell correction fired (shown in UI)
-  const {
-    normalizedQuery,
-    enhancedQuery,
-    spellCorrected,
-    correctedQuery,
-  } = enhanceQuery(question);
-
-  // ── Cache flags ───────────────────────────────────────────────────────────
-  // Semantic threshold from env; default 0.92.
-  const semanticThreshold = parseFloat(process.env.SEMANTIC_CACHE_THRESHOLD ?? '0.92');
-  // Cache key: SHA-256 of normalized query so typos share a cache entry with
-  // the correctly-spelled equivalent.
-  const cacheKey = createHash('sha256').update(normalizedQuery).digest('hex');
-  // Pro users and teacher-filtered queries always get fresh answers (bypass semantic cache).
-  // Bypass cache when answer style is non-default — cached answers were generated with the 'detailed' prompt.
-  const noCacheParam = req.nextUrl.searchParams.get('noCache') === '1' || isProUser || teacher !== null || essaySlug !== null || answerStyle !== 'detailed';
-  // Only cache standalone (first-turn) questions. Follow-ups depend on conversation
-  // context, so caching them would return mismatched answers.
-  const isFollowUp = effectiveHistory.length > 0;
-
-  // ── Exact-hash cache lookup ───────────────────────────────────────────────
-  if (!noCacheParam && !isFollowUp) {
-    let exact: { answer: string; follow_ups: string[] | null; chunks_json: unknown[] | null } | null = null;
+  // ── Load server-side history if needed ──
+  let effectiveHistory: HistoryMessage[] = priorMessages;
+  if (isExistingConversation && priorMessages.length === 0) {
     try {
-      exact = await tracer.trace('rag.cache_check', async () => {
-        const { data } = await supabase
-          .from('qa_cache')
-          .select('answer, follow_ups, chunks_json')
-          .eq('hash', cacheKey)
-          .gt('created_at', new Date(Date.now() - CACHE_TTL_MS).toISOString())
-          .single();
-        return data ?? null;
-      }, { type: 'exact' });
-    } catch {
-      // Non-fatal — fall through to live path
-    }
-
-    if (exact) {
-      console.log(`[/api/ask] exact_cache_hit ${logCtx}`);
-      const cachedChunks = (exact.chunks_json ?? []) as CacheChunk[];
-      const cachedAnswer = exact.answer as string;
-      const cachedFollowUps = (exact.follow_ups ?? []) as string[];
-
-      supabase.rpc('increment_qa_cache_hit', { p_hash: cacheKey }).then(({ error }) => {
-        if (error) console.warn(`[/api/ask] cache_hit_increment_error err=${error.message}`);
-      });
-
-      const answerSources = cachedChunks.slice(0, 3).map((c) => ({
-        text: c.text.slice(0, 200), speaker: c.speaker, source: c.source,
-        score: Math.round(c.score * 100) / 100,
-      }));
-      let answerId: string | null = null;
-      try {
-        const { data: ar, error: ae } = await supabase
-          .from('qa_answers')
-          .insert({ question, answer: cachedAnswer, sources: answerSources, conversation_id: conversationId, cache_hash: cacheKey, ...(userId ? { user_id: userId } : {}) })
-          .select('id').single();
-        if (ae) console.warn(`[/api/ask] qa_answer_write_error err=${ae.message}`);
-        else answerId = ar?.id ?? null;
-      } catch (err) {
-        console.warn(`[/api/ask] qa_answer_exception err=${err instanceof Error ? err.message : String(err)}`);
+      const { data } = await supabase
+        .from('conversation_sessions')
+        .select('history')
+        .eq('id', conversationId)
+        .gt('expires_at', new Date().toISOString())
+        .single();
+      if (data?.history && Array.isArray(data.history)) {
+        effectiveHistory = data.history as HistoryMessage[];
       }
-
-      const latencyMs = Date.now() - requestStart;
-      const questionHash = createHash('sha256').update(question).digest('hex');
-      const fmtMetrics = computeFormatMetrics(cachedAnswer);
-      supabase.from('qa_analytics')
-        .insert({ question_hash: questionHash, pinecone_scores: [], latency_ms: latencyMs, model_used: CHAT_MODEL, cache_hit: true, semantic_cache_hit: false, original_query: question, normalized_query: normalizedQuery, spell_corrected: spellCorrected, ...fmtMetrics })
-        .then(({ error }) => { if (error) console.warn(`[/api/ask] analytics_write_error err=${error.message}`); });
-
-      const updatedHistory = appendTurn(effectiveHistory, question, cachedAnswer);
-      supabase.from('conversation_sessions')
-        .upsert({ id: conversationId, history: updatedHistory, expires_at: new Date(Date.now() + SESSION_TTL_MS).toISOString() }, { onConflict: 'id' })
-        .then(({ error }) => { if (error) console.warn(`[/api/ask] supabase_session_error conv=${conversationId} err=${error.message}`); });
-      setConversationHistory(conversationId, updatedHistory).catch(() => {});
-      supabase.from('qa_conversations')
-        .upsert({ id: conversationId, messages: updatedHistory, updated_at: new Date().toISOString(), ...(userId ? { user_id: userId } : {}) }, { onConflict: 'id' })
-        .then(({ error }) => { if (error) console.warn(`[/api/ask] qa_conv_error conv=${conversationId} err=${error.message}`); });
-
-      await tracer.trace('rag.response_send', () => Promise.resolve(), { cached: true, type: 'exact' });
-      return NextResponse.json({
-        answer: cachedAnswer, answerId, conversationId, followUps: cachedFollowUps, cached: true,
-        sources: cachedChunks.map((c) => ({ text: c.text.slice(0, 200), speaker: c.speaker, source: c.source, score: Math.round(c.score * 100) / 100, chunkId: c.chunkId ?? computeChunkId(c.source, c.text), ...(c.sourceUrl ? { sourceUrl: c.sourceUrl } : {}) })),
-        ...(correctedQuery ? { correctedQuery } : {}),
-        ...(rl !== null ? { rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() } } : {}),
-        ...(guestQueriesRemaining !== null ? { guestQueriesRemaining } : {}),
-        ...(userQuestionsRemaining !== null ? { userQuestionsRemaining } : {}),
-      }, { headers: dailyRlHeaders });
+    } catch {
+      // Proceed without — not fatal
     }
   }
 
-  // ── Fetch essay context (when essaySlug provided) ─────────────────────────
-  // When courseSlug is also present, fetch from course_sessions (session pages).
-  // Otherwise fall back to the essays table (standalone essay pages).
-  // Cached in Upstash for 1 hour. Returns null when not found — graceful.
-  const essayCtx = essaySlug
-    ? courseSlug
-      ? await getCourseSessionContext(courseSlug, essaySlug).catch(() => null)
-      : await getEssayContext(essaySlug).catch(() => null)
-    : null;
-
-  // ── Embed ─────────────────────────────────────────────────────────────────
-  // For standalone questions (no history): embed the raw question.
-  //   - Used for semantic cache search AND as the Pinecone query vector (they're equivalent
-  //     since buildQueryText returns the question unchanged when history is empty).
-  // For follow-ups: embed queryText (question + last assistant turn) for Pinecone only.
-  // When an essay context is present, append essay title + tags to the embed input so
-  // Pinecone retrieval is biased toward chunks topically related to the essay.
+  // ── Embed + retrieve from Pinecone ──
   const queryText = buildQueryText(question, effectiveHistory);
-  // For standalone questions use the synonym-expanded form so retrieval covers
-  // related terms. Follow-ups already include rich context from conversation
-  // history, so enhancement adds little and enhancedQuery is skipped.
-  const baseEmbedInput = isFollowUp ? queryText : enhancedQuery;
-  const embedInput = essayCtx
-    ? `${baseEmbedInput}\n\nEssay topic: ${essayCtx.title}${essayCtx.tags.length ? `. Tags: ${essayCtx.tags.join(', ')}` : ''}`
-    : baseEmbedInput;
 
   let queryVector: number[];
   try {
-    queryVector = await tracer.trace('rag.embed_query', () =>
-      embedOne(embedInput, { model: EMBED_MODEL, dimensions: EMBED_DIMENSIONS, client: oai }),
+    queryVector = await tracer.trace(
+      'rag.embed_query',
+      () => oai.embeddings.create({ model: EMBED_MODEL, input: queryText }).then((r) => r.data[0].embedding),
+      { model: EMBED_MODEL },
     );
   } catch (err) {
-    return handleOpenAIError(err, 'embeddings', logCtx);
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[/api/ask] embed_error: ${msg}`);
+    return new Response(
+      JSON.stringify({ error: { code: 'UPSTREAM_ERROR', message: 'Failed to process question.' } }),
+      { status: 502, headers: { 'Content-Type': 'application/json' } },
+    );
   }
 
-  // ── Semantic cache lookup ─────────────────────────────────────────────────
-  if (!noCacheParam && !isFollowUp) {
-    let semanticRow: { answer: string; follow_ups: string[] | null; chunks_json: unknown[] | null; similarity?: number } | null = null;
-    try {
-      semanticRow = await tracer.trace('rag.cache_check', async () => {
-        const { data: rows } = await monitoredQuery('qa_cache.semantic_lookup', () =>
-          supabase.rpc('match_qa_cache', {
-            query_embedding: queryVector,
-            match_threshold: semanticThreshold,
-            match_count: 1,
-          }),
-        );
-        return Array.isArray(rows) ? (rows[0] ?? null) : null;
-      }, { type: 'semantic', threshold: semanticThreshold });
-    } catch {
-      // Non-fatal — fall through to live path
+  // ── Semantic answer cache check ──
+  const cacheEnabled = isCacheEnabled();
+  if (cacheEnabled) {
+    const cached = await getSemanticCache(queryVector);
+    if (cached) {
+      console.log(
+        JSON.stringify({ event: 'rag.semantic_cache_hit', similarity: cached.similarity, q: question.slice(0, 60) }),
+      );
+      return buildCacheHitResponse(cached.answer, cached.sources, conversationId);
     }
-
-    if (semanticRow) {
-      console.log(`[/api/ask] semantic_cache_hit similarity=${semanticRow.similarity?.toFixed(4)} ${logCtx}`);
-      const cachedChunks = (semanticRow.chunks_json ?? []) as CacheChunk[];
-      const cachedAnswer = semanticRow.answer as string;
-      const cachedFollowUps = (semanticRow.follow_ups ?? []) as string[];
-
-      supabase.rpc('increment_qa_cache_hit', { p_hash: cacheKey }).then(({ error }) => {
-        if (error) console.warn(`[/api/ask] cache_hit_increment_error err=${error.message}`);
-      });
-
-      const answerSources = cachedChunks.slice(0, 3).map((c) => ({
-        text: c.text.slice(0, 200), speaker: c.speaker, source: c.source,
-        score: Math.round(c.score * 100) / 100,
-      }));
-      let answerId: string | null = null;
-      try {
-        const { data: ar, error: ae } = await supabase
-          .from('qa_answers')
-          .insert({ question, answer: cachedAnswer, sources: answerSources, conversation_id: conversationId, cache_hash: cacheKey, ...(userId ? { user_id: userId } : {}) })
-          .select('id').single();
-        if (ae) console.warn(`[/api/ask] qa_answer_write_error err=${ae.message}`);
-        else answerId = ar?.id ?? null;
-      } catch (err) {
-        console.warn(`[/api/ask] qa_answer_exception err=${err instanceof Error ? err.message : String(err)}`);
-      }
-
-      const latencyMs = Date.now() - requestStart;
-      const questionHash = createHash('sha256').update(question).digest('hex');
-      const fmtMetrics = computeFormatMetrics(cachedAnswer);
-      supabase.from('qa_analytics')
-        .insert({ question_hash: questionHash, pinecone_scores: [], latency_ms: latencyMs, model_used: CHAT_MODEL, cache_hit: true, semantic_cache_hit: true, original_query: question, normalized_query: normalizedQuery, spell_corrected: spellCorrected, ...fmtMetrics })
-        .then(({ error }) => { if (error) console.warn(`[/api/ask] analytics_write_error err=${error.message}`); });
-
-      const updatedHistory = appendTurn(effectiveHistory, question, cachedAnswer);
-      supabase.from('conversation_sessions')
-        .upsert({ id: conversationId, history: updatedHistory, expires_at: new Date(Date.now() + SESSION_TTL_MS).toISOString() }, { onConflict: 'id' })
-        .then(({ error }) => { if (error) console.warn(`[/api/ask] supabase_session_error conv=${conversationId} err=${error.message}`); });
-      setConversationHistory(conversationId, updatedHistory).catch(() => {});
-      supabase.from('qa_conversations')
-        .upsert({ id: conversationId, messages: updatedHistory, updated_at: new Date().toISOString(), ...(userId ? { user_id: userId } : {}) }, { onConflict: 'id' })
-        .then(({ error }) => { if (error) console.warn(`[/api/ask] qa_conv_error conv=${conversationId} err=${error.message}`); });
-
-      await tracer.trace('rag.response_send', () => Promise.resolve(), { cached: true, type: 'semantic' });
-      return NextResponse.json({
-        answer: cachedAnswer, answerId, conversationId, followUps: cachedFollowUps, cached: true,
-        sources: cachedChunks.map((c) => ({ text: c.text.slice(0, 200), speaker: c.speaker, source: c.source, score: Math.round(c.score * 100) / 100, chunkId: c.chunkId ?? computeChunkId(c.source, c.text), ...(c.sourceUrl ? { sourceUrl: c.sourceUrl } : {}) })),
-        ...(correctedQuery ? { correctedQuery } : {}),
-        ...(rl !== null ? { rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() } } : {}),
-        ...(guestQueriesRemaining !== null ? { guestQueriesRemaining } : {}),
-        ...(userQuestionsRemaining !== null ? { userQuestionsRemaining } : {}),
-      }, { headers: dailyRlHeaders });
-    }
+    console.log(JSON.stringify({ event: 'rag.semantic_cache_miss', q: question.slice(0, 60) }));
   }
 
-  // ── HyDE: Hypothetical Document Embedding (OLU-695) ──────────────────────
-  // When ENABLE_HYDE=true, ask the LLM to generate a 2–3 sentence hypothetical
-  // answer document and embed that instead of the raw query for Pinecone retrieval.
-  // This bridges the vocabulary gap between abstract queries ("consciousness",
-  // "non-self") and concrete teaching-transcript language.
-  //
-  // Cache lookup above continues to use the original queryVector — only the
-  // retrieval step uses the richer hypothetical-doc embedding.
-  // Skipped for follow-ups, essay context, and teacher-filtered queries.
-  const canExpand = !isFollowUp && !essayCtx && !teacher;
-  let hydeVector: number[] | null = null;
-  let hydeUsed = false;
-  if (enableHyde && canExpand) {
-    try {
-      const hydeDoc = await generateHypotheticalDocument(question, oai);
-      if (hydeDoc) {
-        hydeVector = await embedOne(hydeDoc, { model: EMBED_MODEL, dimensions: EMBED_DIMENSIONS, client: oai });
-        hydeUsed = true;
-        console.log(`[/api/ask] hyde_active q="${question.slice(0, 60)}" ${logCtx}`);
-      }
-    } catch (hydeErr) {
-      console.warn(`[/api/ask] hyde_failed err=${hydeErr instanceof Error ? hydeErr.message : String(hydeErr)}`);
-    }
-  }
-
-  // ── Query expansion / multi-query retrieval ───────────────────────────────
-  // Two modes, both gated by canExpand (standalone, no essay/teacher context):
-  //
-  // ENABLE_MULTI_QUERY=true (OLU-693): generate 3 semantically-distinct variants
-  //   for ANY query (different perspective, simpler, more technical). Retrieve top-5
-  //   per variant, deduplicate by chunkId, re-rank with RRF, return top-7.
-  //
-  // Fallback (OLU-597): for short/abstract queries (≤ 3 words), expand to 3 richer
-  //   phrasings via GPT-4o and fuse with RRF. Applies when multi-query is disabled.
-  //
-  // When ENABLE_HYDE=true, the base retrieval vector is replaced with the HyDE
-  // embedding; multi-query variants are still generated from the original question
-  // and compose naturally (hydeVector + 3 variant vectors).
-  //
-  // Follow-ups, essay context, and teacher-filtered queries skip all paths.
-  let queryPhrasings: string[] = [embedInput];
-  let isMultiQuery = false;
-
-  if (canExpand && enableMultiQuery) {
-    // Multi-query mode: generate 3 variants for any query length
-    try {
-      const variants = await generateQueryVariants(question, oai);
-      if (variants.length > 0) {
-        queryPhrasings = [embedInput, ...variants];
-        isMultiQuery = true;
-        console.log(`[/api/ask] multi_query_expansion phrasings=${queryPhrasings.length} q="${question.slice(0, 60)}" ${logCtx}`);
-      }
-    } catch (mqErr) {
-      console.warn(`[/api/ask] multi_query_expansion_failed err=${mqErr instanceof Error ? mqErr.message : String(mqErr)}`);
-    }
-  } else if (canExpand && shouldExpandQuery(question)) {
-    // Short-query expansion fallback
-    try {
-      queryPhrasings = await expandQuery(question, oai);
-      console.log(`[/api/ask] query_expansion phrasings=${queryPhrasings.length} q="${question.slice(0, 60)}" ${logCtx}`);
-    } catch (expandErr) {
-      console.warn(`[/api/ask] query_expansion_failed err=${expandErr instanceof Error ? expandErr.message : String(expandErr)}`);
-      queryPhrasings = [embedInput];
-    }
-  }
-
-  // Embed all phrasings (batch call when >1; reuse pre-computed queryVector for single).
-  // When HyDE is active, the base vector (index 0) is replaced with the hypothetical-doc
-  // embedding — variant vectors are left unchanged.
-  let queryVectors: number[][];
-  if (queryPhrasings.length === 1) {
-    queryVectors = [hydeVector ?? queryVector];
-  } else {
-    try {
-      queryVectors = await embedBatch(queryPhrasings, { model: EMBED_MODEL, dimensions: EMBED_DIMENSIONS, client: oai });
-      if (hydeVector) queryVectors[0] = hydeVector;
-    } catch (batchEmbedErr) {
-      console.warn(`[/api/ask] batch_embed_failed err=${batchEmbedErr instanceof Error ? batchEmbedErr.message : String(batchEmbedErr)}`);
-      queryVectors = [hydeVector ?? queryVector];
-    }
-  }
-
-  // ── Retrieve from Pinecone (dual-namespace, per phrasing) ─────────────────
-  // Query both raw and summary namespaces in parallel, then merge by chunk text.
-  // Summary vectors capture semantic meaning; raw vectors capture exact terminology.
-  type PineconeMatch = { id: string; score?: number; metadata?: Record<string, string> };
-  // When a teacher filter is active, restrict retrieval to that teacher's chunks only.
-  const pineconeFilter = teacher ? { speaker: { $eq: teacher } } : undefined;
-
-  function matchesToChunks(matches: PineconeMatch[]): Array<{ text: string; speaker: string; source: string; score: number; chunkId: string; sourceUrl?: string }> {
-    const map = new Map<string, { text: string; speaker: string; source: string; score: number; chunkId: string; sourceUrl?: string }>();
-    for (const m of matches) {
-      const meta = m.metadata ?? {};
-      const text = meta.text ?? '';
-      if (!text || (m.score ?? 0) < 0.4) continue;
-      const existing = map.get(text);
-      if (!existing || (m.score ?? 0) > existing.score) {
-        const source = meta.source_file ?? meta.source ?? '';
-        // source_url: prefer explicit field (Waking Up chunks), fall back to url (PoA essay chunks)
-        const sourceUrl: string | undefined = meta.source_url || meta.url || undefined;
-        map.set(text, { text, speaker: meta.speaker ?? '', source, score: m.score ?? 0, chunkId: computeChunkId(source, text), sourceUrl });
-      }
-    }
-    return Array.from(map.values()).sort((a, b) => b.score - a.score);
-  }
-
-  const perPhrasingChunks: Array<Array<{ text: string; speaker: string; source: string; score: number; chunkId: string; sourceUrl?: string }>> = [];
-
-  // Use narrower per-variant topK in multi-query mode: 4 variants × 5 chunks ≈ 20
-  // candidates after RRF, which is the same pool size as single-query mode (TOP_K=20).
-  const activeTopK = isMultiQuery ? MULTI_QUERY_TOP_K : TOP_K;
-
+  let results: Awaited<ReturnType<ReturnType<typeof pc.Index>['query']>>;
   try {
-    await tracer.trace('rag.vector_search', async () => {
-      const index = pc.Index(pineconeIndex);
-
-      for (const vec of queryVectors) {
-        const [rawResults, summaryResults] = await Promise.all([
-          index.namespace(PINECONE_NAMESPACE).query({
-            vector: vec,
-            topK: activeTopK,
-            includeMetadata: true,
-            ...(pineconeFilter ? { filter: pineconeFilter } : {}),
-          }),
-          index.namespace(PINECONE_SUMMARY_NAMESPACE).query({
-            vector: vec,
-            topK: activeTopK,
-            includeMetadata: true,
-            ...(pineconeFilter ? { filter: pineconeFilter } : {}),
-          }).catch(() => ({ matches: [] })), // graceful fallback if namespace empty
-        ]);
-
-        const rawMatches = (rawResults.matches ?? []) as PineconeMatch[];
-        const summaryMatches = (summaryResults.matches ?? []) as PineconeMatch[];
-
-        // ── Fallback: primary namespace empty → query __default__ ───────────
-        if (rawMatches.length === 0 && summaryMatches.length === 0 && !pineconeFilter) {
-          try {
-            const fallbackResults = await index.namespace('__default__').query({
-              vector: vec,
-              topK: activeTopK,
-              includeMetadata: true,
-            });
-            const fallbackMatches = (fallbackResults.matches ?? []) as PineconeMatch[];
-            if (fallbackMatches.length > 0) {
-              console.log(`[/api/ask] fallback_ns_default matches=${fallbackMatches.length} ${logCtx}`);
-              perPhrasingChunks.push(matchesToChunks(fallbackMatches));
-              continue;
-            }
-          } catch (fallbackErr) {
-            console.warn(`[/api/ask] fallback_ns_failed err=${fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)}`);
-          }
-        }
-
-        perPhrasingChunks.push(matchesToChunks([...rawMatches, ...summaryMatches]));
-      }
-    }, { k: TOP_K, phrasings: queryVectors.length },
-    () => ({
-      chunk_count: perPhrasingChunks.reduce((s, c) => s + c.length, 0),
-      top_score: perPhrasingChunks.flat().sort((a, b) => b.score - a.score)[0]?.score ?? 0,
-    }));
+    const index = pc.Index(pineconeIndex);
+    results = await tracer.trace(
+      'rag.vector_search',
+      () => index.query({ vector: queryVector, topK: TOP_K, includeMetadata: true }),
+      { top_k: TOP_K },
+      (r) => ({ chunk_count: r.matches.length, top_score: r.matches[0]?.score ?? 0 }),
+    );
   } catch (err) {
-    return handlePineconeError(err, logCtx);
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[/api/ask] pinecone_error: ${msg}`);
+    return new Response(
+      JSON.stringify({ error: { code: 'RETRIEVAL_ERROR', message: 'Knowledge base error.' } }),
+      { status: 502, headers: { 'Content-Type': 'application/json' } },
+    );
   }
 
-  // ── Merge: RRF (multi-phrasing) or direct sort (single phrasing) ───────────
-  // Multi-query mode uses chunkId-keyed RRF for more accurate cross-variant dedup.
-  // Short-query expansion falls back to text-keyed RRF (no guaranteed chunkId parity).
-  const allChunks = queryVectors.length > 1 && perPhrasingChunks.length > 1
-    ? isMultiQuery
-      ? reciprocalRankFusionByChunkId(perPhrasingChunks)
-      : reciprocalRankFusion(perPhrasingChunks)
-    : (perPhrasingChunks[0] ?? []);
+  // ── Deduplicate chunks ──
+  const seenTexts = new Set<string>();
+  let chunks = results.matches
+    .filter((m) => m.score && m.score > SCORE_THRESHOLD)
+    .map((m) => {
+      const meta = m.metadata as Record<string, string> | undefined;
+      return {
+        text: meta?.text ?? '',
+        speaker: meta?.speaker ?? '',
+        source: meta?.source_file ?? '',
+        score: m.score ?? 0,
+      };
+    })
+    .filter((c) => {
+      if (seenTexts.has(c.text)) return false;
+      seenTexts.add(c.text);
+      return true;
+    });
 
-  // ── Feedback score re-ranking boost ───────────────────────────────────────
-  // Multiply each chunk's retrieval score by (1 + 0.1 * feedback_score) using
-  // aggregated citation_feedback signals. Fire-and-forget: skip silently on DB
-  // error so retrieval is never blocked by a feedback lookup failure.
-  if (allChunks.length > 0) {
+  // ── Cross-encoder reranking (ENABLE_RERANKING=true) ──
+  if (rerankingEnabled && chunks.length >= 2) {
+    const cohere = new CohereClientV2({ token: cohereKey! });
     try {
-      const chunkIds = allChunks.map((c) => c.chunkId).filter((id): id is string => !!id);
-      const { data: feedbackRows } = await supabase
-        .from('corpus_chunks')
-        .select('chunk_id, feedback_score')
-        .in('chunk_id', chunkIds);
-      if (feedbackRows && feedbackRows.length > 0) {
-        const scoreMap = new Map(
-          (feedbackRows as Array<{ chunk_id: string; feedback_score: number }>).map(
-            (r) => [r.chunk_id, r.feedback_score],
-          ),
-        );
-        for (const c of allChunks) {
-          const fScore = scoreMap.get(c.chunkId ?? '') ?? 0;
-          if (fScore !== 0) c.score = c.score * (1 + 0.1 * fScore);
-        }
-        allChunks.sort((a, b) => b.score - a.score);
-      }
-    } catch (fbErr) {
-      console.warn(`[/api/ask] feedback_score_lookup_failed err=${fbErr instanceof Error ? fbErr.message : String(fbErr)}`);
-    }
-  }
+      const reranked = await tracer.trace(
+        'rag.cohere_rerank',
+        () =>
+          cohere
+            .rerank({
+              model: RERANK_MODEL,
+              query: question,
+              documents: chunks.map((c) => c.text),
+              topN: Math.min(RERANK_TOP_N, chunks.length),
+            })
+            .then((r) => r.results),
+        { model: RERANK_MODEL, candidate_count: chunks.length, top_n: RERANK_TOP_N },
+        (res) => ({
+          result_count: res.length,
+          top_rerank_score: res[0]?.relevanceScore ?? 0,
+          min_rerank_score: res[res.length - 1]?.relevanceScore ?? 0,
+        }),
+      );
 
-  // ── Cohere re-ranking ─────────────────────────────────────────────────────
-  // If COHERE_API_KEY is set, re-rank the broad retrieval set and keep top N.
-  // Falls back to cosine/RRF score order if the key is absent or the call fails.
-  // Multi-query mode targets MULTI_QUERY_TOP_N (7) instead of RERANK_TOP_N (6).
-  const cohereKey = process.env.COHERE_API_KEY;
-  const activeRerankTopN = isMultiQuery ? MULTI_QUERY_TOP_N : RERANK_TOP_N;
-  let chunks: typeof allChunks;
-  if (cohereKey && allChunks.length > activeRerankTopN) {
-    try {
-      chunks = await tracer.trace('rag.cohere_rerank', async () => {
-        const cohere = new CohereClient({ token: cohereKey });
-        const rerankResult = await cohere.rerank({
-          model: 'rerank-v3.5',
-          query: question,
-          documents: allChunks.map((c) => ({ text: c.text })),
-          topN: activeRerankTopN,
-          returnDocuments: false,
-        });
-        return rerankResult.results.map((r) => ({
-          ...allChunks[r.index],
-          score: r.relevanceScore,
-        }));
-      }, { input_count: allChunks.length, top_n: activeRerankTopN });
-      console.log(`[/api/ask] reranked ${allChunks.length} → ${chunks.length} chunks ${logCtx}`);
+      // Log score distribution for observability
+      const scoreDistribution = Array.from({ length: 10 }, (_, i) => {
+        const lo = i / 10;
+        const hi = (i + 1) / 10;
+        return { band: `${lo.toFixed(1)}-${hi.toFixed(1)}`, count: reranked.filter((r) => r.relevanceScore >= lo && r.relevanceScore < hi).length };
+      });
+      console.log(JSON.stringify({ event: 'rag.rerank_scores', scores: reranked.map((r) => ({ idx: r.index, relevance: r.relevanceScore })), distribution: scoreDistribution }));
+
+      // Reorder chunks by reranker relevance
+      chunks = reranked.map((r) => ({ ...chunks[r.index], score: r.relevanceScore }));
     } catch (err) {
-      console.warn(`[/api/ask] rerank_failed fallback to cosine err=${err instanceof Error ? err.message : String(err)}`);
-      chunks = allChunks.slice(0, activeRerankTopN);
+      // Reranking failure is non-fatal — fall through with vector scores
+      console.warn(`[/api/ask] cohere_rerank_error: ${err instanceof Error ? err.message : String(err)}`);
+      chunks = chunks.slice(0, RERANK_TOP_N);
     }
   } else {
-    chunks = allChunks.slice(0, activeRerankTopN);
+    chunks = chunks.slice(0, 6);
   }
 
-  // ── Build context ─────────────────────────────────────────────────────────
+  // ── Build context ──
   const context = chunks.length > 0
     ? chunks.map((c, i) => `[${i + 1}] ${c.text}`).join('\n\n')
     : null;
 
-  // ── Concept graph augmentation (OLU-443, OLU-603) ────────────────────────
-  // Retrieves related concepts from the knowledge graph for prompt augmentation
-  // and for surfacing in the API response. Fails gracefully — never blocks the
-  // response.
-  const conceptContext = await getConceptContext(supabase, queryVector).catch(() => []);
+  const userContent = context
+    ? `Transcript excerpts from our archive:\n\n${context}\n\nQuestion: ${question}`
+    : `Question: ${question}`;
 
-  const conceptPreamble = (() => {
-    const sections = conceptContext.flatMap(({ concept, teachers }) => {
-      if (teachers.length === 0) return [];
-      const lines = teachers.map((t) => `  - ${t.teacher}: "${t.summary}"`).join('\n');
-      return [`Concept: "${concept.name}"\n${lines}`];
-    });
-    return sections.length > 0 ? `[Cross-teacher context]\n${sections.join('\n\n')}` : null;
-  })();
-
-  const relatedConcepts = conceptContext.map(({ concept }) => ({
-    name: concept.name,
-    definition_excerpt: concept.description ?? null,
-    url: `/glossary/${concept.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}`,
-  }));
-
-  const priorMessages = effectiveHistory.slice(-6).map((m) => ({
-    role: m.role as 'user' | 'assistant',
-    content: m.content,
-  }));
-
-  const userContent = (() => {
-    const parts: string[] = [];
-    if (conceptPreamble) parts.push(conceptPreamble);
-    if (essayCtx) {
-      const essayBody = essayCtx.bodyMarkdown.slice(0, 2000);
-      parts.push(`[Essay context: ${essayCtx.title}\n${essayBody}]`);
-    }
-    if (context) parts.push(`Transcript excerpts from our archive:\n\n${context}`);
-    parts.push(`Question: ${question}`);
-    return parts.join('\n\n');
-  })();
-
-  // Shared sources payloads (built once, used in both paths)
-  // chunkId is included so clients can reference specific chunks when submitting
-  // feedback via POST /api/qa/feedback.
-  const sourcesPayload = chunks.map((c) => ({
+  // ── Sources for client ──
+  const sources = chunks.map((c) => ({
     text: c.text.slice(0, 200),
     speaker: c.speaker,
     source: c.source,
     score: Math.round(c.score * 100) / 100,
-    chunkId: c.chunkId ?? computeChunkId(c.source, c.text),
-    ...(c.sourceUrl ? { sourceUrl: c.sourceUrl } : {}),
   }));
 
-  const answerSources = chunks.slice(0, 3).map((c) => ({
-    text: c.text.slice(0, 200),
-    speaker: c.speaker,
-    source: c.source,
-    score: Math.round(c.score * 100) / 100,
-    chunkId: c.chunkId ?? computeChunkId(c.source, c.text),
-    ...(c.sourceUrl ? { sourceUrl: c.sourceUrl } : {}),
-  }));
+  // ── Stream response using AI SDK ──
+  const result = streamText({
+    model: openai(CHAT_MODEL),
+    messages: [
+      { role: 'system', content: effectiveSystemPrompt },
+      ...priorMessages.map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+      { role: 'user' as const, content: userContent },
+    ],
+    temperature: 0.5,
+    maxOutputTokens: 600,
+    onFinish: async ({ text }) => {
+      const latencyMs = Date.now() - queryStartMs;
 
-  // Shared follow-up messages (same input for both paths)
-  const followUpMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-    {
-      role: 'system',
-      content:
-        'You generate follow-up questions for a mindfulness Q&A. Return exactly 3 short, distinct questions a curious reader might ask next. Output only a JSON array of strings, no other text.',
-    },
-    { role: 'user', content: `Original question: ${question}\n\nAnswer summary: ${userContent.slice(0, 400)}` },
-  ];
-
-  // ── Branch: streaming (default) vs non-streaming (?stream=false) ──────────
-  const streamMode = req.nextUrl.searchParams.get('stream') !== 'false';
-
-  // ============================================================
-  // NON-STREAMING FALLBACK
-  // ============================================================
-  if (!streamMode) {
-    // ── Redis answer cache check ───────────────────────────────────────────
-    // Key combines the normalised question with the top-3 chunk fingerprints so
-    // an answer is only reused when both the query and retrieved context match.
-    // Skip for follow-ups, filtered queries, and any bypass condition already
-    // captured by noCacheParam (pro users, teacher filter, essay context, etc.).
-    const redisAnswerKey = buildAnswerCacheKey(question, chunks);
-    if (!noCacheParam && !isFollowUp) {
-      const redisHit = await getAnswerCache(redisAnswerKey);
-      if (redisHit) {
-        console.log(`[/api/ask] redis_answer_cache_hit ${logCtx}`);
-        const { answer: cachedAnswer, followUps: cachedFollowUps, chunks: cachedChunks } = redisHit;
-        const latencyMs = Date.now() - requestStart;
-        const questionHash = createHash('sha256').update(question).digest('hex');
-        const fmtMetrics = computeFormatMetrics(cachedAnswer);
-
-        supabase.from('qa_analytics')
-          .insert({ question_hash: questionHash, pinecone_scores: chunks.slice(0, 3).map((c) => c.score), latency_ms: latencyMs, model_used: CHAT_MODEL, cache_hit: true, semantic_cache_hit: false, original_query: question, normalized_query: normalizedQuery, spell_corrected: spellCorrected, ...fmtMetrics })
-          .then(({ error }) => { if (error) console.warn(`[/api/ask] analytics_write_error err=${error.message}`); });
-
-        const hitSources = cachedChunks.slice(0, 3).map((c) => ({
-          text: c.text.slice(0, 200), speaker: c.speaker, source: c.source,
-          score: Math.round(c.score * 100) / 100,
-          chunkId: c.chunkId ?? computeChunkId(c.source, c.text),
-          ...(c.sourceUrl ? { sourceUrl: c.sourceUrl } : {}),
-        }));
-        let answerId: string | null = null;
-        try {
-          const { data: ar, error: ae } = await supabase
-            .from('qa_answers')
-            .insert({ question, answer: cachedAnswer, sources: hitSources, conversation_id: conversationId, cache_hash: redisAnswerKey, ...(userId ? { user_id: userId } : {}) })
-            .select('id').single();
-          if (ae) console.warn(`[/api/ask] qa_answer_write_error err=${ae.message}`);
-          else answerId = ar?.id ?? null;
-        } catch (err) {
-          console.warn(`[/api/ask] qa_answer_exception err=${err instanceof Error ? err.message : String(err)}`);
-        }
-
-        const updatedHistory = appendTurn(effectiveHistory, question, cachedAnswer);
-        const sessionTitle = updatedHistory.find((m) => m.role === 'user')?.content.slice(0, 120) ?? question.slice(0, 120);
-        supabase.from('conversation_sessions')
-          .upsert({ id: conversationId, history: updatedHistory, expires_at: new Date(Date.now() + SESSION_TTL_MS).toISOString(), updated_at: new Date().toISOString(), message_count: updatedHistory.length, ...(userId ? { user_id: userId } : {}), ...(isExistingConversation ? {} : { title: sessionTitle }) }, { onConflict: 'id' })
-          .then(({ error }) => { if (error) console.warn(`[/api/ask] supabase_session_error conv=${conversationId} err=${error.message}`); });
-        setConversationHistory(conversationId, updatedHistory).catch(() => {});
-        supabase.from('qa_conversations')
-          .upsert({ id: conversationId, messages: updatedHistory, updated_at: new Date().toISOString(), ...(userId ? { user_id: userId } : {}) }, { onConflict: 'id' })
-          .then(({ error }) => { if (error) console.warn(`[/api/ask] qa_conv_error conv=${conversationId} err=${error.message}`); });
-
-        await tracer.trace('rag.response_send', () => Promise.resolve(), { cached: true, type: 'redis' });
-        return NextResponse.json({
-          answer: cachedAnswer, answerId, conversationId, followUps: cachedFollowUps, cached: true,
-          sources: cachedChunks.map((c) => ({ text: c.text.slice(0, 200), speaker: c.speaker, source: c.source, score: Math.round(c.score * 100) / 100, chunkId: c.chunkId ?? computeChunkId(c.source, c.text), ...(c.sourceUrl ? { sourceUrl: c.sourceUrl } : {}) })),
-          related_concepts: relatedConcepts,
-          ...(correctedQuery ? { correctedQuery } : {}),
-          ...(rl !== null ? { rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() } } : {}),
-          ...(guestQueriesRemaining !== null ? { guestQueriesRemaining } : {}),
-          ...(userQuestionsRemaining !== null ? { userQuestionsRemaining } : {}),
-        }, { headers: { ...dailyRlHeaders, 'X-Cache': 'HIT' } });
-      }
-    }
-
-    let answer: string;
-    let followUps: string[] = [];
-    try {
-      const [chatResp, followUpsResp] = await Promise.all([
-        tracer.trace('rag.llm_call', () =>
-          oai.chat.completions.create({
-            model: CHAT_MODEL,
-            messages: [
-              { role: 'system', content: activeSystemPrompt },
-              ...priorMessages,
-              { role: 'user', content: userContent },
-            ],
-            temperature: 0.5,
-            max_tokens: 600,
-          }),
-          { 'llm.model': CHAT_MODEL },
-          (resp) => ({
-            'llm.prompt_tokens': resp.usage?.prompt_tokens ?? 0,
-            'llm.completion_tokens': resp.usage?.completion_tokens ?? 0,
-          }),
-        ),
-        oai.chat.completions.create({
-          model: CHAT_MODEL,
-          messages: followUpMessages,
-          temperature: 0.7,
-          max_tokens: 150,
-        }),
-      ]);
-      logOpenAIUsage({ model: CHAT_MODEL, endpoint: 'completion', promptTokens: chatResp.usage?.prompt_tokens ?? 0, completionTokens: chatResp.usage?.completion_tokens ?? 0, cachedTokens: chatResp.usage?.prompt_tokens_details?.cached_tokens ?? 0 });
-      logOpenAIUsage({ model: CHAT_MODEL, endpoint: 'completion', promptTokens: followUpsResp.usage?.prompt_tokens ?? 0, completionTokens: followUpsResp.usage?.completion_tokens ?? 0, cachedTokens: followUpsResp.usage?.prompt_tokens_details?.cached_tokens ?? 0 });
-      answer = chatResp.choices[0]?.message?.content ?? '';
+      // Persist conversation session (best-effort)
+      const updatedHistory = appendTurn(effectiveHistory, question, text);
       try {
-        const raw = followUpsResp.choices[0]?.message?.content ?? '[]';
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) followUps = parsed.slice(0, 3).map(String);
-      } catch {
-        // Follow-ups are non-critical
-      }
-    } catch (err) {
-      return handleOpenAIError(err, 'chat', logCtx);
-    }
-
-    const latencyMs = Date.now() - requestStart;
-    const questionHash = createHash('sha256').update(question).digest('hex');
-    const pineconeScores = chunks.slice(0, 3).map((c) => c.score);
-    const fmtMetrics = computeFormatMetrics(answer);
-
-    // Log structured spans and persist timing to qa_metrics (fire-and-forget)
-    tracer.log(logCtx);
-    const ragSpans = tracer.summarize();
-    supabase
-      .from('qa_metrics')
-      .insert({ question_hash: questionHash, conversation_id: conversationId, embed_ms: ragSpans.embed_ms, retrieve_ms: ragSpans.retrieve_ms, rerank_ms: ragSpans.rerank_ms, generate_ms: ragSpans.generate_ms, total_ms: ragSpans.total_ms })
-      .then(({ error }) => { if (error) console.warn(`[/api/ask] qa_metrics_write_error err=${error.message}`); });
-
-    supabase
-      .from('qa_analytics')
-      .insert({ question_hash: questionHash, pinecone_scores: pineconeScores, latency_ms: latencyMs, model_used: CHAT_MODEL, cache_hit: false, semantic_cache_hit: false, hyde_used: hydeUsed, original_query: question, normalized_query: normalizedQuery, spell_corrected: spellCorrected, ...fmtMetrics })
-      .then(({ error }) => { if (error) console.warn(`[/api/ask] analytics_write_error err=${error.message}`); });
-
-    // Cache write on miss (standalone questions only, no teacher/essay filter, fire-and-forget)
-    if (!isFollowUp && !teacher && !essaySlug) {
-      const pineconeTop1Score = chunks[0]?.score ?? null;
-      supabase
-        .from('qa_cache')
-        .insert({ hash: cacheKey, question, answer, follow_ups: followUps, chunks_json: chunks, question_embedding: queryVector, pinecone_top1_score: pineconeTop1Score })
-        .then(({ error }) => {
-          if (error && error.code !== '23505') {
-            console.warn(`[/api/ask] cache_write_error err=${error.message}`);
-          }
-        });
-      // Redis answer cache write — 1hr TTL, faster than Supabase for repeat queries
-      setAnswerCache(redisAnswerKey, { answer, followUps, chunks }).catch(() => {});
-    }
-
-    let answerId: string | null = null;
-    try {
-      const { data: answerRow, error: answerError } = await supabase
-        .from('qa_answers')
-        .insert({ question, answer, sources: answerSources, conversation_id: conversationId, cache_hash: isFollowUp ? null : cacheKey, ...(userId ? { user_id: userId } : {}) })
-        .select('id')
-        .single();
-      if (answerError) {
-        console.warn(`[/api/ask] qa_answer_write_error err=${answerError.message}`);
-      } else {
-        answerId = answerRow?.id ?? null;
-      }
-    } catch (err) {
-      console.warn(`[/api/ask] qa_answer_exception err=${err instanceof Error ? err.message : String(err)}`);
-    }
-
-    const updatedHistory = appendTurn(effectiveHistory, question, answer);
-    const sessionTitle = updatedHistory.find((m) => m.role === 'user')?.content.slice(0, 120) ?? question.slice(0, 120);
-    supabase
-      .from('conversation_sessions')
-      .upsert({
-        id: conversationId,
-        history: updatedHistory,
-        expires_at: new Date(Date.now() + SESSION_TTL_MS).toISOString(),
-        updated_at: new Date().toISOString(),
-        message_count: updatedHistory.length,
-        ...(userId ? { user_id: userId } : {}),
-        ...(isExistingConversation ? {} : { title: sessionTitle }),
-      }, { onConflict: 'id' })
-      .then(({ error }) => { if (error) console.warn(`[/api/ask] supabase_session_error conv=${conversationId} err=${error.message}`); });
-    setConversationHistory(conversationId, updatedHistory).catch(() => {});
-    supabase.from('qa_conversations')
-      .upsert({ id: conversationId, messages: updatedHistory, updated_at: new Date().toISOString(), ...(userId ? { user_id: userId } : {}) }, { onConflict: 'id' })
-      .then(({ error }) => { if (error) console.warn(`[/api/ask] qa_conv_error conv=${conversationId} err=${error.message}`); });
-
-    await tracer.trace('rag.response_send', () => Promise.resolve(), { cached: false, streaming: false });
-    return NextResponse.json({
-      answer,
-      answerId,
-      conversationId,
-      followUps,
-      sources: sourcesPayload,
-      related_concepts: relatedConcepts,
-      cached: false,
-      ...(correctedQuery ? { correctedQuery } : {}),
-      ...(rl !== null ? { rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() } } : {}),
-      ...(guestQueriesRemaining !== null ? { guestQueriesRemaining } : {}),
-      ...(userQuestionsRemaining !== null ? { userQuestionsRemaining } : {}),
-    }, { headers: { ...dailyRlHeaders, 'X-Cache': 'MISS' } });
-  }
-
-  // ============================================================
-  // STREAMING PATH (SSE)
-  // ============================================================
-
-  // Fire follow-up questions in parallel — input doesn't depend on the answer text,
-  // only on the question + context which we already have.
-  const followUpsPromise: Promise<string[]> = oai.chat.completions
-    .create({ model: CHAT_MODEL, messages: followUpMessages, temperature: 0.7, max_tokens: 150 })
-    .then((r) => {
-      logOpenAIUsage({ model: CHAT_MODEL, endpoint: 'completion', promptTokens: r.usage?.prompt_tokens ?? 0, completionTokens: r.usage?.completion_tokens ?? 0, cachedTokens: r.usage?.prompt_tokens_details?.cached_tokens ?? 0 });
-      try {
-        const raw = r.choices[0]?.message?.content ?? '[]';
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) return parsed.slice(0, 3).map(String);
-      } catch { /* non-critical */ }
-      return [];
-    })
-    .catch(() => []);
-
-  const encoder = new TextEncoder();
-  const sseEvent = (data: object) => encoder.encode(`data: ${JSON.stringify(data)}\n\n`);
-
-  let streamAbortController: AbortController | undefined;
-
-  const readableStream = new ReadableStream({
-    async start(controller) {
-      streamAbortController = new AbortController();
-      try {
-        let fullAnswer = '';
-        const generateStart = Date.now();
-
-        const chatStream = await oai.chat.completions.create(
-          {
-            model: CHAT_MODEL,
-            messages: [
-              { role: 'system', content: activeSystemPrompt },
-              ...priorMessages,
-              { role: 'user', content: userContent },
-            ],
-            temperature: 0.5,
-            max_tokens: 600,
-            stream: true,
-            stream_options: { include_usage: true },
-          },
-          { signal: streamAbortController.signal },
-        );
-
-        let streamUsage: { prompt_tokens: number; completion_tokens: number } | null = null;
-        for await (const chunk of chatStream) {
-          const delta = chunk.choices[0]?.delta?.content ?? '';
-          if (delta) {
-            fullAnswer += delta;
-            controller.enqueue(sseEvent({ delta }));
-          }
-          if (chunk.usage) {
-            logOpenAIUsage({ model: CHAT_MODEL, endpoint: 'completion', promptTokens: chunk.usage.prompt_tokens, completionTokens: chunk.usage.completion_tokens, cachedTokens: chunk.usage.prompt_tokens_details?.cached_tokens ?? 0 });
-            streamUsage = { prompt_tokens: chunk.usage.prompt_tokens, completion_tokens: chunk.usage.completion_tokens };
-          }
-        }
-
-        tracer.recordGenerateSpan(Date.now() - generateStart, {
-          'llm.model': CHAT_MODEL,
-          'llm.prompt_tokens': streamUsage?.prompt_tokens ?? 0,
-          'llm.completion_tokens': streamUsage?.completion_tokens ?? 0,
-        });
-
-        // Main stream complete — follow-ups should be ready by now
-        const followUps = await followUpsPromise;
-
-        // Log structured spans and persist timing to qa_metrics (fire-and-forget)
-        tracer.log(logCtx);
-        const ragSpans = tracer.summarize();
-        const questionHash = createHash('sha256').update(question).digest('hex');
-        supabase
-          .from('qa_metrics')
-          .insert({ question_hash: questionHash, conversation_id: conversationId, embed_ms: ragSpans.embed_ms, retrieve_ms: ragSpans.retrieve_ms, rerank_ms: ragSpans.rerank_ms, generate_ms: ragSpans.generate_ms, total_ms: ragSpans.total_ms })
-          .then(({ error }) => { if (error) console.warn(`[/api/ask] qa_metrics_write_error err=${error.message}`); });
-
-        // Analytics (fire and forget)
-        const latencyMs = Date.now() - requestStart;
-        const pineconeScores = chunks.slice(0, 3).map((c) => c.score);
-        const fmtMetrics = computeFormatMetrics(fullAnswer);
-        supabase
-          .from('qa_analytics')
-          .insert({ question_hash: questionHash, pinecone_scores: pineconeScores, latency_ms: latencyMs, model_used: CHAT_MODEL, cache_hit: false, semantic_cache_hit: false, hyde_used: hydeUsed, original_query: question, normalized_query: normalizedQuery, spell_corrected: spellCorrected, ...fmtMetrics })
-          .then(({ error }) => { if (error) console.warn(`[/api/ask] analytics_write_error err=${error.message}`); });
-
-        // Cache write on miss (standalone questions only, no teacher filter, fire-and-forget)
-        if (!isFollowUp && !teacher) {
-          const pineconeTop1Score = chunks[0]?.score ?? null;
-          supabase
-            .from('qa_cache')
-            .insert({ hash: cacheKey, question, answer: fullAnswer, follow_ups: followUps, chunks_json: chunks, question_embedding: queryVector, pinecone_top1_score: pineconeTop1Score })
-            .then(({ error }) => {
-              if (error && error.code !== '23505') {
-                console.warn(`[/api/ask] cache_write_error err=${error.message}`);
-              }
-            });
-        }
-
-        // Persist answer to get shareable answerId
-        let answerId: string | null = null;
-        try {
-          const { data: answerRow, error: answerError } = await supabase
-            .from('qa_answers')
-            .insert({ question, answer: fullAnswer, sources: answerSources, conversation_id: conversationId, cache_hash: isFollowUp ? null : cacheKey, ...(userId ? { user_id: userId } : {}) })
-            .select('id')
-            .single();
-          if (answerError) {
-            console.warn(`[/api/ask] qa_answer_write_error err=${answerError.message}`);
-          } else {
-            answerId = answerRow?.id ?? null;
-          }
-        } catch (err) {
-          console.warn(`[/api/ask] qa_answer_exception err=${err instanceof Error ? err.message : String(err)}`);
-        }
-
-        // Persist conversation session (fire and forget)
-        const updatedHistory = appendTurn(effectiveHistory, question, fullAnswer);
-        const sessionTitle = updatedHistory.find((m) => m.role === 'user')?.content.slice(0, 120) ?? question.slice(0, 120);
-        supabase
+        await supabase
           .from('conversation_sessions')
           .upsert(
             {
               id: conversationId,
               history: updatedHistory,
               expires_at: new Date(Date.now() + SESSION_TTL_MS).toISOString(),
-              updated_at: new Date().toISOString(),
-              message_count: updatedHistory.length,
-              ...(userId ? { user_id: userId } : {}),
-              ...(isExistingConversation ? {} : { title: sessionTitle }),
             },
             { onConflict: 'id' },
-          )
-          .then(({ error }) => { if (error) console.warn(`[/api/ask] supabase_session_error conv=${conversationId} err=${error.message}`); });
-        setConversationHistory(conversationId, updatedHistory).catch(() => {});
-        supabase.from('qa_conversations')
-          .upsert({ id: conversationId, messages: updatedHistory, updated_at: new Date().toISOString(), ...(userId ? { user_id: userId } : {}) }, { onConflict: 'id' })
-          .then(({ error }) => { if (error) console.warn(`[/api/ask] qa_conv_error conv=${conversationId} err=${error.message}`); });
-
-        // Send done event with all metadata
-        await tracer.trace('rag.response_send', () => Promise.resolve(), { cached: false, streaming: true });
-        controller.enqueue(
-          sseEvent({
-            done: true,
-            conversationId,
-            answerId,
-            followUps,
-            sources: sourcesPayload,
-            related_concepts: relatedConcepts,
-            cached: false,
-            ...(correctedQuery ? { correctedQuery } : {}),
-            ...(rl !== null ? { rateLimit: { remaining: rl.remaining, resetAt: new Date(rl.resetAt).toISOString() } } : {}),
-            ...(guestQueriesRemaining !== null ? { guestQueriesRemaining } : {}),
-            ...(userQuestionsRemaining !== null ? { userQuestionsRemaining } : {}),
-          }),
-        );
+          );
       } catch (err) {
-        if (err instanceof Error && err.name === 'AbortError') {
-          console.log(`[/api/ask] stream_aborted ${logCtx}`);
-        } else {
-          Sentry.withScope((scope) => { scope.setTag('rag.stage', 'llm_call'); scope.setTag('rag.path', 'streaming'); Sentry.captureException(err); });
-          const userMsg =
-            err instanceof OpenAIRateLimitError
-              ? 'AI service is temporarily over capacity. Please try again shortly.'
-              : err instanceof APIConnectionTimeoutError
-                ? 'AI service did not respond in time. Please try again.'
-                : err instanceof APIConnectionError
-                  ? 'Could not reach AI service. Please try again.'
-                  : 'An error occurred while generating the response.';
-          console.error(`[/api/ask] stream_error ${logCtx} err=${err instanceof Error ? err.message : String(err)}`);
-          try {
-            controller.enqueue(sseEvent({ error: userMsg }));
-          } catch { /* stream may already be closing */ }
-        }
-      } finally {
-        try { controller.close(); } catch { /* already closed */ }
+        console.warn(`[/api/ask] supabase_session_error conv=${conversationId} err=${err}`);
+      }
+
+      // Log variant assignment (fire-and-forget)
+      if (activeVariant) {
+        void supabase.from('query_variant_log').insert({
+          query_id: queryId,
+          variant_id: activeVariant.id,
+          latency_ms: latencyMs,
+        });
+      }
+
+      // Write to semantic cache (fire-and-forget)
+      if (cacheEnabled) {
+        void setSemanticCache(question, queryVector, text, sources);
       }
     },
-    cancel() {
-      streamAbortController?.abort();
-      console.log(`[/api/ask] stream_cancelled ${logCtx}`);
+  });
+
+  // Return as a UI message stream with sources as metadata
+  const response = result.toUIMessageStreamResponse({
+    messageMetadata: ({ part }) => {
+      // Attach sources metadata on the finish event
+      if (part.type === 'finish') {
+        return { sources, conversationId, queryId } as Record<string, unknown>;
+      }
+      return undefined;
     },
   });
 
-  return new Response(readableStream, {
-    headers: {
-      'Content-Type': 'text/event-stream; charset=utf-8',
-      'Cache-Control': 'no-cache, no-transform',
-      'Connection': 'keep-alive',
-      'X-Accel-Buffering': 'no',
-      ...dailyRlHeaders,
-    },
-  });
-}
+  tracer.log(`q=${question.slice(0, 60)} rerank=${rerankingEnabled}`);
 
-// ── Error handlers ─────────────────────────────────────────────────────────
-
-function handleOpenAIError(err: unknown, stage: string, logCtx: string): NextResponse {
-  if (err instanceof OpenAIRateLimitError) {
-    console.warn(`[/api/ask] openai_rate_limit stage=${stage} ${logCtx}`);
-    return errorResponse(503, 'UPSTREAM_RATE_LIMITED', 'AI service is temporarily over capacity. Please try again shortly.');
-  }
-  if (err instanceof APIConnectionTimeoutError) {
-    console.error(`[/api/ask] openai_timeout stage=${stage} ${logCtx}`);
-    Sentry.withScope((scope) => { scope.setTag('rag.stage', stage); Sentry.captureException(err); });
-    return errorResponse(504, 'UPSTREAM_TIMEOUT', 'AI service did not respond in time. Please try again.');
-  }
-  if (err instanceof APIConnectionError) {
-    console.error(`[/api/ask] openai_connection_error stage=${stage} ${logCtx}`);
-    Sentry.withScope((scope) => { scope.setTag('rag.stage', stage); Sentry.captureException(err); });
-    return errorResponse(502, 'UPSTREAM_UNAVAILABLE', 'Could not reach AI service. Please try again.');
-  }
-  if (err instanceof OpenAIAuthError) {
-    console.error(`[/api/ask] openai_auth_error stage=${stage} ${logCtx}`);
-    Sentry.withScope((scope) => { scope.setTag('rag.stage', stage); Sentry.captureException(err); });
-    return errorResponse(503, 'SERVICE_MISCONFIGURED', 'AI service authentication failed. Contact the administrator.');
-  }
-  if (err instanceof OpenAIServerError) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[/api/ask] openai_server_error stage=${stage} ${logCtx} err=${msg}`);
-    Sentry.withScope((scope) => { scope.setTag('rag.stage', stage); Sentry.captureException(err); });
-    return errorResponse(502, 'UPSTREAM_ERROR', 'AI service encountered an error. Please try again.');
-  }
-  const msg = err instanceof Error ? err.message : String(err);
-  console.error(`[/api/ask] openai_unknown stage=${stage} ${logCtx} err=${msg}`);
-  Sentry.withScope((scope) => { scope.setTag('rag.stage', stage); Sentry.captureException(err); });
-  return errorResponse(500, 'INTERNAL_ERROR', 'An unexpected error occurred.');
-}
-
-function handlePineconeError(err: unknown, logCtx: string): NextResponse {
-  const msg = err instanceof Error ? err.message : String(err);
-  const lower = msg.toLowerCase();
-
-  Sentry.withScope((scope) => { scope.setTag('rag.stage', 'vector_search'); Sentry.captureException(err); });
-
-  if (lower.includes('timeout') || lower.includes('etimedout') || lower.includes('econnreset')) {
-    console.error(`[/api/ask] pinecone_timeout ${logCtx} err=${msg}`);
-    return errorResponse(504, 'RETRIEVAL_TIMEOUT', 'Knowledge base did not respond in time. Please try again.');
-  }
-  if (lower.includes('enotfound') || lower.includes('econnrefused') || lower.includes('network')) {
-    console.error(`[/api/ask] pinecone_connection_error ${logCtx} err=${msg}`);
-    return errorResponse(502, 'RETRIEVAL_UNAVAILABLE', 'Could not reach knowledge base. Please try again.');
-  }
-  if (lower.includes('not found') || lower.includes('index')) {
-    console.error(`[/api/ask] pinecone_index_error ${logCtx} err=${msg}`);
-    return errorResponse(503, 'RETRIEVAL_MISCONFIGURED', 'Knowledge base index not found. Contact the administrator.');
-  }
-  console.error(`[/api/ask] pinecone_error ${logCtx} err=${msg}`);
-  return errorResponse(502, 'RETRIEVAL_ERROR', 'Knowledge base encountered an error. Please try again.');
+  return response;
 }
