@@ -3,6 +3,8 @@ import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
 import { supabase } from '@/lib/supabase';
 import { SaveToReadingListButton } from '@/components/save-to-reading-list-button';
+import { ExportAnswerPageButton } from '@/components/export-answer-page-button';
+import { PeopleAlsoAsked } from '@/components/people-also-asked';
 
 interface Source {
   text: string;
@@ -140,8 +142,13 @@ export default async function QAAnswerPage({ params }: Props) {
           style={{ background: '#f0ece3', color: '#2c2c2c' }}
         >
           <FormattedAnswer text={answer.answer} />
-          <div className="mt-4 pt-3" style={{ borderTop: '1px solid #ddd5c8' }}>
+          <div className="mt-4 pt-3 flex items-center gap-4" style={{ borderTop: '1px solid #ddd5c8' }}>
             <SaveToReadingListButton answerId={answer.id} />
+            <ExportAnswerPageButton
+              question={answer.question}
+              answer={answer.answer}
+              sources={answer.sources}
+            />
           </div>
         </div>
 
@@ -184,6 +191,9 @@ export default async function QAAnswerPage({ params }: Props) {
             </div>
           </div>
         )}
+
+        {/* People also asked */}
+        <PeopleAlsoAsked answerId={answer.id} />
 
         {/* CTA */}
         <div
