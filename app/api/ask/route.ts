@@ -13,6 +13,7 @@ import { isValidConversationId, buildQueryText, appendTurn } from '@/lib/convers
 import type { HistoryMessage } from '@/lib/conversation-session';
 import { isCacheEnabled, getSemanticCache, setSemanticCache } from '@/lib/semantic-answer-cache';
 import type { CachedSource } from '@/lib/semantic-answer-cache';
+import { detectQueryLanguage, translateToEnglish } from '@/lib/language-detection';
 
 const EMBED_MODEL = 'text-embedding-3-small';
 const CHAT_MODEL = 'gpt-4o';
@@ -22,7 +23,7 @@ const RERANK_TOP_N = 5;
 const SCORE_THRESHOLD = 0.4;
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 
-const SYSTEM_PROMPT = `You are a knowledgeable mindfulness guide with deep expertise in meditation, consciousness, non-dual awareness, and contemplative traditions.
+const BASE_SYSTEM_PROMPT = `You are a knowledgeable mindfulness guide with deep expertise in meditation, consciousness, non-dual awareness, and contemplative traditions.
 Answer any question with your full knowledge — mindfulness, psychology, neuroscience, philosophy of mind, contemplative practice. When transcript excerpts are provided, weave their insights naturally into your answer as enrichment.
 Rules:
 - Keep answers concise: 2-4 short paragraphs max. No walls of text.
@@ -176,11 +177,28 @@ export async function POST(req: NextRequest) {
     // Non-fatal — fall through to default prompt
   }
 
-  const effectiveSystemPrompt = activeVariant?.system_prompt ?? SYSTEM_PROMPT;
-
   const tracer = new RagTracer();
   const oai = new OpenAI({ apiKey: openaiKey });
   const pc = new Pinecone({ apiKey: pineconeKey });
+
+  // ── Language detection + query translation ──
+  const detectedLang = detectQueryLanguage(question);
+  let embeddingQuery = question;
+  if (detectedLang) {
+    embeddingQuery = await translateToEnglish(question, detectedLang);
+    console.log(JSON.stringify({
+      event: 'rag.lang_detected',
+      lang: detectedLang.code,
+      translated: embeddingQuery !== question,
+      q: question.slice(0, 60),
+    }));
+  }
+
+  // Build system prompt — append language instruction when non-English
+  const basePrompt = activeVariant?.system_prompt ?? BASE_SYSTEM_PROMPT;
+  const effectiveSystemPrompt = detectedLang
+    ? `${basePrompt}\n- The user's question was originally in ${detectedLang.name}. You MUST respond entirely in ${detectedLang.name}.`
+    : basePrompt;
 
   // ── Load server-side history if needed ──
   let effectiveHistory: HistoryMessage[] = priorMessages;
@@ -201,7 +219,9 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Embed + retrieve from Pinecone ──
-  const queryText = buildQueryText(question, effectiveHistory);
+  // Use the (possibly translated) English query for embedding to maximize
+  // retrieval quality against the English-language vector index.
+  const queryText = buildQueryText(embeddingQuery, effectiveHistory);
 
   let queryVector: number[];
   try {
@@ -351,6 +371,7 @@ export async function POST(req: NextRequest) {
               id: conversationId,
               history: updatedHistory,
               expires_at: new Date(Date.now() + SESSION_TTL_MS).toISOString(),
+              ...(detectedLang ? { detected_language: detectedLang.code } : {}),
             },
             { onConflict: 'id' },
           );
@@ -379,7 +400,12 @@ export async function POST(req: NextRequest) {
     messageMetadata: ({ part }) => {
       // Attach sources metadata on the finish event
       if (part.type === 'finish') {
-        return { sources, conversationId, queryId } as Record<string, unknown>;
+        return {
+          sources,
+          conversationId,
+          queryId,
+          ...(detectedLang ? { detectedLanguage: { code: detectedLang.code, name: detectedLang.name } } : {}),
+        } as Record<string, unknown>;
       }
       return undefined;
     },
