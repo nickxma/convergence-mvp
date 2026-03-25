@@ -1,11 +1,10 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { PrivyProvider, addRpcUrlOverrideToChain, usePrivy } from '@privy-io/react-auth';
-import { track } from '@vercel/analytics';
 import { arbitrumSepolia } from 'viem/chains';
 import { AuthContext, DEFAULT_AUTH, type AuthState } from '@/lib/auth-context';
-import { ThemeProvider } from '@/lib/theme-context';
+import { ReferralCapture } from '@/components/referral-capture';
 
 const rpcUrl =
   process.env.NEXT_PUBLIC_ARBITRUM_SEPOLIA_RPC ?? 'https://sepolia-rollup.arbitrum.io/rpc';
@@ -16,24 +15,11 @@ const arbitrumSepoliaWithRpc = addRpcUrlOverrideToChain(arbitrumSepolia, rpcUrl)
 
 function PrivyAuthBridge({ children }: { children: React.ReactNode }) {
   const privy = usePrivy();
-  const prevAuthenticated = useRef<boolean | null>(null);
-
-  useEffect(() => {
-    if (privy.ready && privy.authenticated && prevAuthenticated.current === false) {
-      track('wallet_connected');
-    }
-    if (privy.ready) {
-      prevAuthenticated.current = privy.authenticated;
-    }
-  }, [privy.ready, privy.authenticated]);
-
   const value: AuthState = {
     ready: privy.ready,
     authenticated: privy.authenticated,
     user: privy.user as AuthState['user'],
     getAccessToken: privy.getAccessToken,
-    login: privy.login,
-    logout: privy.logout,
   };
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
@@ -46,8 +32,6 @@ interface PrivyMock {
   authenticated?: boolean;
   user?: AuthState['user'];
   getAccessToken?: () => Promise<string | null>;
-  login?: () => void;
-  logout?: () => Promise<void>;
 }
 
 declare global {
@@ -65,8 +49,6 @@ function MockAuthBridge({ children }: { children: React.ReactNode }) {
         authenticated: m.authenticated ?? false,
         user: m.user ?? null,
         getAccessToken: m.getAccessToken ?? DEFAULT_AUTH.getAccessToken,
-        login: m.login ?? DEFAULT_AUTH.login,
-        logout: m.logout ?? DEFAULT_AUTH.logout,
       };
     }
     return DEFAULT_AUTH;
@@ -80,8 +62,6 @@ function MockAuthBridge({ children }: { children: React.ReactNode }) {
       authenticated: m.authenticated ?? false,
       user: m.user ?? null,
       getAccessToken: m.getAccessToken ?? DEFAULT_AUTH.getAccessToken,
-      login: m.login ?? DEFAULT_AUTH.login,
-      logout: m.logout ?? DEFAULT_AUTH.logout,
     });
   }, []);
 
@@ -104,34 +84,31 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   if (!appId) {
     // No Privy configured — use mock bridge (handles E2E tests via window.__PRIVY_MOCK)
-    return (
-      <ThemeProvider>
-        <MockAuthBridge>{children}</MockAuthBridge>
-      </ThemeProvider>
-    );
+    return <MockAuthBridge>{children}</MockAuthBridge>;
   }
 
   return (
-    <ThemeProvider>
-      <PrivyProvider
-        appId={appId}
-        config={{
-          defaultChain: arbitrumSepoliaWithRpc,
-          supportedChains: [arbitrumSepoliaWithRpc],
-          loginMethods: ['email'],
-          embeddedWallets: {
-            ethereum: {
-              createOnLogin: 'users-without-wallets',
-            },
+    <PrivyProvider
+      appId={appId}
+      config={{
+        defaultChain: arbitrumSepoliaWithRpc,
+        supportedChains: [arbitrumSepoliaWithRpc],
+        loginMethods: ['email'],
+        embeddedWallets: {
+          ethereum: {
+            createOnLogin: 'users-without-wallets',
           },
-          appearance: {
-            theme: 'light',
-            accentColor: '#7d8c6e',
-          },
-        }}
-      >
-        <PrivyAuthBridge>{children}</PrivyAuthBridge>
-      </PrivyProvider>
-    </ThemeProvider>
+        },
+        appearance: {
+          theme: 'light',
+          accentColor: '#7d8c6e',
+        },
+      }}
+    >
+      <PrivyAuthBridge>
+        <Suspense fallback={null}><ReferralCapture /></Suspense>
+        {children}
+      </PrivyAuthBridge>
+    </PrivyProvider>
   );
 }

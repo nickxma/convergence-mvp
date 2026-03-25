@@ -23,6 +23,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { verifyRequest } from '@/lib/privy-auth';
+import { trackEvent } from '@/lib/analytics-events';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DEFAULT_CREDITS = 10;
@@ -102,6 +103,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     console.error('[openclaw/sessions/start] db_error', insertErr?.message);
     return errorResponse(500, 'DB_ERROR', 'Failed to create session.');
   }
+
+  void trackEvent({
+    eventType: 'session_start',
+    sessionId: session.id as string,
+    machineId: session.machine_id as string,
+    userId: auth.userId,
+    metadata: { creditsAllocated: credits },
+  });
+
+  // Fire referral conversion for the user's first paid session (best-effort, non-blocking).
+  void supabase.rpc('convert_referral', { p_referee_id: auth.userId });
 
   return NextResponse.json(
     {
