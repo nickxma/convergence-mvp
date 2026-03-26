@@ -1,33 +1,35 @@
 /**
  * /explore — Browse questions by topic and discover popular answers.
  *
- * Two sections:
- *   1. Topic pills — cluster labels from question_clusters; clicking runs a
- *      pre-seeded query in the Q&A interface via /qa?q=<topic>.
- *   2. Popular questions — 20 most-recent answers from qa_answers, each
- *      linking to its permalink at /qa/<id>.
+ * Four sections (in order):
+ *   1. Featured Answers — admin-curated showcase cards, up to 12.
+ *   2. Paradox of Acceptance — 3 most recent PoA essays with modal + Ask About This.
+ *   3. Topic pills — cluster labels from question_clusters.
+ *   4. Popular questions — 20 most-recent qa_answers.
  *
- * Server component; revalidated daily via ISR.
+ * Server component; revalidated hourly via ISR (to pick up featured changes).
  * Public (no auth required). Good for SEO.
  */
 
 import type { Metadata } from 'next';
 import { supabase } from '@/lib/supabase';
+import PoaSection from '@/components/poa-section';
 
-export const revalidate = 86400; // 24 hours
+export const revalidate = 3600; // 1 hour
 
 export const metadata: Metadata = {
-  title: 'Explore — Convergence',
+  title: 'Explore',
   description:
-    'Browse mindfulness and meditation questions by topic, or discover what the Q&A engine already knows from 760+ hours of contemplative teachings.',
+    'Browse mindfulness and meditation questions by topic, or discover what the Q&A engine already knows from hundreds of hours of contemplative teachings from leading mindfulness teachers and practitioners.',
   openGraph: {
     title: 'Explore — Convergence',
     description:
-      'Browse mindfulness and meditation questions by topic, or discover what the Q&A engine already knows from 760+ hours of contemplative teachings.',
-    siteName: 'Convergence',
+      'Browse mindfulness and meditation questions by topic, or discover what the Q&A engine already knows from hundreds of hours of contemplative teachings from leading mindfulness teachers and practitioners.',
     type: 'website',
   },
 };
+
+// ── Types ──────────────────────────────────────────────────────────────────────
 
 interface TopicPill {
   clusterId: number;
@@ -38,6 +40,32 @@ interface TopicPill {
 interface RecentQuestion {
   id: string;
   question: string;
+}
+
+interface Source {
+  speaker?: string;
+}
+
+interface FeaturedAnswer {
+  id: string;
+  question: string;
+  answer: string;
+  sources: Source[];
+  featured_order: number;
+}
+
+// ── Data fetchers ──────────────────────────────────────────────────────────────
+
+async function getFeatured(): Promise<FeaturedAnswer[]> {
+  const { data, error } = await supabase
+    .from('qa_answers')
+    .select('id, question, answer, sources, featured_order')
+    .eq('featured', true)
+    .order('featured_order', { ascending: true })
+    .limit(12);
+
+  if (error || !data) return [];
+  return data as FeaturedAnswer[];
 }
 
 async function getTopics(): Promise<TopicPill[]> {
@@ -77,8 +105,53 @@ async function getRecentQuestions(): Promise<RecentQuestion[]> {
   return data as RecentQuestion[];
 }
 
+interface PoaSource {
+  id: string;
+  title: string | null;
+  url: string;
+  summary: string | null;
+  chunk_count: number;
+  published_at: string | null;
+}
+
+async function getPoaSources(): Promise<PoaSource[]> {
+  const { data, error } = await supabase
+    .from('corpus_sources')
+    .select('id, title, url, summary, chunk_count, published_at')
+    .eq('source', 'paradoxofacceptance')
+    .order('published_at', { ascending: false, nullsFirst: false })
+    .order('synced_at', { ascending: false })
+    .limit(3);
+
+  if (error || !data) return [];
+  return data as PoaSource[];
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+function answerExcerpt(answer: string, len = 100): string {
+  return answer.replace(/\[\d+\]/g, '').trim().slice(0, len);
+}
+
+function teacherTags(sources: Source[]): string[] {
+  const seen = new Set<string>();
+  const tags: string[] = [];
+  for (const s of sources) {
+    const speaker = s.speaker?.trim();
+    if (speaker && !seen.has(speaker)) {
+      seen.add(speaker);
+      tags.push(speaker);
+    }
+  }
+  return tags;
+}
+
+// ── Page ───────────────────────────────────────────────────────────────────────
+
 export default async function ExplorePage() {
-  const [topics, questions] = await Promise.all([
+  const [featured, poaSources, topics, questions] = await Promise.all([
+    getFeatured(),
+    getPoaSources(),
     getTopics(),
     getRecentQuestions(),
   ]);
@@ -116,6 +189,73 @@ export default async function ExplorePage() {
       </header>
 
       <main id="main-content" className="max-w-3xl mx-auto px-4 py-8 space-y-12">
+
+        {/* Featured Answers */}
+        {featured.length > 0 && (
+          <section>
+            <div className="mb-5">
+              <h2 className="text-xl font-semibold mb-1.5" style={{ color: 'var(--sage-dark)' }}>
+                Featured answers
+              </h2>
+              <p className="text-sm leading-relaxed" style={{ color: 'var(--text-warm)' }}>
+                Hand-picked examples showing the depth and range of the corpus.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {featured.map((answer) => {
+                const tags = teacherTags(answer.sources);
+                const excerpt = answerExcerpt(answer.answer);
+                return (
+                  <a
+                    key={answer.id}
+                    href={`/qa/${answer.id}`}
+                    className="flex flex-col gap-2 rounded-xl px-4 py-4 text-sm transition-colors"
+                    style={{
+                      background: 'var(--bg-surface)',
+                      border: '1px solid var(--border)',
+                      color: 'var(--text)',
+                      textDecoration: 'none',
+                    }}
+                  >
+                    {/* Question */}
+                    <p className="font-medium leading-snug" style={{ color: 'var(--sage-dark)' }}>
+                      {answer.question}
+                    </p>
+
+                    {/* Answer excerpt */}
+                    <p
+                      className="text-xs leading-relaxed flex-1"
+                      style={{ color: 'var(--text-warm)' }}
+                    >
+                      {excerpt}
+                      {answer.answer.length > 100 ? '…' : ''}
+                    </p>
+
+                    {/* Teacher tags */}
+                    {tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {tags.map((tag) => (
+                          <span
+                            key={tag}
+                            className="text-xs px-2 py-0.5 rounded-full"
+                            style={{ background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text-muted)' }}
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </a>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {/* Paradox of Acceptance */}
+        <PoaSection initialSources={poaSources} />
+
         {/* Topic pills */}
         <section>
           <div className="mb-5">

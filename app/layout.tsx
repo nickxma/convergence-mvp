@@ -1,16 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { Suspense } from "react";
 import "./globals.css";
 import { Providers } from "@/components/providers";
-import { ReferralBanner } from "@/components/referral-banner";
-import { TrialBanner } from "@/components/trial-banner";
 import { Analytics } from "@vercel/analytics/react";
-import { SpeedInsights } from "@vercel/speed-insights/next";
-
-// Injected before hydration to prevent flash of unstyled content (FOUC).
-// Reads localStorage first, then falls back to OS preference.
-const themeScript = `(function(){try{var s=localStorage.getItem('theme');var d=s==='dark'||(s===null&&window.matchMedia('(prefers-color-scheme: dark)').matches);if(d)document.documentElement.classList.add('dark')}catch(e){}})();`;
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -22,10 +14,30 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://convergence-mvp.vercel.app';
+
 export const metadata: Metadata = {
-  title: "Convergence — Ask anything about mindfulness",
+  title: {
+    default: "Convergence — Ask anything about mindfulness",
+    template: "%s — Convergence",
+  },
   description:
-    "AI-powered Q&A grounded in 760+ hours of guided meditations, teachings, and conversations from leading mindfulness teachers. By Paradox of Acceptance.",
+    "AI-powered Q&A grounded in hundreds of hours of guided meditations, teachings, and conversations from leading mindfulness teachers and practitioners.",
+  metadataBase: new URL(siteUrl),
+  openGraph: {
+    siteName: "Convergence",
+    type: "website",
+    title: "Convergence — Ask anything about mindfulness",
+    description:
+      "AI-powered Q&A grounded in hundreds of hours of guided meditations, teachings, and conversations from leading mindfulness teachers and practitioners.",
+    url: siteUrl,
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Convergence — Ask anything about mindfulness",
+    description:
+      "AI-powered Q&A grounded in hundreds of hours of guided meditations, teachings, and conversations from leading mindfulness teachers and practitioners.",
+  },
 };
 
 export default function RootLayout({
@@ -38,29 +50,9 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <head>
-        {/* eslint-disable-next-line @next/next/no-sync-scripts */}
-        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
-      </head>
       <body className="min-h-full flex flex-col">
-          <a
-            href="#main-content"
-            className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[100] focus:px-4 focus:py-2 focus:rounded-lg focus:text-sm focus:font-medium"
-            style={{ background: 'var(--sage)', color: '#fff' } as React.CSSProperties}
-          >
-            Skip to main content
-          </a>
-          <Suspense>
-            <ReferralBanner />
-          </Suspense>
-          <Providers>
-            <Suspense>
-              <TrialBanner />
-            </Suspense>
-            {children}
-          </Providers>
+          <Providers>{children}</Providers>
           <Analytics />
-          <SpeedInsights />
         </body>
     </html>
   );
