@@ -332,11 +332,32 @@ export default function AdminPage() {
             Q&amp;A Analytics
           </a>
           <a
+            href="/admin/feedback"
+            className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full transition-colors"
+            style={{ background: '#f5f1e8', color: '#7d8c6e', border: '1px solid #e0d8cc' }}
+          >
+            Feedback inbox
+          </a>
+          <a
+            href="/admin/documents"
+            className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full transition-colors"
+            style={{ background: '#f5f1e8', color: '#7d8c6e', border: '1px solid #e0d8cc' }}
+          >
+            Documents
+          </a>
+          <a
             href="/admin/launch"
             className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full transition-colors"
             style={{ background: '#f5f1e8', color: '#7d8c6e', border: '1px solid #e0d8cc' }}
           >
             Launch checklist
+          </a>
+          <a
+            href="/admin/treasury"
+            className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full transition-colors"
+            style={{ background: '#f5f1e8', color: '#7d8c6e', border: '1px solid #e0d8cc' }}
+          >
+            Treasury
           </a>
         </div>
         <div className="flex items-center gap-3">
