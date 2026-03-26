@@ -3,16 +3,14 @@
 import { createContext, useContext } from 'react';
 
 /**
- * Minimal auth state shared across all pages.
+ * Minimal auth state the community pages need.
  * In production this is populated from Privy; in E2E tests from window.__PRIVY_MOCK.
  */
 export interface AuthState {
   ready: boolean;
   authenticated: boolean;
-  user: { id?: string; wallet?: { address: string }; email?: { address: string } } | null;
+  user: { id?: string; wallet?: { address: string } } | null;
   getAccessToken: () => Promise<string | null>;
-  login: () => void;
-  logout: () => Promise<void>;
 }
 
 export const DEFAULT_AUTH: AuthState = {
@@ -20,8 +18,6 @@ export const DEFAULT_AUTH: AuthState = {
   authenticated: false,
   user: null,
   getAccessToken: () => Promise.resolve(null),
-  login: () => {},
-  logout: () => Promise.resolve(),
 };
 
 export const AuthContext = createContext<AuthState>(DEFAULT_AUTH);

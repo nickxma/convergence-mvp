@@ -3,20 +3,26 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { track } from '@vercel/analytics';
 import { useAuth } from '@/lib/use-auth';
+import type { FeatureKey } from '@/hooks/use-pro-gate';
+import { localeToCurrency, CURRENCY_SYMBOLS } from '@/lib/fx-rates';
+import type { FxRates, SupportedCurrency } from '@/lib/fx-rates';
+import { PYUSDCheckoutModal } from '@/components/pyusd-checkout-modal';
 
 export interface UpgradePromptProps {
-  /** The feature the user tried to access, e.g. "unlimited Q&A", "community posts" */
-  feature: string;
+  /** The feature the user tried to access — matches FeatureKey from useProGate */
+  feature: FeatureKey | string;
   onClose: () => void;
 }
 
 const FEATURE_LABELS: Record<string, string> = {
-  'unlimited_qa': 'unlimited Q&A',
+  'qa_unlimited': 'unlimited Q&A',
   'community_post': 'community posting',
-  'dm': 'direct messages',
+  'dms': 'direct messages',
   'wallet': 'wallet features',
   'session_notes': 'session notes',
-  'courses': 'Pro courses',
+  // legacy key used internally by qa-interface
+  'unlimited_qa': 'unlimited Q&A',
+  'compare_teachers': 'teacher comparison (3+ teachers)',
 };
 
 const PRO_BULLETS = [
@@ -51,18 +57,41 @@ const PRO_BULLETS = [
 
 type BillingInterval = 'monthly' | 'annual';
 
-const MONTHLY_PRICE = process.env.NEXT_PUBLIC_PRO_PRICE_MONTHLY ?? '12';
-const ANNUAL_PRICE = process.env.NEXT_PUBLIC_PRO_PRICE_ANNUAL ?? '96';
+const MONTHLY_PRICE_USD = Number(process.env.NEXT_PUBLIC_PRO_PRICE_MONTHLY ?? '12');
+const ANNUAL_PRICE_USD = Number(process.env.NEXT_PUBLIC_PRO_PRICE_ANNUAL ?? '96');
+
+function formatPrice(usdAmount: number, currency: SupportedCurrency, rates: FxRates | null): string {
+  if (!rates || currency === 'USD') return `$${usdAmount}`;
+  const converted = Math.round(usdAmount * rates[currency]);
+  return `${CURRENCY_SYMBOLS[currency]}${converted}`;
+}
 
 export function UpgradePrompt({ feature, onClose }: UpgradePromptProps) {
   const { getAccessToken } = useAuth();
   const [billing, setBilling] = useState<BillingInterval>('monthly');
   const [loading, setLoading] = useState<'upgrade' | 'trial' | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showPYUSD, setShowPYUSD] = useState(false);
+  const [currency, setCurrency] = useState<SupportedCurrency>('USD');
+  const [fxRates, setFxRates] = useState<FxRates | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   const featureLabel = FEATURE_LABELS[feature] ?? feature;
+
+  // Detect locale → currency, fetch FX rates
+  useEffect(() => {
+    const detected = localeToCurrency(navigator.language ?? 'en-US');
+    setCurrency(detected);
+    if (detected !== 'USD') {
+      fetch('/api/fx/rates')
+        .then((r) => r.ok ? r.json() : null)
+        .then((data: { rates: FxRates } | null) => {
+          if (data?.rates) setFxRates(data.rates);
+        })
+        .catch(() => { /* silently fall back to USD display */ });
+    }
+  }, []);
 
   // Track impression on mount
   useEffect(() => {
@@ -137,10 +166,12 @@ export function UpgradePrompt({ feature, onClose }: UpgradePromptProps) {
     }
   }
 
-  const monthlyDisplay = `$${MONTHLY_PRICE}/mo`;
-  const annualDisplay = `$${ANNUAL_PRICE}/yr`;
-  const annualMonthly = (Number(ANNUAL_PRICE) / 12).toFixed(0);
-  const annualSavings = Math.round((1 - Number(ANNUAL_PRICE) / (Number(MONTHLY_PRICE) * 12)) * 100);
+  const monthlyDisplay = `${formatPrice(MONTHLY_PRICE_USD, currency, fxRates)}/mo`;
+  const annualDisplay = `${formatPrice(ANNUAL_PRICE_USD, currency, fxRates)}/yr`;
+  const annualMonthlyRaw = Math.round(ANNUAL_PRICE_USD / 12);
+  const annualMonthly = formatPrice(annualMonthlyRaw, currency, fxRates);
+  const annualSavings = Math.round((1 - ANNUAL_PRICE_USD / (MONTHLY_PRICE_USD * 12)) * 100);
+  const showApproxNote = currency !== 'USD' && fxRates !== null;
 
   return (
     <div
@@ -230,7 +261,7 @@ export function UpgradePrompt({ feature, onClose }: UpgradePromptProps) {
                 `Monthly — ${monthlyDisplay}`
               ) : (
                 <span className="flex items-center justify-center gap-1.5">
-                  Annual — ${annualMonthly}/mo
+                  Annual — {annualMonthly}/mo
                   {annualSavings > 0 && (
                     <span
                       className="text-[10px] px-1.5 py-0.5 rounded font-semibold"
@@ -267,7 +298,7 @@ export function UpgradePrompt({ feature, onClose }: UpgradePromptProps) {
               ? 'Redirecting…'
               : billing === 'monthly'
                 ? `Upgrade to Pro — ${monthlyDisplay}`
-                : `Upgrade to Pro — ${annualDisplay}/yr`}
+                : `Upgrade to Pro — ${annualDisplay}`}
           </button>
 
           <button
@@ -287,8 +318,50 @@ export function UpgradePrompt({ feature, onClose }: UpgradePromptProps) {
           <p className="text-center text-[10px]" style={{ color: 'var(--text-faint)' }}>
             Cancel anytime. No charge during trial.
           </p>
+          {showApproxNote && (
+            <p className="text-center text-[10px]" style={{ color: 'var(--text-faint)' }}>
+              Billed in USD — shown price is approximate.
+            </p>
+          )}
+
+          {/* PYUSD divider */}
+          <div className="flex items-center gap-2 pt-1">
+            <div className="flex-1 h-px" style={{ background: 'var(--border)' }} />
+            <span className="text-[10px]" style={{ color: 'var(--text-faint)' }}>or pay with crypto</span>
+            <div className="flex-1 h-px" style={{ background: 'var(--border)' }} />
+          </div>
+
+          <button
+            onClick={() => {
+              track('upgrade_prompt_pyusd_click', { feature });
+              setShowPYUSD(true);
+            }}
+            disabled={loading !== null}
+            className="w-full py-2 rounded-xl text-xs font-medium flex items-center justify-center gap-1.5 transition-opacity"
+            style={{
+              background: 'var(--bg-surface)',
+              color: 'var(--text-muted)',
+              border: '1px solid var(--border)',
+              opacity: loading !== null ? 0.7 : 1,
+            }}
+          >
+            <span
+              className="text-[9px] font-bold px-1.5 py-0.5 rounded"
+              style={{ background: '#0044ff', color: '#fff' }}
+            >
+              PYUSD
+            </span>
+            Pay with PYUSD
+          </button>
         </div>
       </div>
+      {showPYUSD && (
+        <PYUSDCheckoutModal
+          tier="pro"
+          onClose={() => setShowPYUSD(false)}
+          onSuccess={onClose}
+        />
+      )}
     </div>
   );
 }

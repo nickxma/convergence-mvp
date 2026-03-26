@@ -1,8 +1,8 @@
 /**
  * Unit tests for lib/rate-limit.ts
  */
-import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { checkRateLimit, isDuplicateContent, buildRateLimitError, getClientIp, isInternalRequest, MINUTE_MS } from '../lib/rate-limit';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { checkRateLimit, isDuplicateContent, buildRateLimitError } from '../lib/rate-limit';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -237,128 +237,5 @@ describe('buildRateLimitError (429 response payload)', () => {
     const headerValue = String(rle.retryAfterSec);
     expect(parseInt(headerValue, 10)).toBe(rle.retryAfterSec);
     expect(parseInt(headerValue, 10)).toBe(3);
-  });
-});
-
-// ── 429 path — /api/ask per-minute limits ────────────────────────────────────
-
-describe('429 path (per-minute window)', () => {
-  it('blocks the 6th unauthenticated request within 60 s (5/min limit)', () => {
-    vi.useFakeTimers();
-    const key = `ask:anon:192.0.2.${seq++}`;
-    const LIMIT = 5;
-    for (let i = 0; i < LIMIT; i++) {
-      expect(checkRateLimit(key, LIMIT, MINUTE_MS).allowed).toBe(true);
-    }
-    const result = checkRateLimit(key, LIMIT, MINUTE_MS);
-    expect(result.allowed).toBe(false);
-    expect(result.remaining).toBe(0);
-  });
-
-  it('429 response payload is correct for /api/ask anonymous', () => {
-    vi.useFakeTimers();
-    const now = Date.now();
-    vi.setSystemTime(now);
-    const key = `ask:anon:192.0.2.${seq++}`;
-    const LIMIT = 5;
-    for (let i = 0; i < LIMIT; i++) checkRateLimit(key, LIMIT, MINUTE_MS);
-    const rl = checkRateLimit(key, LIMIT, MINUTE_MS);
-    expect(rl.allowed).toBe(false);
-    const rle = buildRateLimitError(rl.resetAt, 'Too many requests — please wait before trying again.');
-    expect(rle.status).toBe(429);
-    expect(rle.error.code).toBe('RATE_LIMIT_EXCEEDED');
-    expect(rle.retryAfterSec).toBeGreaterThanOrEqual(1);
-    expect(rle.retryAfterSec).toBeLessThanOrEqual(60);
-  });
-
-  it('Retry-After header is present on the 429 response (verified via retryAfterSec > 0)', () => {
-    vi.useFakeTimers();
-    const now = Date.now();
-    vi.setSystemTime(now);
-    const key = `ask:anon:192.0.2.${seq++}`;
-    const LIMIT = 5;
-    for (let i = 0; i < LIMIT; i++) checkRateLimit(key, LIMIT, MINUTE_MS);
-    const rl = checkRateLimit(key, LIMIT, MINUTE_MS);
-    const rle = buildRateLimitError(rl.resetAt, 'Too many requests.');
-    // The route sets headers: { 'Retry-After': String(rle.retryAfterSec) }
-    expect(rle.retryAfterSec).toBeGreaterThan(0);
-  });
-
-  it('allows a 30/min authenticated burst (does not block at 30)', () => {
-    vi.useFakeTimers();
-    const key = `ask:user:user_${seq++}`;
-    const LIMIT = 30;
-    for (let i = 0; i < LIMIT; i++) {
-      expect(checkRateLimit(key, LIMIT, MINUTE_MS).allowed).toBe(true);
-    }
-    // 31st is blocked
-    expect(checkRateLimit(key, LIMIT, MINUTE_MS).allowed).toBe(false);
-  });
-
-  it('authenticated limit (30/min) is higher than anonymous limit (5/min)', () => {
-    expect(30).toBeGreaterThan(5);
-  });
-
-  it('resets after 60 s — the next request is allowed', () => {
-    vi.useFakeTimers();
-    const key = `ask:anon:192.0.2.${seq++}`;
-    const LIMIT = 5;
-    for (let i = 0; i < LIMIT; i++) checkRateLimit(key, LIMIT, MINUTE_MS);
-    expect(checkRateLimit(key, LIMIT, MINUTE_MS).allowed).toBe(false);
-    vi.advanceTimersByTime(MINUTE_MS + 1);
-    expect(checkRateLimit(key, LIMIT, MINUTE_MS).allowed).toBe(true);
-  });
-});
-
-// ── getClientIp ───────────────────────────────────────────────────────────────
-
-describe('getClientIp', () => {
-  const makeReq = (headers: Record<string, string>) => ({
-    headers: { get: (name: string) => headers[name] ?? null },
-  });
-
-  it('extracts the first IP from x-forwarded-for', () => {
-    expect(getClientIp(makeReq({ 'x-forwarded-for': '10.0.0.1, 10.0.0.2' }))).toBe('10.0.0.1');
-  });
-
-  it('falls back to x-real-ip when x-forwarded-for is absent', () => {
-    expect(getClientIp(makeReq({ 'x-real-ip': '203.0.113.5' }))).toBe('203.0.113.5');
-  });
-
-  it('returns "unknown" when no IP header is present', () => {
-    expect(getClientIp(makeReq({}))).toBe('unknown');
-  });
-});
-
-// ── isInternalRequest (X-Internal-Token bypass) ───────────────────────────────
-
-describe('isInternalRequest', () => {
-  const makeReq = (headers: Record<string, string>) => ({
-    headers: { get: (name: string) => headers[name] ?? null },
-  });
-
-  beforeEach(() => {
-    vi.stubEnv('INTERNAL_API_TOKEN', 'test-secret-token');
-  });
-
-  afterEach(() => {
-    vi.unstubAllEnvs();
-  });
-
-  it('returns true when the token matches INTERNAL_API_TOKEN', () => {
-    expect(isInternalRequest(makeReq({ 'x-internal-token': 'test-secret-token' }))).toBe(true);
-  });
-
-  it('returns false when the token does not match', () => {
-    expect(isInternalRequest(makeReq({ 'x-internal-token': 'wrong-token' }))).toBe(false);
-  });
-
-  it('returns false when the header is absent', () => {
-    expect(isInternalRequest(makeReq({}))).toBe(false);
-  });
-
-  it('returns false when INTERNAL_API_TOKEN env var is not set', () => {
-    vi.stubEnv('INTERNAL_API_TOKEN', '');
-    expect(isInternalRequest(makeReq({ 'x-internal-token': 'test-secret-token' }))).toBe(false);
   });
 });

@@ -15,9 +15,9 @@
  *   prizeStockThreshold number? — alert threshold (default 5)
  *   status          'online'|'offline'|'maintenance'?  (default 'offline')
  *
- * GET response: { machines: Machine[] }
+ * GET response: { machines: Machine[], lowStockAlerts: string[], healthSummary: Record<string, HealthSummary> }
  *
- * Staleness: on GET, stale machines (heartbeat > 60 s old) are marked
+ * Staleness: on GET, stale machines (heartbeat > 90 s old) are marked
  * offline before results are returned.
  */
 
@@ -115,7 +115,34 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     (m) => m.prizeStockCount <= m.prizeStockThreshold,
   );
 
-  return NextResponse.json({ machines: result, lowStockAlerts: lowStock.map((m) => m.id) });
+  // Fetch latest health reading for every machine in one shot
+  const machineIds = result.map((m) => m.id);
+  let healthSummary: Record<string, { motorTemp: number | null; clawStrength: number | null; prizeDetectorStatus: string | null; streamStatus: string | null; recordedAt: string } | null> = {};
+
+  if (machineIds.length > 0) {
+    const { data: healthRows } = await supabase
+      .from('machine_health')
+      .select('machine_id, motor_temp, claw_strength, prize_detector_status, stream_status, recorded_at')
+      .in('machine_id', machineIds)
+      .order('machine_id')
+      .order('recorded_at', { ascending: false });
+
+    // Keep only the latest row per machine
+    for (const row of healthRows ?? []) {
+      const mid = row.machine_id as string;
+      if (!healthSummary[mid]) {
+        healthSummary[mid] = {
+          motorTemp: row.motor_temp as number | null,
+          clawStrength: row.claw_strength as number | null,
+          prizeDetectorStatus: row.prize_detector_status as string | null,
+          streamStatus: row.stream_status as string | null,
+          recordedAt: row.recorded_at as string,
+        };
+      }
+    }
+  }
+
+  return NextResponse.json({ machines: result, lowStockAlerts: lowStock.map((m) => m.id), healthSummary });
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

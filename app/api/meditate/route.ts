@@ -8,12 +8,30 @@ import OpenAI, {
 } from 'openai';
 import { Pinecone } from '@pinecone-database/pinecone';
 import { checkRateLimit } from '@/lib/rate-limit';
-import { logOpenAIUsage } from '@/lib/openai-usage';
-import { embedOne } from '@/lib/embeddings';
+import { verifyRequest } from '@/lib/privy-auth';
+import {
+  getMeditationQuota,
+  incrementMeditationQuota,
+  FREE_MEDITATION_MONTHLY_LIMIT,
+} from '@/lib/meditation-quota';
+
+const EMBED_MODEL = 'text-embedding-3-small';
 const CHAT_MODEL = 'gpt-4o-mini';
 const TOP_K = 8;
 
-const MEDITATION_SYSTEM_PROMPT = `You are a skilled guided meditation teacher drawing on a curated archive of mindfulness teachings.
+const VALID_VOICE_STYLES = ['calm', 'energetic', 'neutral', 'deep', 'warm', 'whisper'] as const;
+type VoiceStyle = (typeof VALID_VOICE_STYLES)[number];
+
+const VOICE_STYLE_INSTRUCTIONS: Record<VoiceStyle, string> = {
+  calm:      'Use a slow, soft, deeply unhurried voice. Long pauses. Gentle imagery. Soothing and spacious.',
+  energetic: 'Use a warm, uplifting, moderately-paced voice. Encouraging and bright without being rushed.',
+  neutral:   'Use a clear, balanced, conversational voice. Neither too slow nor too fast. Natural and grounded.',
+  deep:      'Use a slow, resonant, deeply grounding voice. Spacious pauses. Anchoring and solid — like roots going down.',
+  warm:      'Use a gentle, nurturing voice. Soft and caring, like a kind teacher beside you. Unhurried and tender.',
+  whisper:   'Use a very soft, intimate voice as if speaking just to this one listener. Quiet, close, and still.',
+};
+
+const BASE_SYSTEM_PROMPT = `You are a skilled guided meditation teacher drawing on a curated archive of mindfulness teachings.
 Your task is to write a 5-10 minute guided meditation script on the requested topic. Use the provided excerpts to ground the meditation in authentic teachings.
 
 Structure the script naturally with these phases:
@@ -22,9 +40,12 @@ Structure the script naturally with these phases:
 3. Core practice (5-6 minutes): Guide the listener through a focused experience directly informed by the source material.
 4. Closing (about 1 minute): Gently guide the listener back to ordinary awareness, carrying the insight forward.
 
-Write in second person ("you", "your"), present tense. Use a warm, unhurried, conversational tone.
-Indicate natural pauses with ellipses (...). Aim for 900-1200 words.
+Write in second person ("you", "your"), present tense. Indicate natural pauses with ellipses (...). Aim for 900-1200 words.
 Begin directly with the opening — no preamble, titles, or meta-commentary.`;
+
+function buildSystemPrompt(voiceStyle: VoiceStyle): string {
+  return `${BASE_SYSTEM_PROMPT}\n\nVoice style: ${VOICE_STYLE_INSTRUCTIONS[voiceStyle]}`;
+}
 
 function getClientIp(req: NextRequest): string {
   const forwarded = req.headers.get('x-forwarded-for');
@@ -65,6 +86,30 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  // ── Monthly quota check (authenticated users only) ─────────────────────────
+  const authResult = await verifyRequest(req);
+  const userId = authResult?.userId ?? null;
+
+  if (userId) {
+    const quota = await getMeditationQuota(userId);
+    if (!quota.isPro && quota.count >= quota.limit) {
+      console.warn(`[/api/meditate] quota_exceeded userId=${userId} count=${quota.count}`);
+      return NextResponse.json(
+        {
+          error: {
+            code: 'QUOTA_EXCEEDED',
+            message: `You've used all ${FREE_MEDITATION_MONTHLY_LIMIT} free meditations for this month.`,
+            upgradeRequired: true,
+            quotaUsed: quota.count,
+            quotaLimit: quota.limit,
+            resetsAt: quota.resetsAt,
+          },
+        },
+        { status: 402 },
+      );
+    }
+  }
+
   let body: Record<string, unknown> | null = null;
   try {
     body = await req.json();
@@ -79,6 +124,12 @@ export async function POST(req: NextRequest) {
   if (topic.length > 300) {
     return errorResponse(400, 'TOPIC_TOO_LONG', 'topic must be 300 characters or fewer.');
   }
+
+  const rawVoiceStyle = body?.voice_style;
+  const voiceStyle: VoiceStyle =
+    typeof rawVoiceStyle === 'string' && VALID_VOICE_STYLES.includes(rawVoiceStyle as VoiceStyle)
+      ? (rawVoiceStyle as VoiceStyle)
+      : 'calm';
 
   const openaiKey = process.env.OPENAI_API_KEY;
   const pineconeKey = process.env.PINECONE_API_KEY;
@@ -97,7 +148,11 @@ export async function POST(req: NextRequest) {
   // ── Embed the topic ───────────────────────────────────────────────────────
   let queryVector: number[];
   try {
-    queryVector = await embedOne(topic, { client: oai });
+    const embedResp = await oai.embeddings.create({
+      model: EMBED_MODEL,
+      input: topic,
+    });
+    queryVector = embedResp.data[0].embedding;
   } catch (err) {
     return handleOpenAIError(err, 'embeddings', logCtx);
   }
@@ -146,7 +201,7 @@ export async function POST(req: NextRequest) {
     const chat = await oai.chat.completions.create({
       model: CHAT_MODEL,
       messages: [
-        { role: 'system', content: MEDITATION_SYSTEM_PROMPT },
+        { role: 'system', content: buildSystemPrompt(voiceStyle) },
         {
           role: 'user',
           content: `Source excerpts:\n\n${context}\n\nTopic: ${topic}`,
@@ -155,7 +210,6 @@ export async function POST(req: NextRequest) {
       temperature: 0.7,
       max_tokens: 1800,
     });
-    logOpenAIUsage({ model: CHAT_MODEL, endpoint: 'completion', promptTokens: chat.usage?.prompt_tokens ?? 0, completionTokens: chat.usage?.completion_tokens ?? 0 });
     script = chat.choices[0]?.message?.content ?? '';
   } catch (err) {
     return handleOpenAIError(err, 'chat', logCtx);
@@ -167,6 +221,13 @@ export async function POST(req: NextRequest) {
   const duration = `~${Math.max(5, Math.min(12, minutes))} min`;
 
   console.info(`[/api/meditate] generated script words=${wordCount} ${logCtx}`);
+
+  // ── Increment monthly quota (fire-and-forget, fails open) ─────────────────
+  if (userId) {
+    incrementMeditationQuota(userId).catch((err) => {
+      console.warn('[/api/meditate] quota_increment_error:', err instanceof Error ? err.message : String(err));
+    });
+  }
 
   return NextResponse.json({
     script,

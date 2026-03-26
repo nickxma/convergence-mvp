@@ -21,6 +21,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { verifyRequest } from '@/lib/privy-auth';
 import { publishToSession, makeEvent } from '@/lib/claw-session-bus';
+import { advanceQueue } from '@/lib/queue-utils';
+import { trackEvent } from '@/lib/analytics-events';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -45,7 +47,7 @@ export async function POST(
 
   const { data: session } = await supabase
     .from('claw_sessions')
-    .select('id, status, credits_remaining')
+    .select('id, machine_id, status, credits_remaining')
     .eq('id', sessionId)
     .eq('user_id', auth.userId)
     .single();
@@ -76,6 +78,17 @@ export async function POST(
       creditsRemaining: session.credits_remaining as number,
     }),
   );
+
+  void trackEvent({
+    eventType: 'session_end',
+    sessionId,
+    machineId: session.machine_id as string,
+    userId: auth.userId,
+    metadata: { reason: 'user_ended', creditsRemaining: session.credits_remaining as number },
+  });
+
+  // Advance the waitlist for this machine (fire-and-forget)
+  void advanceQueue(session.machine_id as string);
 
   return NextResponse.json({ ok: true, creditsRemaining: session.credits_remaining as number });
 }

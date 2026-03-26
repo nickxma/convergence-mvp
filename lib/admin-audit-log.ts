@@ -17,7 +17,10 @@ export type AuditAction =
   | 'member.invite'
   | 'rate_limit.override'
   | 'api_key.rotated'
-  | 'token.snapshot';
+  | 'token.snapshot'
+  | 'dispute.refund_executed'
+  | 'dispute.refund_approved'
+  | 'dispute.rejected';
 
 export interface AuditEntry {
   actorId: string;

@@ -10,7 +10,7 @@
     },
     {
       "path": "/api/cron/machine-watchdog",
-      "schedule": "* * * * *"
+      "schedule": "0 0 * * *"
     },
     {
       "path": "/api/cron/source-authority-rollup",

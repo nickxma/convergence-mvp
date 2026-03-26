@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { usePrivy } from '@privy-io/react-auth';
 import {
   type GovernanceData,
   truncateWallet,
@@ -9,10 +10,66 @@ import {
 import { WalletAvatar } from '@/components/wallet-avatar';
 import { ErrorBoundary } from '@/components/error-boundary';
 
+interface DelegatorsStatus {
+  delegatorCount: number;
+  combinedWeight: number;
+}
+
+function DelegationBanner({ getAccessToken }: { getAccessToken: () => Promise<string | null> }) {
+  const [status, setStatus] = useState<DelegatorsStatus | null>(null);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const token = await getAccessToken();
+        const res = await fetch('/api/users/me/delegators', {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!res.ok) return;
+        const data = await res.json() as DelegatorsStatus;
+        if (data.delegatorCount > 0) setStatus(data);
+      } catch {
+        // Silently ignore — backend not yet built
+      }
+    }
+    void load();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!status) return null;
+
+  return (
+    <div
+      className="rounded-xl px-4 py-3 flex items-start gap-3 mb-6"
+      style={{ background: '#e8f0e4', border: '1px solid #b8ccb0' }}
+      role="alert"
+    >
+      <svg
+        className="w-4 h-4 flex-shrink-0 mt-0.5"
+        style={{ color: '#5a6b52' }}
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        strokeWidth={1.5}
+      >
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z" />
+      </svg>
+      <div>
+        <p className="text-xs font-semibold" style={{ color: '#3d4f38' }}>
+          You are voting on behalf of {status.delegatorCount} delegator{status.delegatorCount !== 1 ? 's' : ''}
+        </p>
+        <p className="text-xs mt-0.5" style={{ color: '#5a6b52' }}>
+          Combined voting weight: <strong>{status.combinedWeight.toLocaleString()}</strong>
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export default function GovernancePage() {
   const [data, setData] = useState<GovernanceData | null>(null);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState(false);
+  const { authenticated, getAccessToken } = usePrivy();
 
   useEffect(() => {
     fetchGovernanceData()
@@ -33,7 +90,7 @@ export default function GovernancePage() {
           className="flex items-center gap-1.5 text-xs"
           style={{ color: '#7d8c6e' }}
         >
-          <svg aria-hidden="true"
+          <svg
             className="w-3.5 h-3.5"
             fill="none"
             viewBox="0 0 24 24"
@@ -56,7 +113,10 @@ export default function GovernancePage() {
         </h1>
       </header>
 
-      <main id="main-content" className="flex-1 max-w-3xl w-full mx-auto px-4 py-6 space-y-8">
+      <main className="flex-1 max-w-3xl w-full mx-auto px-4 py-6 space-y-8">
+        {/* Delegation banner — shown to users who received delegations */}
+        {authenticated && <DelegationBanner getAccessToken={getAccessToken} />}
+
         {/* Stats cards */}
         <section>
           <h2
@@ -267,7 +327,7 @@ function PostLeaderboard({ posts }: { posts: GovernanceData['topPosts'] }) {
             className="flex-shrink-0 text-xs font-semibold tabular-nums flex items-center gap-0.5"
             style={{ color: '#7d8c6e' }}
           >
-            <svg aria-hidden="true" className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
               <path d="M12 4 3 20h18L12 4z" />
             </svg>
             {post.votes}
@@ -327,7 +387,7 @@ function ContributorLeaderboard({
             className="flex-shrink-0 text-xs font-semibold tabular-nums flex items-center gap-0.5"
             style={{ color: '#7d8c6e' }}
           >
-            <svg aria-hidden="true" className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
               <path d="M12 4 3 20h18L12 4z" />
             </svg>
             {c.totalVotes}
@@ -392,7 +452,7 @@ function TrendingList({ posts }: { posts: GovernanceData['trendingThisWeek'] }) 
               className="text-xs font-semibold tabular-nums flex items-center gap-0.5"
               style={{ color: '#7d8c6e' }}
             >
-              <svg aria-hidden="true" className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
                 <path d="M12 4 3 20h18L12 4z" />
               </svg>
               +{post.weeklyVotes}

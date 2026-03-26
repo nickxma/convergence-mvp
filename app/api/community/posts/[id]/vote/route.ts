@@ -13,7 +13,6 @@ import { supabase } from '@/lib/supabase';
 import { verifyRequest } from '@/lib/privy-auth';
 import { isPassHolder } from '@/lib/token-gate';
 import { checkRateLimit } from '@/lib/rate-limit';
-import { logAudit } from '@/lib/admin-audit-log';
 
 function errorResponse(status: number, code: string, message: string): NextResponse {
   return NextResponse.json({ error: { code, message } }, { status });
@@ -114,7 +113,6 @@ export async function POST(
       return errorResponse(502, 'DB_ERROR', 'Failed to update vote.');
     }
 
-    logAudit({ actorId: auth.userId || auth.walletAddress, actorRole: 'user', action: 'governance.vote_changed', targetId: targetId, targetType, metadata: { direction, postId } });
     return NextResponse.json({ status: 'changed', direction });
   }
 
@@ -137,6 +135,5 @@ export async function POST(
     return errorResponse(502, 'DB_ERROR', 'Failed to record vote.');
   }
 
-  logAudit({ actorId: auth.userId || auth.walletAddress, actorRole: 'user', action: 'governance.vote_cast', targetId: targetId, targetType, metadata: { direction, postId } });
   return NextResponse.json({ status: 'recorded', direction }, { status: 201 });
 }

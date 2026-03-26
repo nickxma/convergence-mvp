@@ -101,3 +101,48 @@ export async function getEssayContext(slug: string): Promise<EssayContext | null
     return null;
   }
 }
+
+/**
+ * Returns essay context for a course session, or null if not found / on error.
+ * Uses the course slug + session slug pair (unique per course) to fetch from
+ * the course_sessions table and maps it to the EssayContext shape.
+ * Results are cached in Upstash for 1 hour.
+ */
+export async function getCourseSessionContext(courseSlug: string, sessionSlug: string): Promise<EssayContext | null> {
+  if (!courseSlug || !sessionSlug) return null;
+
+  const cacheKey = `course:${courseSlug}:${sessionSlug}`;
+  const cached = await cacheGet(cacheKey);
+  if (cached) return cached;
+
+  try {
+    const { data: courseData, error: courseError } = await supabase
+      .from('courses')
+      .select('id')
+      .eq('slug', courseSlug)
+      .single();
+
+    if (courseError || !courseData) return null;
+
+    const { data, error } = await supabase
+      .from('course_sessions')
+      .select('slug, title, body')
+      .eq('course_id', courseData.id as string)
+      .eq('slug', sessionSlug)
+      .single();
+
+    if (error || !data) return null;
+
+    const ctx: EssayContext = {
+      slug: data.slug as string,
+      title: data.title as string,
+      bodyMarkdown: (data.body as string) ?? '',
+      tags: [],
+    };
+
+    await cacheSet(cacheKey, ctx);
+    return ctx;
+  } catch {
+    return null;
+  }
+}

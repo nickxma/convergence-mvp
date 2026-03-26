@@ -22,6 +22,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
+import { trackEvent } from '@/lib/analytics-events';
 
 const DEFAULT_PYUSD_CONTRACT = '0x6c3ea9036406852006290770BEdFcAbA0e23A0e8';
 
@@ -229,6 +230,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           throw new Error('credit_package_id missing on credit_purchase session');
         }
         await fulfillCreditPurchase(session.user_id as string, packageId, txHash);
+        void trackEvent({
+          eventType: 'credit_purchased',
+          userId: session.user_id as string,
+          metadata: {
+            packageId,
+            amountPyusd: Number(session.amount_pyusd),
+            txHash,
+          },
+        });
       } else {
         // subscription (default)
         await fulfillSubscription(

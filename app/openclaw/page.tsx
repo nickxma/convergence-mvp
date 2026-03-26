@@ -16,6 +16,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { usePrivy } from '@privy-io/react-auth';
 import { CreditBalance } from '@/components/credit-balance';
+import { RecentWinsTicker } from '@/components/recent-wins-ticker';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -472,6 +473,9 @@ export default function OpenClawPage() {
         @keyframes float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
         @keyframes pulseDot { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:0.5; transform:scale(0.8); } }
       `}</style>
+
+      {/* ── Recent wins ticker ────────────────────────────────────────────── */}
+      <RecentWinsTicker />
 
       {/* ── Hero ─────────────────────────────────────────────────────────── */}
       <section

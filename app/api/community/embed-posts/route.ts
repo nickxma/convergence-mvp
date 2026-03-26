@@ -13,9 +13,11 @@
  *   { source: "community", post_id, author_wallet, vote_score, title, text }
  */
 import { NextRequest, NextResponse } from 'next/server';
+import OpenAI from 'openai';
 import { Pinecone } from '@pinecone-database/pinecone';
 import { supabase } from '@/lib/supabase';
-import { embedBatch } from '@/lib/embeddings';
+
+const EMBED_MODEL = 'text-embedding-3-small';
 const COMMUNITY_NAMESPACE = 'community';
 const VOTE_THRESHOLD = 5;
 const EMBED_BATCH_SIZE = 100;
@@ -58,6 +60,7 @@ async function runEmbedJob(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ embedded: 0, message: `No posts with vote_score >= ${VOTE_THRESHOLD}.` });
   }
 
+  const oai = new OpenAI({ apiKey: openaiKey });
   const pc = new Pinecone({ apiKey: pineconeKey });
   const namespace = pc.Index(pineconeIndex).namespace(COMMUNITY_NAMESPACE);
 
@@ -68,18 +71,18 @@ async function runEmbedJob(req: NextRequest): Promise<NextResponse> {
     const batch = posts.slice(i, i + EMBED_BATCH_SIZE);
     const texts = batch.map((p) => `${p.title}\n\n${p.body}`);
 
-    let embeddings: number[][];
+    let embedResp: Awaited<ReturnType<typeof oai.embeddings.create>>;
     try {
-      embeddings = await embedBatch(texts);
+      embedResp = await oai.embeddings.create({ model: EMBED_MODEL, input: texts });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[embed-posts] OpenAI embed error batch=${i}: ${msg}`);
       return NextResponse.json({ error: { code: 'EMBED_ERROR', message: 'Embedding failed.' } }, { status: 502 });
     }
 
-    const vectors = embeddings.map((values, j) => ({
+    const vectors = embedResp.data.map((e, j) => ({
       id: `community-${batch[j].id}`,
-      values,
+      values: e.embedding,
       metadata: {
         source: 'community',
         post_id: batch[j].id,

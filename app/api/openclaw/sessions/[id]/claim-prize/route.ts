@@ -10,16 +10,19 @@
  *
  * Body (optional): {
  *   shippingAddress?: { name, street, city, state, zip, country },
- *   prizeId?: string
+ *   prizeId?: string,
+ *   prizeLabel?: string,
+ *   playerDisplay?: string,
  * }
  *
  * Flow:
  *   1. Verify auth (machine secret OR Privy token).
  *   2. Load session — must be active.
  *   3. Set prize_won_at + prize_metadata; update status to 'ended'.
- *   4. If shippingAddress provided, insert a prize_shipments row.
- *   5. Publish prize_detected + session_end SSE events.
- *   6. Return { ok, prizeWonAt, shipmentId? }.
+ *   4. Insert a prizes_won row (public win card).
+ *   5. If shippingAddress provided, insert a prize_shipments row.
+ *   6. Publish prize_detected (with winId) + session_end SSE events.
+ *   7. Return { ok, prizeWonAt, winId, shipmentId? }.
  *
  * Error codes:
  *   SESSION_NOT_FOUND    — session not found (or wrong owner on Privy auth)
@@ -31,6 +34,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { verifyRequest } from '@/lib/privy-auth';
 import { publishToSession, makeEvent } from '@/lib/claw-session-bus';
+import { trackEvent } from '@/lib/analytics-events';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -42,6 +46,13 @@ function isMachineRequest(req: NextRequest): boolean {
   const secret = process.env.CLAW_MACHINE_SECRET;
   if (!secret) return false;
   return req.headers.get('x-machine-secret') === secret;
+}
+
+/** Derive a short non-identifying display label from a Privy DID. */
+function derivedPlayerDisplay(userId: string): string {
+  // Privy DIDs look like "did:privy:abc123..." — take last 6 chars
+  const suffix = userId.replace(/^did:privy:/i, '').slice(-6).toUpperCase();
+  return suffix ? `Player …${suffix}` : 'A lucky player';
 }
 
 export async function POST(
@@ -69,22 +80,24 @@ export async function POST(
   // Parse optional body
   let shippingAddress: Record<string, string> | undefined;
   let prizeId: string | undefined;
+  let prizeLabel: string | undefined;
+  let playerDisplay: string | undefined;
   try {
     const body = await req.json();
     if (body.shippingAddress && typeof body.shippingAddress === 'object') {
       shippingAddress = body.shippingAddress as Record<string, string>;
     }
-    if (typeof body.prizeId === 'string') {
-      prizeId = body.prizeId;
-    }
+    if (typeof body.prizeId === 'string') prizeId = body.prizeId;
+    if (typeof body.prizeLabel === 'string') prizeLabel = body.prizeLabel;
+    if (typeof body.playerDisplay === 'string') playerDisplay = body.playerDisplay;
   } catch {
     // Body is optional — ignore parse errors
   }
 
-  // Load session
+  // Load session + machine name in one query
   let query = supabase
     .from('claw_sessions')
-    .select('id, status, user_id, prize_won_at')
+    .select('id, status, user_id, machine_id, prize_won_at')
     .eq('id', sessionId);
 
   // If Privy auth, enforce session ownership
@@ -105,6 +118,15 @@ export async function POST(
   if (session.prize_won_at) {
     return errorResponse(409, 'PRIZE_ALREADY_WON', 'Prize already recorded for this session.');
   }
+
+  // Fetch machine name for the win card
+  const { data: machine } = await supabase
+    .from('claw_machines')
+    .select('id, name')
+    .eq('id', session.machine_id as string)
+    .single();
+
+  const machineName = (machine?.name as string | null) ?? 'Claw Machine';
 
   const prizeWonAt = new Date().toISOString();
   const prizeMetadata: Record<string, unknown> = {
@@ -128,6 +150,37 @@ export async function POST(
     return errorResponse(500, 'DB_ERROR', 'Failed to record prize.');
   }
 
+  // Create the public win card record in prizes_won
+  const userId = (session.user_id as string) ?? '';
+  const displayName =
+    playerDisplay ?? derivedPlayerDisplay(userId);
+
+  let winId: string | null = null;
+  const { data: winRow, error: winErr } = await supabase
+    .from('prizes_won')
+    .insert({
+      session_id: sessionId,
+      user_id: userId,
+      machine_id: session.machine_id as string,
+      machine_name: machineName,
+      player_display: displayName,
+      prize_label: prizeLabel ?? null,
+      prize_photo_url: null,
+      won_at: prizeWonAt,
+      ...(shippingAddress
+        ? { address: shippingAddress, address_submitted_at: prizeWonAt }
+        : {}),
+    })
+    .select('id')
+    .single();
+
+  if (winErr) {
+    // Non-fatal: win is still recorded in claw_sessions; win card is best-effort
+    console.error('[openclaw/sessions/claim-prize] prizes_won_error', winErr.message);
+  } else if (winRow) {
+    winId = winRow.id as string;
+  }
+
   // Create shipment record if shipping address was provided
   let shipmentId: string | null = null;
   if (shippingAddress) {
@@ -135,7 +188,7 @@ export async function POST(
       .from('prize_shipments')
       .insert({
         session_id: sessionId,
-        user_id: session.user_id as string,
+        user_id: userId,
         address: shippingAddress,
         prize_meta: prizeMetadata,
         status: 'pending',
@@ -151,13 +204,37 @@ export async function POST(
     }
   }
 
-  // Notify SSE subscribers
-  publishToSession(sessionId, makeEvent('prize_detected', { prizeId: prizeId ?? null, prizeWonAt }));
+  void trackEvent({
+    eventType: 'prize_won',
+    sessionId,
+    machineId: session.machine_id as string,
+    userId,
+    metadata: { prizeId: prizeId ?? null, prizeLabel: prizeLabel ?? null, winId },
+  });
+
+  void trackEvent({
+    eventType: 'session_end',
+    sessionId,
+    machineId: session.machine_id as string,
+    userId,
+    metadata: { reason: 'prize_claimed' },
+  });
+
+  // Notify SSE subscribers — include winId so the play page can show share link
+  publishToSession(
+    sessionId,
+    makeEvent('prize_detected', {
+      prizeId: prizeId ?? null,
+      prizeWonAt,
+      winId,
+    }),
+  );
   publishToSession(sessionId, makeEvent('session_end', { reason: 'prize_claimed', prizeWonAt }));
 
   return NextResponse.json({
     ok: true,
     prizeWonAt,
+    ...(winId ? { winId } : {}),
     ...(shipmentId ? { shipmentId } : {}),
   });
 }

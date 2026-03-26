@@ -49,25 +49,44 @@ export async function GET(
     return errorResponse(404, 'NOT_FOUND', 'Machine not found.');
   }
 
-  const { data: activeSession } = await supabase
-    .from('claw_sessions')
-    .select('id, user_id, credits_remaining, started_at, expires_at, status')
-    .eq('machine_id', id)
-    .eq('status', 'active')
-    .gt('expires_at', new Date().toISOString())
-    .maybeSingle();
+  const [activeSessionResult, historyResult, latestHealthResult] = await Promise.all([
+    supabase
+      .from('claw_sessions')
+      .select('id, user_id, credits_remaining, started_at, expires_at, status')
+      .eq('machine_id', id)
+      .eq('status', 'active')
+      .gt('expires_at', new Date().toISOString())
+      .maybeSingle(),
+    supabase
+      .from('claw_sessions')
+      .select('id, user_id, status, credits_remaining, started_at, expires_at, prize_won_at')
+      .eq('machine_id', id)
+      .order('started_at', { ascending: false })
+      .limit(10),
+    supabase
+      .from('machine_health')
+      .select('motor_temp, claw_strength, prize_detector_status, stream_status, recorded_at')
+      .eq('machine_id', id)
+      .order('recorded_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
 
-  const { data: history } = await supabase
-    .from('claw_sessions')
-    .select('id, user_id, status, credits_remaining, started_at, expires_at, prize_won_at')
-    .eq('machine_id', id)
-    .order('started_at', { ascending: false })
-    .limit(10);
+  const latestHealth = latestHealthResult.data
+    ? {
+        motorTemp: latestHealthResult.data.motor_temp as number | null,
+        clawStrength: latestHealthResult.data.claw_strength as number | null,
+        prizeDetectorStatus: latestHealthResult.data.prize_detector_status as string | null,
+        streamStatus: latestHealthResult.data.stream_status as string | null,
+        recordedAt: latestHealthResult.data.recorded_at as string,
+      }
+    : null;
 
   return NextResponse.json({
     machine: serializeMachine(machine),
-    activeSession: activeSession ?? null,
-    history: history ?? [],
+    activeSession: activeSessionResult.data ?? null,
+    history: historyResult.data ?? [],
+    latestHealth,
   });
 }
 

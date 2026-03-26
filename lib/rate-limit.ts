@@ -1,73 +1,11 @@
 /**
- * Sliding window rate limiter + duplicate content detector.
+ * In-memory sliding window rate limiter + duplicate content detector.
  *
- * Primary store: Upstash Redis (when UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN are set).
- * Fallback store: in-memory (single Node.js process — not shared across Vercel invocations).
+ * NOTE: This works within a single Node.js process instance. On Vercel serverless
+ * functions, state is not shared across concurrent invocations. For production
+ * multi-instance rate limiting, replace the store with Upstash Redis or similar.
  */
 import crypto from 'node:crypto';
-
-export const MINUTE_MS = 60_000;
-
-// ── Token-tier rate limits (requests per minute) ─────────────────────────────
-// Users with higher token balances receive more generous per-minute allowances.
-// null rateLimit means unlimited (no per-minute gate applied).
-
-export interface TokenTier {
-  name: 'unlimited' | 'high' | 'low';
-  minBalance: number;
-  rateLimit: number | null;
-}
-
-export const TOKEN_TIERS: readonly TokenTier[] = [
-  { name: 'unlimited', minBalance: 1000, rateLimit: null },
-  { name: 'high',      minBalance: 100,  rateLimit: 60 },
-  { name: 'low',       minBalance: 0,    rateLimit: 20 },
-];
-
-/** Derive the token tier for a given on-chain balance (whole units). */
-export function getTokenTier(tokenBalance: number): TokenTier {
-  return TOKEN_TIERS.find((t) => tokenBalance >= t.minBalance) ?? TOKEN_TIERS[TOKEN_TIERS.length - 1];
-}
-
-const TOKEN_BALANCE_CACHE_TTL_SEC = 5 * 60; // 5 minutes
-
-/** Read a wallet's cached token balance from Redis. Returns null on miss or error. */
-export async function getCachedTokenBalance(walletAddress: string): Promise<number | null> {
-  const restUrl = process.env.UPSTASH_REDIS_REST_URL;
-  const restToken = process.env.UPSTASH_REDIS_REST_TOKEN;
-  if (!restUrl || !restToken) return null;
-
-  try {
-    const res = await fetch(`${restUrl}/pipeline`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${restToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify([['GET', `tokenbal:${walletAddress}`]]),
-    });
-    if (!res.ok) return null;
-    const results = (await res.json()) as Array<{ result: string | null }>;
-    const val = results[0]?.result;
-    return val !== null && val !== undefined ? Number(val) : null;
-  } catch {
-    return null;
-  }
-}
-
-/** Write a wallet's token balance to Redis with a short TTL. Fire-and-forget safe. */
-export async function setCachedTokenBalance(walletAddress: string, balance: number): Promise<void> {
-  const restUrl = process.env.UPSTASH_REDIS_REST_URL;
-  const restToken = process.env.UPSTASH_REDIS_REST_TOKEN;
-  if (!restUrl || !restToken) return;
-
-  try {
-    await fetch(`${restUrl}/pipeline`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${restToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify([['SETEX', `tokenbal:${walletAddress}`, TOKEN_BALANCE_CACHE_TTL_SEC, String(balance)]]),
-    });
-  } catch {
-    // non-fatal
-  }
-}
 
 interface RateLimitEntry {
   timestamps: number[];
@@ -77,28 +15,6 @@ const store = new Map<string, RateLimitEntry>();
 const contentHashStore = new Map<string, number>(); // key → last-seen epoch ms
 
 const HOUR_MS = 3_600_000;
-
-/**
- * Extract the best available client IP from request headers.
- * Works with NextRequest and any object that exposes a `headers.get()` method.
- */
-export function getClientIp(req: { headers: { get(name: string): string | null } }): string {
-  const forwarded = req.headers.get('x-forwarded-for');
-  if (forwarded) return forwarded.split(',')[0].trim();
-  return req.headers.get('x-real-ip') ?? 'unknown';
-}
-
-/**
- * Returns true when the request carries a valid internal bypass token.
- * Set INTERNAL_API_TOKEN in the environment and pass `X-Internal-Token: <token>`
- * to skip rate limiting on agent/internal calls.
- */
-export function isInternalRequest(req: { headers: { get(name: string): string | null } }): boolean {
-  const expected = process.env.INTERNAL_API_TOKEN;
-  if (!expected) return false;
-  const provided = req.headers.get('x-internal-token');
-  return provided === expected;
-}
 
 // Prune expired entries every 5 minutes to prevent unbounded memory growth
 setInterval(() => {
@@ -122,69 +38,6 @@ export interface RateLimitError {
   status: 429;
   retryAfterSec: number;
   error: { code: 'RATE_LIMIT_EXCEEDED'; message: string };
-}
-
-export interface RateLimitResultExtended extends RateLimitResult {
-  store: 'redis' | 'memory';
-}
-
-async function tryRedisRateLimit(
-  key: string,
-  limit: number,
-  windowMs: number,
-): Promise<RateLimitResultExtended | null> {
-  const restUrl = process.env.UPSTASH_REDIS_REST_URL;
-  const restToken = process.env.UPSTASH_REDIS_REST_TOKEN;
-  if (!restUrl || !restToken) return null;
-
-  const windowSec = Math.ceil(windowMs / 1000);
-  const redisKey = `rl:${key}`;
-
-  try {
-    // Pipeline: INCR + EXPIRE NX (set TTL only if none exists — requires Redis 7+)
-    const pipeRes = await fetch(`${restUrl}/pipeline`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${restToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify([
-        ['INCR', redisKey],
-        ['EXPIRE', redisKey, windowSec, 'NX'],
-      ]),
-    });
-
-    if (!pipeRes.ok) {
-      console.warn(`[rate-limit] redis_error status=${pipeRes.status}`);
-      return null;
-    }
-
-    const results = (await pipeRes.json()) as Array<{ result: number }>;
-    const count = results[0]?.result ?? limit + 1;
-    const resetAt = Date.now() + windowMs;
-
-    if (count > limit) {
-      return { allowed: false, remaining: 0, resetAt, store: 'redis' };
-    }
-    return { allowed: true, remaining: limit - count, resetAt, store: 'redis' };
-  } catch (err) {
-    console.warn(`[rate-limit] redis_fallback err=${err instanceof Error ? err.message : String(err)}`);
-    return null;
-  }
-}
-
-/**
- * Rate limit check that prefers Upstash Redis when configured,
- * falling back to in-memory on errors or when Redis env vars are absent.
- */
-export async function checkRateLimitWithFallback(
-  key: string,
-  limit: number,
-  windowMs = HOUR_MS,
-): Promise<RateLimitResultExtended> {
-  const redisResult = await tryRedisRateLimit(key, limit, windowMs);
-  if (redisResult !== null) return redisResult;
-  return { ...checkRateLimit(key, limit, windowMs), store: 'memory' };
 }
 
 /**
@@ -229,34 +82,6 @@ export function checkRateLimit(
 
   entry.timestamps.push(now);
   return { allowed: true, remaining: limit - entry.timestamps.length, resetAt };
-}
-
-/** Epoch ms at the start of the next UTC day (midnight). */
-function nextUtcMidnightMs(): number {
-  const now = new Date();
-  return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
-}
-
-/**
- * Daily rate limit using Upstash Redis, keyed by an identifier + UTC date.
- * Key format: rl:daily:{id}:{YYYY-MM-DD}
- * TTL is set to expire at UTC midnight so the counter resets each day.
- * Falls back to in-memory when Redis is not configured or on error.
- */
-export async function checkDailyLimit(
-  id: string,
-  limit: number,
-): Promise<RateLimitResultExtended> {
-  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-  const dailyKey = `daily:${id}:${today}`;
-  const resetAt = nextUtcMidnightMs();
-  const ttlMs = Math.max(1000, resetAt - Date.now());
-
-  const redisResult = await tryRedisRateLimit(dailyKey, limit, ttlMs);
-  if (redisResult !== null) {
-    return { ...redisResult, resetAt }; // use exact midnight UTC instead of Date.now() + ttlMs
-  }
-  return { ...checkRateLimit(dailyKey, limit, ttlMs), resetAt, store: 'memory' };
 }
 
 /**

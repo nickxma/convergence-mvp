@@ -61,7 +61,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> },
 ) {
   if (!isAdminRequest(req)) {
-    return errorResponse(401, 'UNAUTHORIZED', 'Admin access required.');
+    return errorResponse(403, 'FORBIDDEN', 'Admin access required.');
   }
 
   const { id } = await params;

@@ -5,10 +5,16 @@ import { checkRateLimitWithFallback, getClientIp } from '@/lib/rate-limit';
 import { embedOne } from '@/lib/embeddings';
 import { verifyRequest } from '@/lib/privy-auth';
 import { supabase } from '@/lib/supabase';
+import {
+  getMeditationQuota,
+  incrementMeditationQuota,
+  FREE_MEDITATION_MONTHLY_LIMIT,
+  FREE_MEDITATION_MAX_DURATION_MIN,
+} from '@/lib/meditation-quota';
 
 const CLAUDE_MODEL = 'claude-sonnet-4-6';
 const TOP_K = 10;
-const FREE_TIER_LIMIT = 3; // per hour per user
+const FREE_TIER_LIMIT = 3; // per hour per user (server-level rate limit)
 
 const VALID_VOICE_STYLES = ['calm', 'energetic', 'neutral'] as const;
 const VALID_DURATIONS = [5, 10, 20] as const;
@@ -164,6 +170,25 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  // ── Monthly quota + tier check (authenticated users only) ────────────────
+  // Fetch quota once; reuse for both the quota gate and the duration cap.
+  const userQuota = userId ? await getMeditationQuota(userId) : null;
+
+  if (userQuota && !userQuota.isPro && userQuota.count >= userQuota.limit) {
+    console.warn(`[/api/meditations/generate] quota_exceeded userId=${userId} count=${userQuota.count}`);
+    return errorJsonResponse(
+      402,
+      'QUOTA_EXCEEDED',
+      `You've used all ${FREE_MEDITATION_MONTHLY_LIMIT} free meditations for this month.`,
+      {
+        upgradeRequired: true,
+        quotaUsed: userQuota.count,
+        quotaLimit: userQuota.limit,
+        resetsAt: userQuota.resetsAt,
+      },
+    );
+  }
+
   // ── Parse and validate input ──────────────────────────────────────────────
   let body: Record<string, unknown> | null = null;
   try {
@@ -172,10 +197,16 @@ export async function POST(req: NextRequest) {
     return errorJsonResponse(400, 'INVALID_JSON', 'Request body must be valid JSON.');
   }
 
-  const duration = body?.duration;
+  const rawDuration = body?.duration;
   const intent: string = typeof body?.intent === 'string' ? body.intent.trim() : '';
   const voiceStyle = body?.voice_style;
   const background = body?.background ?? 'silence';
+
+  // Free-tier users are capped at 10-minute meditations; silently clamp to max.
+  const duration =
+    userQuota && !userQuota.isPro && typeof rawDuration === 'number' && rawDuration > FREE_MEDITATION_MAX_DURATION_MIN
+      ? FREE_MEDITATION_MAX_DURATION_MIN
+      : rawDuration;
 
   if (!VALID_DURATIONS.includes(duration as MeditationDuration)) {
     return errorJsonResponse(400, 'INVALID_DURATION', 'duration must be 5, 10, or 20.');
@@ -337,39 +368,49 @@ export async function POST(req: NextRequest) {
 
         const meditation = addTimestamps(rawMeditation);
 
-        // ── Persist to database ─────────────────────────────────────────────
+        // ── Persist to database (pro users only — free tier has no history) ──
+        const isPro = userQuota ? userQuota.isPro : true; // anon users not quota-tracked
         let savedId: string | undefined;
-        try {
-          const { data, error } = await supabase
-            .from('meditations')
-            .insert({
-              user_id: userId,
-              intent,
-              duration: validDuration,
-              voice_style: validVoiceStyle,
-              background: validBackground,
-              title: meditation.title,
-              intro: meditation.intro,
-              sections: meditation.sections,
-              closing: meditation.closing,
-              estimated_duration_sec: meditation.estimated_duration_sec,
-            })
-            .select('id')
-            .single();
+        if (isPro || !userId) {
+          try {
+            const { data, error } = await supabase
+              .from('meditations')
+              .insert({
+                user_id: userId,
+                intent,
+                duration: validDuration,
+                voice_style: validVoiceStyle,
+                background: validBackground,
+                title: meditation.title,
+                intro: meditation.intro,
+                sections: meditation.sections,
+                closing: meditation.closing,
+                estimated_duration_sec: meditation.estimated_duration_sec,
+              })
+              .select('id')
+              .single();
 
-          if (error) {
-            console.error(`[/api/meditations/generate] db_error ${logCtx} err=${error.message}`);
-          } else {
-            savedId = data?.id;
+            if (error) {
+              console.error(`[/api/meditations/generate] db_error ${logCtx} err=${error.message}`);
+            } else {
+              savedId = data?.id;
+            }
+          } catch (err) {
+            console.error(`[/api/meditations/generate] db_exception ${logCtx} err=${err instanceof Error ? err.message : String(err)}`);
           }
-        } catch (err) {
-          console.error(`[/api/meditations/generate] db_exception ${logCtx} err=${err instanceof Error ? err.message : String(err)}`);
         }
 
-        // ── Enqueue audio jobs (fire-and-forget) ────────────────────────────
+        // ── Enqueue audio jobs (fire-and-forget, pro only) ───────────────────
         if (savedId) {
           enqueueAudioJobs(savedId, rawMeditation).catch((err) => {
             console.error(`[/api/meditations/generate] enqueue_audio_error id=${savedId}:`, err);
+          });
+        }
+
+        // ── Increment monthly quota (fire-and-forget) ────────────────────────
+        if (userId) {
+          incrementMeditationQuota(userId).catch((err) => {
+            console.warn(`[/api/meditations/generate] quota_increment_error userId=${userId}:`, err);
           });
         }
 
@@ -432,8 +473,8 @@ async function enqueueAudioJobs(
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function errorJsonResponse(status: number, code: string, message: string): Response {
-  return new Response(JSON.stringify({ error: { code, message } }), {
+function errorJsonResponse(status: number, code: string, message: string, extra?: Record<string, unknown>): Response {
+  return new Response(JSON.stringify({ error: { code, message, ...extra } }), {
     status,
     headers: { 'Content-Type': 'application/json' },
   });

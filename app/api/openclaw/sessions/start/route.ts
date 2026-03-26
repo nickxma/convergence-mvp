@@ -104,12 +104,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return errorResponse(500, 'DB_ERROR', 'Failed to create session.');
   }
 
+  const embedded = req.headers.get('x-embed-session') === '1';
+
   void trackEvent({
     eventType: 'session_start',
     sessionId: session.id as string,
     machineId: session.machine_id as string,
     userId: auth.userId,
-    metadata: { creditsAllocated: credits },
+    metadata: { creditsAllocated: credits, ...(embedded ? { embedded: true } : {}) },
   });
 
   // Fire referral conversion for the user's first paid session (best-effort, non-blocking).
