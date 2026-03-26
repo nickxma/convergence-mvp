@@ -106,15 +106,15 @@ function CitationText({
 
 /** Static sources used across the corpus. */
 const CORPUS_SOURCES = [
-  { name: 'SuttaCentral', count: '4,816', desc: 'Pali Canon, early Buddhist texts' },
-  { name: 'Lotsawa House', count: '2,224', desc: 'Tibetan Buddhist texts' },
-  { name: 'Access to Insight', count: '1,621', desc: 'Theravada texts, Pali Canon + commentary' },
-  { name: 'PMC (PubMed Central)', count: '585', desc: 'peer-reviewed papers on mindfulness and contemplative science' },
-  { name: 'Project Gutenberg', count: '127', desc: 'classic contemplative texts' },
-  { name: 'dhammatalks.org', count: '90', desc: 'books (Thanissaro Bhikkhu)' },
-  { name: 'Wikisource', count: '13', desc: 'public domain contemplative texts' },
-  { name: 'Dharma Seed', count: '7', desc: 'talks (with explicit permission)' },
-  { name: 'Internet Archive', count: '5', desc: 'pre-1928 public domain texts' },
+  { name: 'SuttaCentral', url: 'https://suttacentral.net', count: '4,816', desc: 'Pali Canon, early Buddhist texts' },
+  { name: 'Lotsawa House', url: 'https://www.lotsawahouse.org', count: '2,224', desc: 'Tibetan Buddhist texts' },
+  { name: 'Access to Insight', url: 'https://www.accesstoinsight.org', count: '1,621', desc: 'Theravada texts, Pali Canon + commentary' },
+  { name: 'PMC (PubMed Central)', url: 'https://www.ncbi.nlm.nih.gov/pmc/', count: '585', desc: 'peer-reviewed papers on mindfulness and contemplative science' },
+  { name: 'Project Gutenberg', url: 'https://www.gutenberg.org', count: '127', desc: 'classic contemplative texts' },
+  { name: 'dhammatalks.org', url: 'https://www.dhammatalks.org', count: '90', desc: 'books (Thanissaro Bhikkhu)' },
+  { name: 'Wikisource', url: 'https://en.wikisource.org', count: '13', desc: 'public domain contemplative texts' },
+  { name: 'Dharma Seed', url: 'https://www.dharmaseed.org', count: '7', desc: 'talks (with explicit permission)' },
+  { name: 'Internet Archive', url: 'https://archive.org', count: '5', desc: 'pre-1928 public domain texts' },
 ];
 
 /** Slide-over panel showing corpus sources for an answer. */
@@ -189,7 +189,9 @@ function CitationPanel({
               style={{ background: '#f0ece3' }}
             >
               <p className="font-semibold text-xs" style={{ color: '#5a6b52' }}>
-                {src.name}
+                <a href={src.url} target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', textDecoration: 'underline', textUnderlineOffset: '2px' }}>
+                  {src.name}
+                </a>
               </p>
               <p className="text-xs mt-0.5" style={{ color: '#9c9080' }}>
                 {src.count} documents — {src.desc}

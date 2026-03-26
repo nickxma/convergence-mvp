@@ -147,15 +147,15 @@ export function LandingPage() {
             </button>
             {showSources && (
               <ul className="mt-3 space-y-1.5 text-xs leading-relaxed" style={{ color: '#5c5248' }}>
-                <li><strong>SuttaCentral</strong> — 4,816 documents (Pali Canon, early Buddhist texts)</li>
-                <li><strong>Lotsawa House</strong> — 2,224 documents (Tibetan Buddhist texts)</li>
-                <li><strong>Access to Insight</strong> — 1,621 documents (Theravada texts, Pali Canon + commentary)</li>
-                <li><strong>PMC (PubMed Central)</strong> — 585 peer-reviewed papers on mindfulness and contemplative science</li>
-                <li><strong>Project Gutenberg</strong> — 127 classic contemplative texts</li>
-                <li><strong>dhammatalks.org</strong> — 90 books (Thanissaro Bhikkhu)</li>
-                <li><strong>Wikisource</strong> — 13 public domain contemplative texts</li>
-                <li><strong>Dharma Seed</strong> — 7 talks (with explicit permission)</li>
-                <li><strong>Internet Archive</strong> — 5 pre-1928 public domain texts</li>
+                <li><a href="https://suttacentral.net" target="_blank" rel="noopener noreferrer" style={{ color: 'inherit' }}><strong>SuttaCentral</strong></a> — 4,816 documents (Pali Canon, early Buddhist texts)</li>
+                <li><a href="https://www.lotsawahouse.org" target="_blank" rel="noopener noreferrer" style={{ color: 'inherit' }}><strong>Lotsawa House</strong></a> — 2,224 documents (Tibetan Buddhist texts)</li>
+                <li><a href="https://www.accesstoinsight.org" target="_blank" rel="noopener noreferrer" style={{ color: 'inherit' }}><strong>Access to Insight</strong></a> — 1,621 documents (Theravada texts, Pali Canon + commentary)</li>
+                <li><a href="https://www.ncbi.nlm.nih.gov/pmc/" target="_blank" rel="noopener noreferrer" style={{ color: 'inherit' }}><strong>PMC (PubMed Central)</strong></a> — 585 peer-reviewed papers on mindfulness and contemplative science</li>
+                <li><a href="https://www.gutenberg.org" target="_blank" rel="noopener noreferrer" style={{ color: 'inherit' }}><strong>Project Gutenberg</strong></a> — 127 classic contemplative texts</li>
+                <li><a href="https://www.dhammatalks.org" target="_blank" rel="noopener noreferrer" style={{ color: 'inherit' }}><strong>dhammatalks.org</strong></a> — 90 books (Thanissaro Bhikkhu)</li>
+                <li><a href="https://en.wikisource.org" target="_blank" rel="noopener noreferrer" style={{ color: 'inherit' }}><strong>Wikisource</strong></a> — 13 public domain contemplative texts</li>
+                <li><a href="https://www.dharmaseed.org" target="_blank" rel="noopener noreferrer" style={{ color: 'inherit' }}><strong>Dharma Seed</strong></a> — 7 talks (with explicit permission)</li>
+                <li><a href="https://archive.org" target="_blank" rel="noopener noreferrer" style={{ color: 'inherit' }}><strong>Internet Archive</strong></a> — 5 pre-1928 public domain texts</li>
               </ul>
             )}
           </div>
