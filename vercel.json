@@ -5,64 +5,16 @@
       "schedule": "0 0 * * *"
     },
     {
-      "path": "/api/health",
-      "schedule": "*/5 * * * *"
+      "path": "/api/cron/analytics-rollup",
+      "schedule": "15 0 * * *"
     },
     {
-      "path": "/api/cron/cost-alert",
-      "schedule": "0 6 * * *"
-    },
-    {
-      "path": "/api/cron/trial-reminders",
-      "schedule": "0 13 * * *"
-    },
-    {
-      "path": "/api/cron/churn-report",
-      "schedule": "0 9 * * 1"
-    },
-    {
-      "path": "/api/cron/ab-test-winner",
-      "schedule": "*/15 * * * *"
-    },
-    {
-      "path": "/api/cron/newsletter-scheduled",
-      "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/cron/insight-digest",
-      "schedule": "0 7 * * *"
-    },
-    {
-      "path": "/api/cron/waking-up-sync",
-      "schedule": "0 4 * * 1"
-    },
-    {
-      "path": "/api/cron/paradox-sync",
-      "schedule": "0 5 * * 1"
-    },
-    {
-      "path": "/api/cron/feedback-score",
-      "schedule": "0 3 * * *"
-    },
-    {
-      "path": "/api/cron/agent-health-check",
-      "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/cron/trending-topics",
-      "schedule": "0 6 * * 1"
-    },
-    {
-      "path": "/api/cron/audio-generation",
+      "path": "/api/cron/machine-watchdog",
       "schedule": "* * * * *"
     },
     {
-      "path": "/api/cron/token-snapshot",
-      "schedule": "0 2 * * *"
-    },
-    {
-      "path": "/api/cron/subscription-renewals",
-      "schedule": "0 10 * * *"
+      "path": "/api/cron/source-authority-rollup",
+      "schedule": "0 4 * * 0"
     }
   ]
 }

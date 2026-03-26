@@ -21,6 +21,13 @@ const TOP_K = 20;
 const RERANK_MODEL = 'rerank-v3.5';
 const RERANK_TOP_N = 5;
 const SCORE_THRESHOLD = 0.4;
+
+// Authority blending weights (configurable via env vars).
+// blendedScore = vectorScore * (1 - w_auth - w_qual)
+//              + authorityScore * w_auth
+//              + positiveRatioWhenCited * w_qual
+const AUTHORITY_WEIGHT = Number(process.env.AUTHORITY_WEIGHT ?? '0.10');
+const CITATION_QUALITY_WEIGHT = Number(process.env.CITATION_QUALITY_WEIGHT ?? '0.05');
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 
 const BASE_SYSTEM_PROMPT = `You are a knowledgeable mindfulness guide with deep expertise in meditation, consciousness, non-dual awareness, and contemplative traditions.
@@ -288,6 +295,56 @@ export async function POST(req: NextRequest) {
       seenTexts.add(c.text);
       return true;
     });
+
+  // ── Authority blending ──
+  // Fetch per-source quality signals for the documents that matched.
+  // Non-fatal: if lookup fails, fall through with raw vector scores.
+  const uniqueSources = [...new Set(chunks.map((c) => c.source).filter(Boolean))];
+  if (uniqueSources.length > 0 && (AUTHORITY_WEIGHT > 0 || CITATION_QUALITY_WEIGHT > 0)) {
+    try {
+      const { data: docRows } = await supabase
+        .from('documents')
+        .select('source_id, authority_score, positive_ratio_when_cited')
+        .in('source_id', uniqueSources);
+
+      if (docRows && docRows.length > 0) {
+        const scoreMap = new Map(
+          docRows.map((r) => [
+            r.source_id as string,
+            {
+              authority: (r.authority_score as number) ?? 0.5,
+              quality: (r.positive_ratio_when_cited as number | null) ?? 0.5,
+            },
+          ]),
+        );
+
+        const wVec = Math.max(0, 1 - AUTHORITY_WEIGHT - CITATION_QUALITY_WEIGHT);
+        chunks = chunks.map((c) => {
+          const sig = scoreMap.get(c.source);
+          if (!sig) return c;
+          const blended =
+            c.score * wVec +
+            sig.authority * AUTHORITY_WEIGHT +
+            sig.quality * CITATION_QUALITY_WEIGHT;
+          return { ...c, score: blended };
+        });
+
+        // Re-sort by blended score descending (Pinecone already sorted by vector score)
+        chunks.sort((a, b) => b.score - a.score);
+      }
+    } catch (err) {
+      console.warn('[/api/ask] authority_blend_error:', err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  // ── Log citations (fire-and-forget) ──
+  // Records which documents were retrieved so the weekly rollup can compute
+  // citation_count and positive_ratio_when_cited per document.
+  if (uniqueSources.length > 0) {
+    void supabase.from('answer_source_log').insert(
+      uniqueSources.map((sid) => ({ query_id: queryId, source_id: sid })),
+    );
+  }
 
   // ── Cross-encoder reranking (ENABLE_RERANKING=true) ──
   if (rerankingEnabled && chunks.length >= 2) {
