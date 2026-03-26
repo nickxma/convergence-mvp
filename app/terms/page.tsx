@@ -72,9 +72,9 @@ export default function TermsPage() {
 
           <Section title="Description of Services">
             <p>
-              Convergence is an AI-powered Q&amp;A tool grounded in transcripts from the Waking Up
-              library, operated by Paradox of Acceptance. Paradox of Acceptance provides additional
-              tools, essays, and resources for meditators. We may update, expand, or discontinue
+              Convergence is an AI-powered Q&amp;A tool grounded in content from various mindfulness
+              teachers and traditions, operated by Paradox of Acceptance. Paradox of Acceptance provides
+              additional tools, essays, and resources for meditators. We may update, expand, or discontinue
               features at any time.
             </p>
           </Section>
@@ -133,9 +133,9 @@ export default function TermsPage() {
               You may not reproduce, distribute, or create derivative works without our prior written consent.
             </p>
             <p>
-              The underlying Waking Up transcripts remain the property of their respective owners.
-              Our use is for the purpose of indexing and answering questions; we do not claim ownership
-              of that source material.
+              The underlying content from mindfulness teachers and traditions remains the property of
+              their respective owners. Our use is for the purpose of indexing and answering questions;
+              we do not claim ownership of that source material.
             </p>
           </Section>
 
