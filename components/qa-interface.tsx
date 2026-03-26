@@ -104,39 +104,35 @@ function CitationText({
   );
 }
 
-/** Slide-over panel showing all citations for an answer. */
+/** Static sources used across the corpus. */
+const CORPUS_SOURCES = [
+  { name: 'SuttaCentral', count: '4,816', desc: 'Pali Canon, early Buddhist texts' },
+  { name: 'Lotsawa House', count: '2,224', desc: 'Tibetan Buddhist texts' },
+  { name: 'Access to Insight', count: '1,621', desc: 'Theravada texts, Pali Canon + commentary' },
+  { name: 'PMC (PubMed Central)', count: '585', desc: 'peer-reviewed papers on mindfulness and contemplative science' },
+  { name: 'Project Gutenberg', count: '127', desc: 'classic contemplative texts' },
+  { name: 'dhammatalks.org', count: '90', desc: 'books (Thanissaro Bhikkhu)' },
+  { name: 'Wikisource', count: '13', desc: 'public domain contemplative texts' },
+  { name: 'Dharma Seed', count: '7', desc: 'talks (with explicit permission)' },
+  { name: 'Internet Archive', count: '5', desc: 'pre-1928 public domain texts' },
+];
+
+/** Slide-over panel showing corpus sources for an answer. */
 function CitationPanel({
-  sources,
-  activeIndex,
   onClose,
-  onNavigate,
 }: {
   sources: Source[];
   activeIndex: number;
   onClose: () => void;
   onNavigate: (index: number) => void;
 }) {
-  const activeRef = useRef<HTMLDivElement>(null);
-
   useEffect(() => {
     function handleKey(e: globalThis.KeyboardEvent) {
       if (e.key === 'Escape') onClose();
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        onNavigate(Math.min(activeIndex + 1, sources.length - 1));
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        onNavigate(Math.max(activeIndex - 1, 0));
-      }
     }
     document.addEventListener('keydown', handleKey);
     return () => document.removeEventListener('keydown', handleKey);
-  }, [activeIndex, sources.length, onClose, onNavigate]);
-
-  useEffect(() => {
-    activeRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  }, [activeIndex]);
+  }, [onClose]);
 
   return (
     <>
@@ -158,7 +154,7 @@ function CitationPanel({
           boxShadow: '-4px 0 24px rgba(0,0,0,0.08)',
         }}
         role="dialog"
-        aria-label="Source citations"
+        aria-label="Source corpus"
         aria-modal="true"
       >
         {/* Header */}
@@ -167,14 +163,13 @@ function CitationPanel({
           style={{ borderColor: '#e0d8cc' }}
         >
           <h2 className="font-semibold text-sm" style={{ color: '#2c2c2c' }}>
-            Teachers Referenced{' '}
-            <span style={{ color: '#9c9080', fontWeight: 400 }}>({sources.length})</span>
+            Sources
           </h2>
           <button
             onClick={onClose}
             className="w-7 h-7 rounded flex items-center justify-center transition-colors hover:bg-[#f0ece3]"
             style={{ color: '#7d8c6e' }}
-            aria-label="Close citations panel"
+            aria-label="Close sources panel"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -182,59 +177,33 @@ function CitationPanel({
           </button>
         </div>
 
-        {/* Citation list */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          {sources.map((s, i) => {
-            const isActive = i === activeIndex;
-            return (
-              <div
-                key={i}
-                ref={isActive ? activeRef : undefined}
-                onClick={() => onNavigate(i)}
-                className="rounded-xl p-4 cursor-pointer transition-all"
-                style={{
-                  background: isActive ? '#e8f0e4' : '#f0ece3',
-                  border: `2px solid ${isActive ? '#7d8c6e' : 'transparent'}`,
-                }}
-                role="button"
-                tabIndex={0}
-                aria-pressed={isActive}
-                onKeyDown={(e) => e.key === 'Enter' && onNavigate(i)}
-              >
-                <div className="flex items-start gap-3">
-                  {/* Citation number badge */}
-                  <span
-                    className="flex-shrink-0 w-5 h-5 rounded text-xs font-bold flex items-center justify-center"
-                    style={{
-                      background: isActive ? '#7d8c6e' : '#b8ccb0',
-                      color: isActive ? '#fff' : '#3d5c3a',
-                      fontSize: '10px',
-                    }}
-                  >
-                    {i + 1}
-                  </span>
-
-                  <div className="flex-1 min-w-0">
-                    {/* Teacher name */}
-                    <p className="font-semibold text-xs" style={{ color: '#5a6b52' }}>
-                      {teacherLabel(s.speaker)}
-                    </p>
-                    <p className="text-xs mt-1" style={{ color: '#9c9080' }}>
-                      Mindfulness teaching
-                    </p>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+        {/* Source list */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-2.5">
+          <p className="text-xs leading-relaxed mb-3" style={{ color: '#7d8c6e' }}>
+            Answers are drawn from 9,500+ documents across nine curated sources.
+          </p>
+          {CORPUS_SOURCES.map((src) => (
+            <div
+              key={src.name}
+              className="rounded-xl p-3"
+              style={{ background: '#f0ece3' }}
+            >
+              <p className="font-semibold text-xs" style={{ color: '#5a6b52' }}>
+                {src.name}
+              </p>
+              <p className="text-xs mt-0.5" style={{ color: '#9c9080' }}>
+                {src.count} documents — {src.desc}
+              </p>
+            </div>
+          ))}
         </div>
 
-        {/* Keyboard hint footer */}
+        {/* Coming soon footer */}
         <div
           className="px-5 py-3 border-t flex-shrink-0 text-xs"
           style={{ borderColor: '#e0d8cc', color: '#b0a898' }}
         >
-          ↑↓ navigate · Esc close
+          Detailed transcript references coming soon. · Esc close
         </div>
       </div>
     </>
@@ -444,7 +413,7 @@ export function QAInterface({
                 Ask a question to explore mindfulness teachings
               </p>
               <p className="text-xs mt-1 mb-5" style={{ color: '#9c9080' }}>
-                Sourced from 760+ hours of mindfulness content
+                Sourced from hundreds of hours from leading mindfulness teachers and practitioners
               </p>
               <div className="flex flex-wrap justify-center gap-2 max-w-md">
                 {[
@@ -500,17 +469,7 @@ export function QAInterface({
                         }}
                       >
                         {text ? (
-                          sources.length > 0 ? (
-                            <CitationText
-                              text={text}
-                              sourcesCount={sources.length}
-                              onCitationClick={(index) =>
-                                setCitationPanel({ sources, activeIndex: index })
-                              }
-                            />
-                          ) : (
-                            text
-                          )
+                          text.replace(/\[\d+\]/g, '')
                         ) : (
                           <StreamingIndicator />
                         )}
@@ -536,7 +495,7 @@ export function QAInterface({
                                 d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"
                               />
                             </svg>
-                            {sources.length} teacher{sources.length !== 1 ? 's' : ''} cited
+                            View sources
                           </button>
                         </div>
                       )}
