@@ -58,6 +58,7 @@ function buildCacheHitResponse(
   sources: CachedSource[],
   conversationId: string,
 ): Response {
+  const clientSources = sources.map(({ source: _src, ...rest }) => rest);
   const textId = randomUUID();
   const stream = new ReadableStream<UIMessageChunk>({
     start(controller) {
@@ -67,7 +68,7 @@ function buildCacheHitResponse(
       controller.enqueue({
         type: 'finish',
         finishReason: 'stop',
-        messageMetadata: { sources, conversationId, cached: true } as unknown,
+        messageMetadata: { sources: clientSources, conversationId, cached: true } as unknown,
       });
       controller.close();
     },
@@ -397,13 +398,16 @@ export async function POST(req: NextRequest) {
     ? `Transcript excerpts from our archive:\n\n${context}\n\nQuestion: ${question}`
     : `Question: ${question}`;
 
-  // ── Sources for client ──
+  // ── Sources (internal — includes source for cache/scoring) ──
   const sources = chunks.map((c) => ({
     text: c.text.slice(0, 200),
     speaker: c.speaker,
     source: c.source,
     score: Math.round(c.score * 100) / 100,
   }));
+
+  // Strip identifying fields before sending to client
+  const clientSources = sources.map(({ source: _src, ...rest }) => rest);
 
   // ── Stream response using AI SDK ──
   const result = streamText({
@@ -458,7 +462,7 @@ export async function POST(req: NextRequest) {
       // Attach sources metadata on the finish event
       if (part.type === 'finish') {
         return {
-          sources,
+          sources: clientSources,
           conversationId,
           queryId,
           ...(detectedLang ? { detectedLanguage: { code: detectedLang.code, name: detectedLang.name } } : {}),
