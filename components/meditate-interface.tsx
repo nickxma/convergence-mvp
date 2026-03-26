@@ -1,7 +1,9 @@
 'use client';
 
-import { useState, FormEvent, useRef, useCallback, useEffect } from 'react';
+import { useEffect, useState, FormEvent, useCallback } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
+import { VoiceCardGrid, getPersistedVoice, type VoiceId } from './voice-card-grid';
+import { MeditationUpsellModal } from './meditation-upsell-modal';
 
 interface Source {
   text: string;
@@ -23,33 +25,18 @@ const SUGGESTED_TOPICS = [
   'The illusion of the self',
 ];
 
-// ── Script parsing ──────────────────────────────────────────────────────────
-
-function parseBlocks(script: string): string[] {
-  return script
-    .split(/\n{2,}/)
-    .map((b) => b.trim())
-    .filter(Boolean);
-}
-
-// Short paragraphs (instructions like "Close your eyes...") get centered, dimmed style
-function isTransition(text: string): boolean {
-  return text.replace(/\.\.\./g, '').trim().split(/\s+/).length <= 12;
-}
-
-// ── Sub-components ──────────────────────────────────────────────────────────
-
 function MeditationSkeleton() {
   return (
     <div className="space-y-3 max-w-2xl mx-auto" aria-label="Generating meditation…">
       <div className="flex flex-col items-center gap-3 py-8">
         <div
           className="w-10 h-10 rounded-full flex items-center justify-center"
-          style={{ background: 'var(--bg-chip)' }}
+          style={{ background: '#e8e0d5' }}
         >
-          <svg aria-hidden="true"
+          <svg
+            aria-hidden="true"
             className="w-5 h-5"
-            style={{ color: 'var(--sage)', animation: 'breathe 3s ease-in-out infinite' }}
+            style={{ color: '#7d8c6e', animation: 'breathe 3s ease-in-out infinite' }}
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -62,10 +49,10 @@ function MeditationSkeleton() {
             />
           </svg>
         </div>
-        <p className="text-sm font-medium" style={{ color: 'var(--text-warm)' }}>
+        <p className="text-sm font-medium" style={{ color: '#5c5248' }}>
           Composing your meditation…
         </p>
-        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+        <p className="text-xs" style={{ color: '#9c9080' }}>
           Drawing from the archive, this takes a moment
         </p>
       </div>
@@ -75,7 +62,7 @@ function MeditationSkeleton() {
           className="h-3 rounded-full"
           style={{
             width: `${w}%`,
-            background: 'var(--border)',
+            background: '#e0d8cc',
             animation: `shimmer 1.6s ease-in-out ${i * 0.15}s infinite`,
           }}
         />
@@ -96,10 +83,13 @@ function SourceList({ sources }: { sources: Source[] }) {
     <div className="mt-4">
       <button
         onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-controls="source-list-panel"
         className="flex items-center gap-1.5 text-xs font-medium transition-colors"
-        style={{ color: 'var(--sage)' }}
+        style={{ color: '#7d8c6e' }}
       >
-        <svg aria-hidden="true"
+        <svg
+          aria-hidden="true"
           className="w-3.5 h-3.5 transition-transform"
           style={{ transform: open ? 'rotate(90deg)' : 'rotate(0deg)' }}
           fill="none"
@@ -112,23 +102,23 @@ function SourceList({ sources }: { sources: Source[] }) {
         {sources.length} source{sources.length !== 1 ? 's' : ''}
       </button>
       {open && (
-        <div className="mt-2 space-y-2">
+        <div id="source-list-panel" className="mt-2 space-y-2">
           {sources.map((s, i) => (
             <div
               key={i}
               className="rounded-lg p-3 text-xs"
-              style={{ background: 'var(--source-bg)', borderLeft: '2px solid var(--source-border)' }}
+              style={{ background: '#f0ece3', borderLeft: '2px solid #b8ccb0' }}
             >
               {s.speaker && (
-                <p className="font-semibold mb-1" style={{ color: 'var(--sage-mid)' }}>
+                <p className="font-semibold mb-1" style={{ color: '#5a6b52' }}>
                   {s.speaker}
                 </p>
               )}
-              <p className="leading-relaxed" style={{ color: 'var(--text-warm)' }}>
+              <p className="leading-relaxed" style={{ color: '#5c5248' }}>
                 {s.text}
               </p>
               {s.source && (
-                <p className="mt-1 opacity-60 font-mono" style={{ color: 'var(--sage)' }}>
+                <p className="mt-1 opacity-60 font-mono" style={{ color: '#7d8c6e' }}>
                   {s.source}
                 </p>
               )}
@@ -140,352 +130,58 @@ function SourceList({ sources }: { sources: Source[] }) {
   );
 }
 
-// ── Pause marker rendered inline for each ... ──────────────────────────────
-
-function PauseDots() {
-  return (
-    <span
-      aria-label="pause"
-      style={{
-        display: 'inline-block',
-        margin: '0 0.25em',
-        color: 'var(--pause-color)',
-        letterSpacing: '0.15em',
-        fontSize: '0.75em',
-        verticalAlign: 'middle',
-        userSelect: 'none',
-      }}
-    >
-      · · ·
-    </span>
-  );
+interface QuotaState {
+  quotaUsed: number;
+  quotaLimit: number;
+  isPro: boolean;
+  resetsAt: string;
 }
 
-// ── Section break between major paragraphs ─────────────────────────────────
-
-function SectionBreak() {
-  return (
-    <div
-      aria-hidden="true"
-      style={{ display: 'flex', justifyContent: 'center', margin: '0.5rem 0 1.5rem' }}
-    >
-      <svg width="32" height="12" viewBox="0 0 32 12" fill="none">
-        <circle cx="4" cy="6" r="2.5" fill="var(--sage-ring)" />
-        <circle cx="16" cy="6" r="2.5" fill="var(--sage-ring-mid)" />
-        <circle cx="28" cy="6" r="2.5" fill="var(--sage-ring)" />
-      </svg>
-    </div>
-  );
+interface QuotaExceededError {
+  code: 'QUOTA_EXCEEDED';
+  upgradeRequired: true;
+  quotaUsed: number;
+  quotaLimit: number;
+  resetsAt: string;
 }
-
-// ── Render a single paragraph block ───────────────────────────────────────
-
-function ScriptBlock({
-  text,
-  dimmed,
-  hidden,
-  last,
-}: {
-  text: string;
-  dimmed?: boolean;
-  hidden?: boolean;
-  last?: boolean;
-}) {
-  const transition = isTransition(text);
-  const parts = text.split(/(\.\.\.)/g);
-
-  return (
-    <div
-      style={{
-        opacity: hidden ? 0 : dimmed ? 0.35 : 1,
-        transition: 'opacity 0.5s ease',
-        marginBottom: transition ? '1rem' : '1.5rem',
-        textAlign: transition ? 'center' : 'left',
-        pointerEvents: hidden ? 'none' : 'auto',
-      }}
-    >
-      <p
-        style={{
-          color: transition ? 'var(--sage-dim)' : 'var(--text)',
-          fontSize: transition ? '0.875rem' : '1rem',
-          lineHeight: transition ? '1.6' : '1.85',
-          fontStyle: transition ? 'italic' : 'normal',
-          margin: 0,
-        }}
-      >
-        {parts.map((part, i) =>
-          part === '...' ? <PauseDots key={i} /> : <span key={i}>{part}</span>,
-        )}
-      </p>
-      {/* Section break after paragraphs that end with ... (breathing points) */}
-      {text.endsWith('...') && !last && <SectionBreak />}
-    </div>
-  );
-}
-
-// ── Meditation script display with play mode ───────────────────────────────
-
-function MeditationScript({
-  script,
-  onReset,
-  topic,
-  duration,
-  sources,
-}: {
-  script: string;
-  onReset: () => void;
-  topic: string;
-  duration: string;
-  sources: Source[];
-}) {
-  const blocks = parseBlocks(script);
-  const [playMode, setPlayMode] = useState(false);
-  const [currentIdx, setCurrentIdx] = useState(0);
-  const [speaking, setSpeaking] = useState(false);
-  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
-
-  const hasTTS = typeof window !== 'undefined' && 'speechSynthesis' in window;
-
-  const stopSpeech = useCallback(() => {
-    if (typeof window !== 'undefined' && window.speechSynthesis) {
-      window.speechSynthesis.cancel();
-    }
-    setSpeaking(false);
-    utteranceRef.current = null;
-  }, []);
-
-  // Stop speech when leaving play mode or resetting
-  useEffect(() => {
-    if (!playMode) stopSpeech();
-  }, [playMode, stopSpeech]);
-
-  const speakBlock = useCallback(
-    (text: string) => {
-      if (!hasTTS) return;
-      stopSpeech();
-      // Strip the ... from TTS — replace with actual pauses via SSML-free approach
-      const cleaned = text.replace(/\.\.\./g, ', ');
-      const utter = new SpeechSynthesisUtterance(cleaned);
-      utter.rate = 0.82;
-      utter.pitch = 0.95;
-      utter.onend = () => setSpeaking(false);
-      utter.onerror = () => setSpeaking(false);
-      utteranceRef.current = utter;
-      setSpeaking(true);
-      window.speechSynthesis.speak(utter);
-    },
-    [hasTTS, stopSpeech],
-  );
-
-  function handleNext() {
-    if (currentIdx < blocks.length - 1) {
-      setCurrentIdx((i) => i + 1);
-      stopSpeech();
-    }
-  }
-
-  function handlePrev() {
-    if (currentIdx > 0) {
-      setCurrentIdx((i) => i - 1);
-      stopSpeech();
-    }
-  }
-
-  function handlePlayToggle() {
-    if (playMode) {
-      stopSpeech();
-      setPlayMode(false);
-      setCurrentIdx(0);
-    } else {
-      setPlayMode(true);
-      setCurrentIdx(0);
-    }
-  }
-
-  function handleListen() {
-    if (speaking) {
-      stopSpeech();
-    } else if (playMode) {
-      speakBlock(blocks[currentIdx]);
-    } else {
-      speakBlock(blocks.join(' '));
-    }
-  }
-
-  const isLastBlock = currentIdx === blocks.length - 1;
-
-  return (
-    <div>
-      {/* Header row */}
-      <div className="flex items-center justify-between mb-5">
-        <div>
-          <p className="font-semibold text-sm" style={{ color: 'var(--sage-dark)' }}>
-            {duration} guided meditation
-          </p>
-          <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
-            Topic: {topic}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {hasTTS && (
-            <button
-              onClick={handleListen}
-              title={speaking ? 'Stop' : 'Listen aloud'}
-              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border transition-colors"
-              style={{
-                borderColor: speaking ? 'var(--sage)' : 'var(--border)',
-                color: 'var(--sage)',
-                background: speaking ? 'var(--sage-bg)' : 'transparent',
-              }}
-            >
-              {speaking ? (
-                <>
-                  <svg aria-hidden="true" className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
-                    <rect x="6" y="4" width="4" height="16" rx="1" />
-                    <rect x="14" y="4" width="4" height="16" rx="1" />
-                  </svg>
-                  Stop
-                </>
-              ) : (
-                <>
-                  <svg aria-hidden="true"
-                    className="w-3 h-3"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M19.114 5.636a9 9 0 0 1 0 12.728M16.463 8.288a5.25 5.25 0 0 1 0 7.424M6.75 8.25l4.72-4.72a.75.75 0 0 1 1.28.53v15.88a.75.75 0 0 1-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 0 1 2.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75Z"
-                    />
-                  </svg>
-                  Listen
-                </>
-              )}
-            </button>
-          )}
-          <button
-            onClick={handlePlayToggle}
-            title={playMode ? 'Exit play mode' : 'Play mode — read one step at a time'}
-            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border transition-colors"
-            style={{
-              borderColor: playMode ? 'var(--sage)' : 'var(--border)',
-              color: 'var(--sage)',
-              background: playMode ? 'var(--sage-bg)' : 'transparent',
-            }}
-          >
-            {playMode ? (
-              <>
-                <svg aria-hidden="true" className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
-                  <rect x="6" y="4" width="4" height="16" rx="1" />
-                  <rect x="14" y="4" width="4" height="16" rx="1" />
-                </svg>
-                Exit
-              </>
-            ) : (
-              <>
-                <svg aria-hidden="true" className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M8 5.14v14l11-7-11-7z" />
-                </svg>
-                Play
-              </>
-            )}
-          </button>
-          <button
-            onClick={onReset}
-            className="text-xs px-3 py-1.5 rounded-full border transition-colors"
-            style={{ borderColor: 'var(--border)', color: 'var(--sage)' }}
-          >
-            New
-          </button>
-        </div>
-      </div>
-
-      {/* Script */}
-      <div
-        className="rounded-2xl px-6 py-6"
-        style={{ background: 'var(--bg-surface)' }}
-      >
-        {playMode ? (
-          // ── Play mode: one block at a time ──────────────────────────────
-          <div>
-            <div style={{ minHeight: '6rem' }}>
-              <ScriptBlock
-                text={blocks[currentIdx]}
-                last={isLastBlock}
-              />
-            </div>
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                marginTop: '1.5rem',
-                paddingTop: '1rem',
-                borderTop: '1px solid var(--border)',
-              }}
-            >
-              <button
-                onClick={handlePrev}
-                disabled={currentIdx === 0}
-                className="text-xs px-3 py-1.5 rounded-full border transition-colors disabled:opacity-30"
-                style={{ borderColor: 'var(--border-muted)', color: 'var(--sage)' }}
-              >
-                ← Back
-              </button>
-              <span className="text-xs tabular-nums" style={{ color: 'var(--text-muted)' }}>
-                {currentIdx + 1} / {blocks.length}
-              </span>
-              {isLastBlock ? (
-                <button
-                  onClick={handlePlayToggle}
-                  className="text-xs px-3 py-1.5 rounded-full transition-colors"
-                  style={{ background: 'var(--sage)', color: '#fff' }}
-                >
-                  Complete
-                </button>
-              ) : (
-                <button
-                  onClick={handleNext}
-                  className="text-xs px-3 py-1.5 rounded-full transition-colors"
-                  style={{ background: 'var(--sage)', color: '#fff' }}
-                >
-                  Next →
-                </button>
-              )}
-            </div>
-          </div>
-        ) : (
-          // ── Full script view ────────────────────────────────────────────
-          <div>
-            {blocks.map((block, idx) => (
-              <ScriptBlock
-                key={idx}
-                text={block}
-                last={idx === blocks.length - 1}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-
-      <SourceList sources={sources} />
-    </div>
-  );
-}
-
-// ── Main component ─────────────────────────────────────────────────────────
 
 export function MeditateInterface() {
-  const { getAccessToken } = usePrivy();
+  const { getAccessToken, authenticated } = usePrivy();
 
   const MAX_TOPIC_CHARS = 300;
   const [topic, setTopic] = useState('');
+  const [voiceStyle, setVoiceStyle] = useState<VoiceId>('calm');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<MeditationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [quota, setQuota] = useState<QuotaState | null>(null);
+  const [upsell, setUpsell] = useState<QuotaExceededError | null>(null);
+
+  // Hydrate persisted voice preference after mount (avoids SSR mismatch)
+  useEffect(() => {
+    setVoiceStyle(getPersistedVoice('calm'));
+  }, []);
+
+  // Fetch quota when authenticated
+  const refreshQuota = useCallback(async () => {
+    try {
+      const token = await getAccessToken();
+      if (!token) return;
+      const res = await fetch('/api/meditations/quota', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json() as QuotaState;
+        setQuota(data);
+      }
+    } catch {
+      // Non-fatal — quota badge is informational
+    }
+  }, [getAccessToken]);
+
+  useEffect(() => {
+    if (authenticated) refreshQuota();
+  }, [authenticated, refreshQuota]);
 
   async function generate(topicValue: string) {
     const t = topicValue.trim();
@@ -508,18 +204,27 @@ export function MeditateInterface() {
       const res = await fetch('/api/meditate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify({ topic: t }),
+        body: JSON.stringify({ topic: t, voice_style: voiceStyle }),
       });
 
       if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        const msg = data?.error?.message ?? 'Something went wrong — please try again.';
+        const data = await res.json().catch(() => null) as { error?: Record<string, unknown> } | null;
+
+        // Quota exceeded — show upsell modal
+        if (res.status === 402 && data?.error?.code === 'QUOTA_EXCEEDED') {
+          setUpsell(data.error as QuotaExceededError);
+          return;
+        }
+
+        const msg = (data?.error?.message as string) ?? 'Something went wrong — please try again.';
         setError(msg);
         return;
       }
 
       const data: MeditationResult = await res.json();
       setResult(data);
+      // Refresh quota badge after a successful generation
+      refreshQuota();
     } catch {
       setError('Network error — please check your connection and try again.');
     } finally {
@@ -540,8 +245,22 @@ export function MeditateInterface() {
 
   const hasResult = result !== null;
 
+  // Quota badge: show for authenticated free users only
+  const showQuotaBadge = quota && !quota.isPro;
+  const quotaRemaining = showQuotaBadge ? Math.max(0, quota.quotaLimit - quota.quotaUsed) : null;
+
   return (
-    <div className="flex flex-col h-full" style={{ background: 'var(--bg)' }}>
+    <>
+    {upsell && (
+      <MeditationUpsellModal
+        quotaUsed={upsell.quotaUsed}
+        quotaLimit={upsell.quotaLimit}
+        resetsAt={upsell.resetsAt}
+        onClose={() => setUpsell(null)}
+        onSuccess={() => { setUpsell(null); refreshQuota(); }}
+      />
+    )}
+    <div className="flex flex-col h-full" style={{ background: '#faf8f3' }}>
       <div className="flex-1 overflow-y-auto px-4 py-6">
         <div className="max-w-2xl mx-auto">
           {/* Empty state / topic picker */}
@@ -549,11 +268,12 @@ export function MeditateInterface() {
             <div className="flex flex-col items-center text-center pt-8 pb-6">
               <div
                 className="w-14 h-14 rounded-full flex items-center justify-center mb-4"
-                style={{ background: 'var(--bg-chip)' }}
+                style={{ background: '#e8e0d5' }}
               >
-                <svg aria-hidden="true"
+                <svg
+                  aria-hidden="true"
                   className="w-7 h-7"
-                  style={{ color: 'var(--sage)' }}
+                  style={{ color: '#7d8c6e' }}
                   fill="none"
                   viewBox="0 0 24 24"
                   stroke="currentColor"
@@ -566,17 +286,36 @@ export function MeditateInterface() {
                   />
                 </svg>
               </div>
-              <p className="font-medium text-sm mb-1" style={{ color: 'var(--text-warm)' }}>
+              <p className="font-medium text-sm mb-1" style={{ color: '#5c5248' }}>
                 Generate a guided meditation
               </p>
-              <p className="text-xs mb-6" style={{ color: 'var(--text-muted)' }}>
-                Grounded in 760+ hours of mindfulness teachings · 5-10 minutes
+              <p className="text-xs mb-3" style={{ color: '#9c9080' }}>
+                Grounded in hundreds of hours of mindfulness teachings · 5-10 minutes
               </p>
+
+              {/* Quota badge for free users */}
+              {showQuotaBadge && (
+                <div
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs mb-4"
+                  style={{
+                    background: quotaRemaining === 0 ? '#fff4f2' : '#f0ece3',
+                    border: `1px solid ${quotaRemaining === 0 ? '#f5c6c0' : '#e0d8cc'}`,
+                    color: quotaRemaining === 0 ? '#c0392b' : '#7d8c6e',
+                  }}
+                >
+                  <svg aria-hidden="true" className="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                  </svg>
+                  {quotaRemaining === 0
+                    ? `Free limit reached — ${quota!.quotaUsed} of ${quota!.quotaLimit} used`
+                    : `${quota!.quotaUsed} of ${quota!.quotaLimit} free meditations used this month`}
+                </div>
+              )}
 
               {error && (
                 <div
                   className="w-full rounded-xl px-4 py-3 mb-5 text-sm text-left"
-                  style={{ background: 'var(--error-bg)', border: '1px solid var(--error-border)', color: 'var(--error-text)' }}
+                  style={{ background: '#fff4f2', border: '1px solid #f5c6c0', color: '#c0392b' }}
                 >
                   {error}
                 </div>
@@ -589,9 +328,9 @@ export function MeditateInterface() {
                     onClick={() => { setTopic(t); generate(t); }}
                     className="rounded-full px-3 py-1.5 text-xs transition-colors"
                     style={{
-                      background: 'var(--bg-surface)',
-                      color: 'var(--text-warm)',
-                      border: '1px solid var(--border-subtle)',
+                      background: '#f0ece3',
+                      color: '#5c5248',
+                      border: '1px solid #ddd5c8',
                     }}
                   >
                     {t}
@@ -606,13 +345,39 @@ export function MeditateInterface() {
 
           {/* Result */}
           {hasResult && result && (
-            <MeditationScript
-              script={result.script}
-              topic={topic}
-              duration={result.duration}
-              sources={result.sources}
-              onReset={handleReset}
-            />
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <p className="font-semibold text-sm" style={{ color: '#3d4f38' }}>
+                    {result.duration} guided meditation
+                  </p>
+                  <p className="text-xs mt-0.5" style={{ color: '#9c9080' }}>
+                    Topic: {topic}
+                  </p>
+                </div>
+                <button
+                  onClick={handleReset}
+                  className="text-xs px-3 py-1.5 rounded-full border transition-colors"
+                  style={{ borderColor: '#e0d8cc', color: '#7d8c6e' }}
+                >
+                  New meditation
+                </button>
+              </div>
+
+              <div
+                className="rounded-2xl px-6 py-5"
+                style={{ background: '#f0ece3' }}
+              >
+                <div
+                  className="text-sm leading-loose whitespace-pre-wrap"
+                  style={{ color: '#2c2c2c', fontFamily: 'var(--font-geist-sans)' }}
+                >
+                  {result.script}
+                </div>
+              </div>
+
+              <SourceList sources={result.sources} />
+            </div>
           )}
         </div>
       </div>
@@ -620,15 +385,16 @@ export function MeditateInterface() {
       {/* Input bar — hidden when showing a result */}
       {!hasResult && (
         <div
-          className="border-t px-4 py-4"
-          style={{ borderColor: 'var(--border)', background: 'var(--bg)' }}
+          className="border-t px-4 pt-4 pb-4"
+          style={{ borderColor: '#e0d8cc', background: '#faf8f3' }}
         >
-          <form onSubmit={handleSubmit} className="max-w-2xl mx-auto">
+          <form onSubmit={handleSubmit} className="max-w-2xl mx-auto space-y-3">
+            <VoiceCardGrid value={voiceStyle} onChange={setVoiceStyle} />
             <div
               className="flex items-center gap-2 rounded-2xl px-4 py-3"
               style={{
-                background: 'var(--bg-input)',
-                border: '1px solid var(--border)',
+                background: '#fff',
+                border: '1px solid #e0d8cc',
                 boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
               }}
             >
@@ -640,15 +406,17 @@ export function MeditateInterface() {
                 disabled={loading}
                 maxLength={MAX_TOPIC_CHARS}
                 className="flex-1 bg-transparent text-sm leading-relaxed outline-none placeholder-zinc-400 disabled:opacity-50"
-                style={{ color: 'var(--text)' }}
+                style={{ color: '#2c2c2c' }}
               />
               <button
                 type="submit"
                 disabled={!topic.trim() || loading}
+                aria-label="Generate meditation"
                 className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-opacity disabled:opacity-30"
-                style={{ background: 'var(--sage)' }}
+                style={{ background: '#7d8c6e' }}
               >
-                <svg aria-hidden="true"
+                <svg
+                  aria-hidden="true"
                   className="w-4 h-4 text-white"
                   fill="none"
                   viewBox="0 0 24 24"
@@ -662,8 +430,11 @@ export function MeditateInterface() {
             {topic.length > 0 && (
               <div className="flex justify-end mt-1.5 px-1">
                 <p
+                  role="status"
+                  aria-live="polite"
+                  aria-atomic="true"
                   className="text-xs tabular-nums"
-                  style={{ color: topic.length >= MAX_TOPIC_CHARS ? 'var(--error-text)' : 'var(--text-faint)' }}
+                  style={{ color: topic.length >= MAX_TOPIC_CHARS ? '#c0392b' : '#b0a898' }}
                 >
                   {topic.length} / {MAX_TOPIC_CHARS}
                 </p>
@@ -673,5 +444,6 @@ export function MeditateInterface() {
         </div>
       )}
     </div>
+    </>
   );
 }

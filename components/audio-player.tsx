@@ -211,6 +211,7 @@ export function AudioPlayer({ audioUrl, sessionId, onComplete, onMarkComplete }:
 
   return (
     <div
+      role="region"
       className="rounded-xl px-4 py-3 mb-6"
       style={{
         background: 'var(--bg-surface)',
