@@ -21,8 +21,6 @@ export interface QAInterfaceActions {
 
 interface Source {
   text: string;
-  speaker: string;
-  source: string;
   score: number;
 }
 

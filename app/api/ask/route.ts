@@ -58,7 +58,7 @@ function buildCacheHitResponse(
   sources: CachedSource[],
   conversationId: string,
 ): Response {
-  const clientSources = sources.map(({ source: _src, ...rest }) => rest);
+  const clientSources = sources.map(({ source: _src, speaker: _spk, ...rest }) => rest);
   const textId = randomUUID();
   const stream = new ReadableStream<UIMessageChunk>({
     start(controller) {
@@ -123,19 +123,24 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Support AI SDK format (messages array)
+  // Support AI SDK v6 UIMessage format (parts array) and legacy format (content string)
+  type MsgShape = { role: string; content?: string; parts?: Array<{ type: string; text?: string }> };
+  const extractText = (m: MsgShape) =>
+    typeof m.content === 'string' ? m.content :
+    (m.parts?.filter(p => p.type === 'text').map(p => p.text ?? '').join('') ?? '');
+
   let question: string;
   let priorMessages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
 
-  const messages = body?.messages as Array<{ role: string; content: string }> | undefined;
+  const messages = body?.messages as MsgShape[] | undefined;
   if (Array.isArray(messages) && messages.length > 0) {
     const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user');
-    question = lastUserMsg?.content?.trim() ?? '';
+    question = extractText(lastUserMsg ?? {}).trim();
     priorMessages = messages
       .slice(0, -1)
       .filter((m) => m.role === 'user' || m.role === 'assistant')
       .slice(-6)
-      .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+      .map((m) => ({ role: m.role as 'user' | 'assistant', content: extractText(m) }));
   } else {
     // Legacy format
     question = typeof body?.question === 'string' ? body.question.trim() : '';
@@ -407,7 +412,7 @@ export async function POST(req: NextRequest) {
   }));
 
   // Strip identifying fields before sending to client
-  const clientSources = sources.map(({ source: _src, ...rest }) => rest);
+  const clientSources = sources.map(({ source: _src, speaker: _spk, ...rest }) => rest);
 
   // ── Stream response using AI SDK ──
   const result = streamText({
