@@ -55,7 +55,7 @@ export function LoginForm() {
       )}
 
       <p className="text-xs" style={{ color: '#b0a898' }}>
-        Answers sourced from 760+ hours of mindfulness teachings
+        Answers sourced from hundreds of hours of mindfulness teachings from leading teachers and practitioners
       </p>
     </div>
   );

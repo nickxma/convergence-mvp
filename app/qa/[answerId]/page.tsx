@@ -197,7 +197,7 @@ export default async function QAAnswerPage({ params }: Props) {
             Explore more mindfulness teachings
           </p>
           <p className="text-xs mb-4" style={{ color: '#9c9080' }}>
-            Ask anything — sourced from 760+ hours of guided meditations and conversations.
+            Ask anything — sourced from hundreds of hours of guided meditations and conversations from leading mindfulness teachers and practitioners.
           </p>
           <a
             href="/qa"
