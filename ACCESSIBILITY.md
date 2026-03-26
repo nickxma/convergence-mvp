@@ -51,6 +51,37 @@ The conversation delete button was hidden with `sm:opacity-0 sm:group-hover:opac
 
 ---
 
+## Fixes Applied (OLU-913)
+
+### 12. Notification Bell — Escape Key + Decorative Icons
+- Added `keydown` handler: Escape closes the notification panel and returns focus to the bell button
+- All `NotificationIcon` SVGs marked `aria-hidden="true"` (they are decorative)
+- Empty-state bell SVG also marked `aria-hidden="true"`
+
+### 13. Wallet Balance Dropdown — `aria-haspopup` + Escape + `aria-hidden`
+- Added `aria-haspopup="true"` to the trigger button
+- Added Escape key handler to close the dropdown
+- Wallet icon SVG marked `aria-hidden="true"`
+
+### 14. Meditate Interface — Multiple Fixes
+- `SourceList` toggle button now has `aria-expanded` and `aria-controls="source-list-panel"`; chevron SVG is `aria-hidden`
+- Submit (generate) button now has `aria-label="Generate meditation"`; arrow SVG is `aria-hidden`
+- Character counter now has `role="status"` and `aria-live="polite"` so screen readers announce limit changes
+- Decorative sun/loading SVGs marked `aria-hidden="true"`
+
+### 15. Meditation Audio Player — Speed Button Labels
+- Both desktop and mobile speed buttons now have `aria-label` describing current speed and action (e.g. "Playback speed: 1×. Click to cycle.")
+
+### 16. Audio Player — `role="region"`
+- Container `<div>` now has `role="region"` to pair correctly with the existing `aria-label="Audio narration player"`
+
+### 17. Voice Card Grid — Selection State + Decorative Icons
+- Voice selection buttons now have `aria-pressed={selected}` so screen readers announce which voice is active
+- Added `aria-label` combining name and description (e.g. "Calm: Slow & soothing") so the button's purpose is clear without surrounding context
+- Play/pause/loading spinner SVGs inside the preview button are `aria-hidden="true"`
+
+---
+
 ## Intentional AA Deviations
 
 ### Primary Sage Button Contrast
