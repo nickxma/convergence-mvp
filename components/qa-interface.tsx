@@ -52,14 +52,12 @@ function getMessageLanguage(msg: UIMessage): { code: string; name: string } | nu
   return meta?.detectedLanguage ?? null;
 }
 
-/** Format a file path source into a readable label. */
-function sourceLabel(source: string): string {
-  if (!source) return 'Transcript';
-  const base = source.split('/').pop() ?? source;
-  return base.replace(/\.[^.]+$/, '').replace(/[_-]/g, ' ');
+/** Format a teacher name for display. */
+function teacherLabel(speaker: string): string {
+  return speaker || 'Mindfulness Teacher';
 }
 
-/** Render answer text with clickable [N] citation markers. */
+/** Render answer text with clickable [N] citation markers referencing teachers. */
 function CitationText({
   text,
   sourcesCount,
@@ -93,7 +91,7 @@ function CitationText({
                   verticalAlign: 'middle',
                   minWidth: '16px',
                 }}
-                aria-label={`View source ${num}`}
+                aria-label={`View teacher ${num}`}
               >
                 {num}
               </button>
@@ -169,7 +167,7 @@ function CitationPanel({
           style={{ borderColor: '#e0d8cc' }}
         >
           <h2 className="font-semibold text-sm" style={{ color: '#2c2c2c' }}>
-            Sources{' '}
+            Teachers Referenced{' '}
             <span style={{ color: '#9c9080', fontWeight: 400 }}>({sources.length})</span>
           </h2>
           <button
@@ -217,48 +215,13 @@ function CitationPanel({
                   </span>
 
                   <div className="flex-1 min-w-0">
-                    {/* Speaker / author */}
-                    {s.speaker && (
-                      <p className="font-semibold text-xs mb-1.5" style={{ color: '#5a6b52' }}>
-                        {s.speaker}
-                      </p>
-                    )}
-
-                    {/* Passage excerpt */}
-                    <p
-                      className="text-xs leading-relaxed"
-                      style={{
-                        color: '#5c5248',
-                        background: isActive ? 'rgba(125,140,110,0.08)' : 'transparent',
-                        borderRadius: '4px',
-                        padding: isActive ? '4px 6px' : '0',
-                        fontStyle: 'italic',
-                      }}
-                    >
-                      &ldquo;{s.text}&rdquo;
+                    {/* Teacher name */}
+                    <p className="font-semibold text-xs" style={{ color: '#5a6b52' }}>
+                      {teacherLabel(s.speaker)}
                     </p>
-
-                    {/* Source label + relevance score */}
-                    <div className="flex items-center justify-between mt-2 gap-2">
-                      <p
-                        className="text-xs truncate"
-                        style={{ color: '#9c9080', fontFamily: 'monospace', fontSize: '10px' }}
-                        title={s.source}
-                      >
-                        {sourceLabel(s.source)}
-                      </p>
-                      <span
-                        className="flex-shrink-0 px-1.5 py-0.5 rounded-full"
-                        style={{
-                          background: '#e8f0e4',
-                          color: '#5a6b52',
-                          fontSize: '10px',
-                          fontWeight: 600,
-                        }}
-                      >
-                        {Math.round(s.score * 100)}% match
-                      </span>
-                    </div>
+                    <p className="text-xs mt-1" style={{ color: '#9c9080' }}>
+                      Mindfulness teaching
+                    </p>
                   </div>
                 </div>
               </div>
@@ -573,7 +536,7 @@ export function QAInterface({
                                 d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"
                               />
                             </svg>
-                            {sources.length} source{sources.length !== 1 ? 's' : ''}
+                            {sources.length} teacher{sources.length !== 1 ? 's' : ''} cited
                           </button>
                         </div>
                       )}

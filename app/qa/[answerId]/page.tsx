@@ -71,10 +71,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
-function sourceLabel(source: string): string {
-  if (!source) return 'Transcript';
-  const base = source.split('/').pop() ?? source;
-  return base.replace(/\.[^.]+$/, '').replace(/[_-]/g, ' ');
+function teacherLabel(speaker: string): string {
+  return speaker || 'Mindfulness Teacher';
 }
 
 function FormattedAnswer({ text }: { text: string }) {
@@ -152,11 +150,11 @@ export default async function QAAnswerPage({ params }: Props) {
           </div>
         </div>
 
-        {/* Sources */}
+        {/* Teachers Referenced */}
         {top3Sources.length > 0 && (
           <div className="mb-8">
             <p className="text-xs font-semibold uppercase tracking-wide mb-3" style={{ color: '#9c9080' }}>
-              Sources
+              Teachers Referenced
             </p>
             <div className="space-y-2">
               {top3Sources.map((s, i) => (
@@ -173,16 +171,11 @@ export default async function QAAnswerPage({ params }: Props) {
                       [{i + 1}]
                     </span>
                     <div className="flex-1 min-w-0">
-                      <p className="font-semibold mb-0.5" style={{ color: '#5a6b52' }}>
-                        {sourceLabel(s.source)}
+                      <p className="font-semibold" style={{ color: '#5a6b52' }}>
+                        {teacherLabel(s.speaker)}
                       </p>
-                      {s.speaker && (
-                        <p className="mb-1 opacity-70" style={{ color: '#5a6b52' }}>
-                          {s.speaker}
-                        </p>
-                      )}
-                      <p className="leading-relaxed" style={{ color: '#5c5248' }}>
-                        {s.text}
+                      <p className="mt-0.5" style={{ color: '#9c9080' }}>
+                        Mindfulness teaching
                       </p>
                     </div>
                   </div>
