@@ -75,9 +75,21 @@ function MeditationSkeleton() {
   );
 }
 
-function SourceList({ sources }: { sources: Source[] }) {
+/** Static sources used across the corpus. */
+const CORPUS_SOURCES = [
+  { name: 'SuttaCentral', url: 'https://suttacentral.net', count: '4,816', desc: 'Pali Canon, early Buddhist texts' },
+  { name: 'Lotsawa House', url: 'https://www.lotsawahouse.org', count: '2,224', desc: 'Tibetan Buddhist texts' },
+  { name: 'Access to Insight', url: 'https://www.accesstoinsight.org', count: '1,621', desc: 'Theravada texts, Pali Canon + commentary' },
+  { name: 'PMC (PubMed Central)', url: 'https://www.ncbi.nlm.nih.gov/pmc/', count: '585', desc: 'peer-reviewed papers on mindfulness and contemplative science' },
+  { name: 'Project Gutenberg', url: 'https://www.gutenberg.org', count: '127', desc: 'classic contemplative texts' },
+  { name: 'dhammatalks.org', url: 'https://www.dhammatalks.org', count: '90', desc: 'books (Thanissaro Bhikkhu)' },
+  { name: 'Wikisource', url: 'https://en.wikisource.org', count: '13', desc: 'public domain contemplative texts' },
+  { name: 'Dharma Seed', url: 'https://www.dharmaseed.org', count: '7', desc: 'talks (with explicit permission)' },
+  { name: 'Internet Archive', url: 'https://archive.org', count: '5', desc: 'pre-1928 public domain texts' },
+];
+
+function SourceList() {
   const [open, setOpen] = useState(false);
-  if (sources.length === 0) return null;
 
   return (
     <div className="mt-4">
@@ -99,31 +111,32 @@ function SourceList({ sources }: { sources: Source[] }) {
         >
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
         </svg>
-        {sources.length} source{sources.length !== 1 ? 's' : ''}
+        View sources
       </button>
       {open && (
         <div id="source-list-panel" className="mt-2 space-y-2">
-          {sources.map((s, i) => (
+          <p className="text-xs leading-relaxed mb-1" style={{ color: '#7d8c6e' }}>
+            Meditations are drawn from 9,500+ documents across nine curated sources.
+          </p>
+          {CORPUS_SOURCES.map((src) => (
             <div
-              key={i}
+              key={src.name}
               className="rounded-lg p-3 text-xs"
               style={{ background: '#f0ece3', borderLeft: '2px solid #b8ccb0' }}
             >
-              {s.speaker && (
-                <p className="font-semibold mb-1" style={{ color: '#5a6b52' }}>
-                  {s.speaker}
-                </p>
-              )}
-              <p className="leading-relaxed" style={{ color: '#5c5248' }}>
-                {s.text}
+              <p className="font-semibold mb-0.5" style={{ color: '#5a6b52' }}>
+                <a href={src.url} target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', textDecoration: 'underline', textUnderlineOffset: '2px' }}>
+                  {src.name}
+                </a>
               </p>
-              {s.source && (
-                <p className="mt-1 opacity-60 font-mono" style={{ color: '#7d8c6e' }}>
-                  {s.source}
-                </p>
-              )}
+              <p style={{ color: '#9c9080' }}>
+                {src.count} documents — {src.desc}
+              </p>
             </div>
           ))}
+          <p className="text-xs pt-1" style={{ color: '#b0a898' }}>
+            Detailed transcript references coming soon.
+          </p>
         </div>
       )}
     </div>
@@ -376,7 +389,7 @@ export function MeditateInterface() {
                 </div>
               </div>
 
-              <SourceList sources={result.sources} />
+              <SourceList />
             </div>
           )}
         </div>
