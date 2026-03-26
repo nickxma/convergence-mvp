@@ -346,18 +346,18 @@ export function MeditateInterface() {
           {/* Result */}
           {hasResult && result && (
             <div>
-              <div className="flex items-center justify-between mb-4">
-                <div>
+              <div className="flex items-center justify-between gap-3 mb-4">
+                <div className="min-w-0">
                   <p className="font-semibold text-sm" style={{ color: '#3d4f38' }}>
                     {result.duration} guided meditation
                   </p>
-                  <p className="text-xs mt-0.5" style={{ color: '#9c9080' }}>
+                  <p className="text-xs mt-0.5 truncate" style={{ color: '#9c9080' }}>
                     Topic: {topic}
                   </p>
                 </div>
                 <button
                   onClick={handleReset}
-                  className="text-xs px-3 py-1.5 rounded-full border transition-colors"
+                  className="flex-shrink-0 text-xs px-3 py-1.5 rounded-full border transition-colors"
                   style={{ borderColor: '#e0d8cc', color: '#7d8c6e' }}
                 >
                   New meditation
@@ -365,7 +365,7 @@ export function MeditateInterface() {
               </div>
 
               <div
-                className="rounded-2xl px-6 py-5"
+                className="rounded-2xl px-4 sm:px-6 py-5"
                 style={{ background: '#f0ece3' }}
               >
                 <div

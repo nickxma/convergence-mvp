@@ -97,7 +97,7 @@ export function VoiceCardGrid({ value, onChange }: Props) {
       <p className="text-xs font-medium mb-2.5" style={{ color: '#7d8c6e' }}>
         Voice
       </p>
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
         {VOICES.map((voice) => {
           const selected = value === voice.id;
           const isPlaying = playingId === voice.id;

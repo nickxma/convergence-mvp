@@ -188,7 +188,7 @@ export default async function ExplorePage() {
         </div>
       </header>
 
-      <main id="main-content" className="max-w-3xl mx-auto px-4 py-8 space-y-12">
+      <main id="main-content" className="max-w-3xl mx-auto px-4 py-6 sm:py-8 space-y-8 sm:space-y-12">
 
         {/* Featured Answers */}
         {featured.length > 0 && (
