@@ -1,9 +1,11 @@
 'use client';
 
+import { useState } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
 
 export function LandingPage() {
   const { login } = usePrivy();
+  const [showSources, setShowSources] = useState(false);
 
   return (
     <div className="flex flex-col min-h-full" style={{ background: '#faf8f3', color: '#2c2c2c' }}>
@@ -55,8 +57,7 @@ export function LandingPage() {
             className="text-base md:text-lg leading-relaxed max-w-md mx-auto"
             style={{ color: '#7d8c6e' }}
           >
-            Answers sourced from 760+ hours of guided meditations, teachings, and conversations
-            from leading mindfulness teachers.
+            Answers drawn from 9,500+ documents across nine curated sources — ancient texts, contemporary teachings, and peer-reviewed science.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
             <button
@@ -125,16 +126,39 @@ export function LandingPage() {
             About
           </h2>
           <p className="text-sm leading-relaxed" style={{ color: '#5c5248' }}>
-            Convergence is a knowledge tool for people who take mindfulness seriously. It uses
-            retrieval-augmented generation (RAG) to search and synthesize answers from a curated
-            archive of 760+ hours of content — guided meditations, teachings, and conversations
-            with scientists and philosophers.
+            Convergence is a research tool for people who take mindfulness seriously. It searches
+            and synthesizes answers from a curated corpus of 9,500+ documents and 37 million+
+            words — spanning Theravada and Tibetan Buddhist traditions, contemplative philosophy,
+            and peer-reviewed science.
           </p>
           <p className="text-sm leading-relaxed" style={{ color: '#5c5248' }}>
-            Every answer cites its sources. You can read the exact transcript passages that
-            informed the response. No hallucinations, no invented teachings — only what was
-            actually said.
+            Every answer cites its sources. You can read the exact passages that informed the
+            response. No hallucinations, no invented teachings — only what was actually said or
+            written.
           </p>
+          <div>
+            <button
+              onClick={() => setShowSources(!showSources)}
+              className="text-sm font-medium flex items-center gap-1.5"
+              style={{ color: '#5a6b52' }}
+            >
+              <span style={{ display: 'inline-block', transition: 'transform 0.2s', transform: showSources ? 'rotate(90deg)' : 'rotate(0deg)' }}>▸</span>
+              {showSources ? 'Hide sources' : 'View sources'}
+            </button>
+            {showSources && (
+              <ul className="mt-3 space-y-1.5 text-xs leading-relaxed" style={{ color: '#5c5248' }}>
+                <li><strong>SuttaCentral</strong> — 4,816 documents (Pali Canon, early Buddhist texts)</li>
+                <li><strong>Lotsawa House</strong> — 2,224 documents (Tibetan Buddhist texts)</li>
+                <li><strong>Access to Insight</strong> — 1,621 documents (Theravada texts, Pali Canon + commentary)</li>
+                <li><strong>PMC (PubMed Central)</strong> — 585 peer-reviewed papers on mindfulness and contemplative science</li>
+                <li><strong>Project Gutenberg</strong> — 127 classic contemplative texts</li>
+                <li><strong>dhammatalks.org</strong> — 90 books (Thanissaro Bhikkhu)</li>
+                <li><strong>Wikisource</strong> — 13 public domain contemplative texts</li>
+                <li><strong>Dharma Seed</strong> — 7 talks (with explicit permission)</li>
+                <li><strong>Internet Archive</strong> — 5 pre-1928 public domain texts</li>
+              </ul>
+            )}
+          </div>
           <p className="text-sm leading-relaxed" style={{ color: '#5c5248' }}>
             Built by{' '}
             <span style={{ color: '#5a6b52' }}>Paradox of Acceptance</span> — a project at the
