@@ -19,7 +19,7 @@ const KEY_PREFIX = 'qa:answer:v1:';
 export interface CachedQaAnswer {
   answer: string;
   followUps: string[];
-  chunks: Array<{ text: string; speaker: string; source: string; score: number; chunkId?: string; sourceUrl?: string }>;
+  chunks: Array<{ text: string; speaker: string; source: string; score: number }>;
 }
 
 function redisConfig(): { url: string; token: string } | null {

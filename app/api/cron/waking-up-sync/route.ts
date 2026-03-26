@@ -57,7 +57,6 @@ interface Chunk {
   speaker: string;
   source: string;   // episode title used as the source field queried by RAG
   episodeId: string;
-  sourceUrl: string;
   chunkIndex: number;
 }
 
@@ -67,13 +66,8 @@ interface Chunk {
  * Splits transcript text into overlapping sentence-aware chunks.
  * Detects "Speaker Name: ..." lines and carries the speaker forward.
  */
-function episodeDeepLink(episodeId: string): string {
-  return `https://app.wakingup.com/course/${episodeId}`;
-}
-
 function chunkTranscript(text: string, episodeId: string, title: string): Chunk[] {
   const idHash = createHash('sha256').update(episodeId).digest('hex').slice(0, 12);
-  const sourceUrl = episodeDeepLink(episodeId);
   const chunks: Chunk[] = [];
   let currentSpeaker = 'Sam Harris';
   let current = '';
@@ -93,7 +87,6 @@ function chunkTranscript(text: string, episodeId: string, title: string): Chunk[
       speaker: currentSpeaker,
       source: title,
       episodeId,
-      sourceUrl,
       chunkIndex: chunks.length,
     });
     overlap = body.length > OVERLAP_CHARS ? body.slice(-OVERLAP_CHARS) : body;
@@ -193,7 +186,6 @@ async function embedAndUpsert(
       speaker: c.speaker,
       source: c.source,
       episode_id: c.episodeId,
-      source_url: c.sourceUrl,
       chunk_index: c.chunkIndex,
     });
 
