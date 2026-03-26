@@ -1,63 +1,39 @@
 'use client';
 
+import { useState } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
-import { useTheme } from '@/lib/theme-context';
-
-function ThemeToggle() {
-  const { theme, toggleTheme } = useTheme();
-  return (
-    <button
-      onClick={toggleTheme}
-      aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-      className="flex items-center justify-center w-8 h-8 rounded-full border transition-colors"
-      style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}
-    >
-      {theme === 'dark' ? (
-        <svg aria-hidden="true" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />
-        </svg>
-      ) : (
-        <svg aria-hidden="true" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" />
-        </svg>
-      )}
-    </button>
-  );
-}
 
 export function LandingPage() {
   const { login } = usePrivy();
+  const [showSources, setShowSources] = useState(false);
 
   return (
-    <div className="flex flex-col min-h-full" style={{ background: 'var(--bg)', color: 'var(--text)' }}>
+    <div className="flex flex-col min-h-full" style={{ background: '#faf8f3', color: '#2c2c2c' }}>
       {/* Nav */}
       <header
         className="flex items-center justify-between px-6 py-4 border-b"
-        style={{ borderColor: 'var(--border)', background: 'var(--bg)' }}
+        style={{ borderColor: '#e0d8cc', background: '#faf8f3' }}
       >
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold tracking-tight" style={{ color: 'var(--sage-dark)' }}>
+          <span className="text-sm font-semibold tracking-tight" style={{ color: '#3d4f38' }}>
             Convergence
           </span>
           <span
             className="text-xs px-1.5 py-0.5 rounded-full"
-            style={{ background: 'var(--bg-chip)', color: 'var(--sage)' }}
+            style={{ background: '#e8e0d5', color: '#7d8c6e' }}
           >
             beta
           </span>
         </div>
-        <div className="flex items-center gap-2">
-          <ThemeToggle />
-          <button
-            onClick={login}
-            className="text-sm px-4 py-2 rounded-full font-medium transition-colors"
-            style={{ background: 'var(--sage)', color: '#fff' }}
-            onMouseOver={(e) => (e.currentTarget.style.background = 'var(--sage-hover)')}
-            onMouseOut={(e) => (e.currentTarget.style.background = 'var(--sage)')}
-          >
-            Sign in
-          </button>
-        </div>
+        <button
+          onClick={login}
+          className="text-sm px-4 py-2 rounded-full font-medium transition-colors"
+          style={{ background: '#7d8c6e', color: '#fff' }}
+          onMouseOver={(e) => (e.currentTarget.style.background = '#6b7960')}
+          onMouseOut={(e) => (e.currentTarget.style.background = '#7d8c6e')}
+        >
+          Sign in
+        </button>
       </header>
 
       {/* Hero */}
@@ -65,13 +41,13 @@ export function LandingPage() {
         <div className="max-w-2xl mx-auto space-y-6">
           <div
             className="inline-block text-xs font-medium px-3 py-1 rounded-full mb-2"
-            style={{ background: 'var(--bg-chip)', color: 'var(--sage-mid)' }}
+            style={{ background: '#e8e0d5', color: '#5a6b52' }}
           >
             Paradox of Acceptance
           </div>
           <h1
             className="text-4xl md:text-5xl font-semibold tracking-tight leading-tight"
-            style={{ color: 'var(--sage-dark)' }}
+            style={{ color: '#3d4f38' }}
           >
             Ask anything about
             <br />
@@ -79,18 +55,17 @@ export function LandingPage() {
           </h1>
           <p
             className="text-base md:text-lg leading-relaxed max-w-md mx-auto"
-            style={{ color: 'var(--sage)' }}
+            style={{ color: '#7d8c6e' }}
           >
-            Answers sourced from 760+ hours of guided meditations, teachings, and conversations
-            from leading mindfulness teachers.
+            Answers drawn from 9,500+ documents across nine curated sources — ancient texts, contemporary teachings, and peer-reviewed science.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
             <button
               onClick={login}
               className="w-full sm:w-auto text-sm px-6 py-3 rounded-full font-medium transition-colors"
-              style={{ background: 'var(--sage)', color: '#fff' }}
-              onMouseOver={(e) => (e.currentTarget.style.background = 'var(--sage-hover)')}
-              onMouseOut={(e) => (e.currentTarget.style.background = 'var(--sage)')}
+              style={{ background: '#7d8c6e', color: '#fff' }}
+              onMouseOver={(e) => (e.currentTarget.style.background = '#6b7960')}
+              onMouseOut={(e) => (e.currentTarget.style.background = '#7d8c6e')}
             >
               Get started — it&apos;s free
             </button>
@@ -99,11 +74,11 @@ export function LandingPage() {
       </section>
 
       {/* How it works */}
-      <section className="px-6 py-16 border-t" style={{ borderColor: 'var(--border)' }}>
+      <section className="px-6 py-16 border-t" style={{ borderColor: '#e0d8cc' }}>
         <div className="max-w-3xl mx-auto">
           <h2
             className="text-lg font-semibold text-center mb-10"
-            style={{ color: 'var(--sage-dark)' }}
+            style={{ color: '#3d4f38' }}
           >
             How it works
           </h2>
@@ -126,13 +101,13 @@ export function LandingPage() {
               },
             ].map(({ step, title, desc }) => (
               <div key={step} className="space-y-2">
-                <div className="text-xs font-mono font-semibold" style={{ color: 'var(--source-border)' }}>
+                <div className="text-xs font-mono font-semibold" style={{ color: '#b8ccb0' }}>
                   {step}
                 </div>
-                <h3 className="text-sm font-semibold" style={{ color: 'var(--sage-dark)' }}>
+                <h3 className="text-sm font-semibold" style={{ color: '#3d4f38' }}>
                   {title}
                 </h3>
-                <p className="text-sm leading-relaxed" style={{ color: 'var(--sage)' }}>
+                <p className="text-sm leading-relaxed" style={{ color: '#7d8c6e' }}>
                   {desc}
                 </p>
               </div>
@@ -144,26 +119,49 @@ export function LandingPage() {
       {/* About */}
       <section
         className="px-6 py-16 border-t"
-        style={{ borderColor: 'var(--border)', background: 'var(--bg-sidebar)' }}
+        style={{ borderColor: '#e0d8cc', background: '#f5f0e8' }}
       >
         <div className="max-w-2xl mx-auto space-y-4">
-          <h2 className="text-lg font-semibold" style={{ color: 'var(--sage-dark)' }}>
+          <h2 className="text-lg font-semibold" style={{ color: '#3d4f38' }}>
             About
           </h2>
-          <p className="text-sm leading-relaxed" style={{ color: 'var(--text-warm)' }}>
-            Convergence is a knowledge tool for people who take mindfulness seriously. It uses
-            retrieval-augmented generation (RAG) to search and synthesize answers from a curated
-            archive of 760+ hours of content — guided meditations, teachings, and conversations
-            with scientists and philosophers.
+          <p className="text-sm leading-relaxed" style={{ color: '#5c5248' }}>
+            Convergence is a research tool for people who take mindfulness seriously. It searches
+            and synthesizes answers from a curated corpus of 9,500+ documents and 37 million+
+            words — spanning Theravada and Tibetan Buddhist traditions, contemplative philosophy,
+            and peer-reviewed science.
           </p>
-          <p className="text-sm leading-relaxed" style={{ color: 'var(--text-warm)' }}>
-            Every answer cites its sources. You can read the exact transcript passages that
-            informed the response. No hallucinations, no invented teachings — only what was
-            actually said.
+          <p className="text-sm leading-relaxed" style={{ color: '#5c5248' }}>
+            Every answer cites its sources. You can read the exact passages that informed the
+            response. No hallucinations, no invented teachings — only what was actually said or
+            written.
           </p>
-          <p className="text-sm leading-relaxed" style={{ color: 'var(--text-warm)' }}>
+          <div>
+            <button
+              onClick={() => setShowSources(!showSources)}
+              className="text-sm font-medium flex items-center gap-1.5"
+              style={{ color: '#5a6b52' }}
+            >
+              <span style={{ display: 'inline-block', transition: 'transform 0.2s', transform: showSources ? 'rotate(90deg)' : 'rotate(0deg)' }}>▸</span>
+              {showSources ? 'Hide sources' : 'View sources'}
+            </button>
+            {showSources && (
+              <ul className="mt-3 space-y-1.5 text-xs leading-relaxed" style={{ color: '#5c5248' }}>
+                <li><strong>SuttaCentral</strong> — 4,816 documents (Pali Canon, early Buddhist texts)</li>
+                <li><strong>Lotsawa House</strong> — 2,224 documents (Tibetan Buddhist texts)</li>
+                <li><strong>Access to Insight</strong> — 1,621 documents (Theravada texts, Pali Canon + commentary)</li>
+                <li><strong>PMC (PubMed Central)</strong> — 585 peer-reviewed papers on mindfulness and contemplative science</li>
+                <li><strong>Project Gutenberg</strong> — 127 classic contemplative texts</li>
+                <li><strong>dhammatalks.org</strong> — 90 books (Thanissaro Bhikkhu)</li>
+                <li><strong>Wikisource</strong> — 13 public domain contemplative texts</li>
+                <li><strong>Dharma Seed</strong> — 7 talks (with explicit permission)</li>
+                <li><strong>Internet Archive</strong> — 5 pre-1928 public domain texts</li>
+              </ul>
+            )}
+          </div>
+          <p className="text-sm leading-relaxed" style={{ color: '#5c5248' }}>
             Built by{' '}
-            <span style={{ color: 'var(--sage-mid)' }}>Paradox of Acceptance</span> — a project at the
+            <span style={{ color: '#5a6b52' }}>Paradox of Acceptance</span> — a project at the
             intersection of mindfulness, AI, and crypto-native infrastructure.
           </p>
         </div>
@@ -172,14 +170,14 @@ export function LandingPage() {
       {/* Footer */}
       <footer
         className="px-6 py-8 border-t"
-        style={{ borderColor: 'var(--border)', background: 'var(--bg)' }}
+        style={{ borderColor: '#e0d8cc', background: '#faf8f3' }}
       >
         <div className="max-w-3xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold" style={{ color: 'var(--sage-dark)' }}>
+            <span className="text-xs font-semibold" style={{ color: '#3d4f38' }}>
               Convergence
             </span>
-            <span className="text-xs" style={{ color: 'var(--text-faint)' }}>
+            <span className="text-xs" style={{ color: '#b0a898' }}>
               · Paradox of Acceptance
             </span>
           </div>
@@ -187,29 +185,40 @@ export function LandingPage() {
             <a
               href="#about"
               className="text-xs transition-colors"
-              style={{ color: 'var(--text-muted)' }}
-              onMouseOver={(e) => (e.currentTarget.style.color = 'var(--sage-mid)')}
-              onMouseOut={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
+              style={{ color: '#9c9080' }}
+              onMouseOver={(e) => (e.currentTarget.style.color = '#5a6b52')}
+              onMouseOut={(e) => (e.currentTarget.style.color = '#9c9080')}
             >
               About
+            </a>
+            <a
+              href="https://paradoxofacceptance.xyz"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs transition-colors"
+              style={{ color: '#9c9080' }}
+              onMouseOver={(e) => (e.currentTarget.style.color = '#5a6b52')}
+              onMouseOut={(e) => (e.currentTarget.style.color = '#9c9080')}
+            >
+              Paradox of Acceptance ↗
             </a>
             <a
               href="https://github.com/nickxma/convergence-mvp"
               target="_blank"
               rel="noopener noreferrer"
               className="text-xs transition-colors"
-              style={{ color: 'var(--text-muted)' }}
-              onMouseOver={(e) => (e.currentTarget.style.color = 'var(--sage-mid)')}
-              onMouseOut={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
+              style={{ color: '#9c9080' }}
+              onMouseOver={(e) => (e.currentTarget.style.color = '#5a6b52')}
+              onMouseOut={(e) => (e.currentTarget.style.color = '#9c9080')}
             >
               GitHub
             </a>
             <button
               onClick={login}
               className="text-xs transition-colors"
-              style={{ color: 'var(--sage)' }}
-              onMouseOver={(e) => (e.currentTarget.style.color = 'var(--sage-mid)')}
-              onMouseOut={(e) => (e.currentTarget.style.color = 'var(--sage)')}
+              style={{ color: '#7d8c6e' }}
+              onMouseOver={(e) => (e.currentTarget.style.color = '#5a6b52')}
+              onMouseOut={(e) => (e.currentTarget.style.color = '#7d8c6e')}
             >
               Sign in →
             </button>
