@@ -204,7 +204,7 @@ Always test a restore on staging before applying to production.
 
 ## 5. Pinecone Corpus Refresh
 
-Embeds new or changed Waking Up transcripts into Pinecone. Skips files already in the corpus manifest.
+Embeds new or changed transcripts into Pinecone. Skips files already in the corpus manifest.
 
 ```bash
 pnpm refresh:corpus
@@ -218,7 +218,7 @@ What it does:
 1. Reads `.txt` transcript files from the transcript directory.
 2. Hashes each file and checks `corpus_manifest` in Supabase — skips unchanged files.
 3. Chunks new/changed files (~300 tokens, 50-token overlap).
-4. Embeds with `text-embedding-3-small`, upserts to Pinecone namespace `waking-up` in batches of 100.
+4. Embeds with `text-embedding-3-small`, upserts to Pinecone corpus namespace in batches of 100.
 5. Writes new rows to `corpus_manifest`.
 
 Safe to re-run at any time — idempotent.

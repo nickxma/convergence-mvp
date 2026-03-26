@@ -45,8 +45,8 @@ test.describe('Guest Q&A flow', () => {
         body: JSON.stringify({
           answer: 'Mindfulness is the practice of present-moment awareness without judgment.',
           sources: [
-            { text: 'The present moment is all we have.', speaker: 'Sam Harris', source: 'Waking Up Podcast' },
-            { text: 'Awareness is not a thing but a process.', speaker: 'Sam Harris', source: 'Making Sense' },
+            { text: 'The present moment is all we have.', speaker: 'Thich Nhat Hanh', source: 'The Miracle of Mindfulness' },
+            { text: 'Awareness is not a thing but a process.', speaker: 'Jon Kabat-Zinn', source: 'Wherever You Go, There You Are' },
           ],
           guestQueriesRemaining: 2,
           answerId: 'guest-answer-1',

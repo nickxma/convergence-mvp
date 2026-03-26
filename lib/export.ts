@@ -73,7 +73,7 @@ export function buildMarkdown(messages: Message[], date = new Date()): string {
   const pairs = pairMessages(messages);
   if (pairs.length === 0) return '';
 
-  const lines: string[] = [`# Waking Up Q&A — ${formatDate(date)}`, ''];
+  const lines: string[] = [`# Convergence Q&A — ${formatDate(date)}`, ''];
   const allSources: Source[] = [];
 
   for (const { question, answer, sources } of pairs) {
@@ -98,7 +98,7 @@ export function buildMarkdownSingle(
   const lines: string[] = [
     `# ${question}`,
     '',
-    `*Waking Up Q&A — ${formatDate(date)}*`,
+    `*Convergence Q&A — ${formatDate(date)}*`,
     '',
     '### Answer',
     '',
@@ -113,7 +113,7 @@ export function buildPlainText(messages: Message[], date = new Date()): string {
   const pairs = pairMessages(messages);
   if (pairs.length === 0) return '';
 
-  const lines: string[] = [`Waking Up Q&A — ${formatDate(date)}`, ''];
+  const lines: string[] = [`Convergence Q&A — ${formatDate(date)}`, ''];
   const allSources: Source[] = [];
 
   for (const { question, answer, sources } of pairs) {
@@ -137,7 +137,7 @@ export function buildPlainTextSingle(
   const lines: string[] = [
     `Q: ${question}`,
     '',
-    `Waking Up Q&A — ${formatDate(date)}`,
+    `Convergence Q&A — ${formatDate(date)}`,
     '',
     stripCitations(answer),
     '',
@@ -163,10 +163,10 @@ export function exportConversation(messages: Message[], format: 'markdown' | 'pl
   const datePart = fileDate(now);
   if (format === 'markdown') {
     const content = buildMarkdown(messages, now);
-    downloadText(content, `waking-up-qa-${datePart}.md`, 'text/markdown');
+    downloadText(content, `convergence-qa-${datePart}.md`, 'text/markdown');
   } else {
     const content = buildPlainText(messages, now);
-    downloadText(content, `waking-up-qa-${datePart}.txt`, 'text/plain');
+    downloadText(content, `convergence-qa-${datePart}.txt`, 'text/plain');
   }
 }
 
@@ -201,7 +201,7 @@ export interface HistoryConversation {
  */
 export function buildMarkdownFromHistories(conversations: HistoryConversation[]): string {
   const lines: string[] = [
-    '# Waking Up Q\u0026A — Study Journal',
+    '# Convergence Q\u0026A — Study Journal',
     `*Exported ${formatDate(new Date())}*`,
     '',
   ];
@@ -229,7 +229,7 @@ export function buildMarkdownFromHistories(conversations: HistoryConversation[])
  */
 export function buildPlainTextFromHistories(conversations: HistoryConversation[]): string {
   const lines: string[] = [
-    'Waking Up Q\u0026A — Study Journal',
+    'Convergence Q\u0026A — Study Journal',
     `Exported ${formatDate(new Date())}`,
     '',
   ];
@@ -260,10 +260,10 @@ export function exportAllConversations(
   const datePart = fileDate(now);
   if (format === 'markdown') {
     const content = buildMarkdownFromHistories(conversations);
-    downloadText(content, `waking-up-qa-journal-${datePart}.md`, 'text/markdown');
+    downloadText(content, `convergence-qa-journal-${datePart}.md`, 'text/markdown');
   } else {
     const content = buildPlainTextFromHistories(conversations);
-    downloadText(content, `waking-up-qa-journal-${datePart}.txt`, 'text/plain');
+    downloadText(content, `convergence-qa-journal-${datePart}.txt`, 'text/plain');
   }
 }
 
@@ -277,7 +277,7 @@ export interface SavedAnswerExport {
 
 function buildMarkdownFromSaved(answers: SavedAnswerExport[]): string {
   const lines: string[] = [
-    '# Waking Up Q\u0026A — Saved Answers',
+    '# Convergence Q\u0026A — Saved Answers',
     `*Exported ${formatDate(new Date())}*`,
     '',
   ];
@@ -300,7 +300,7 @@ function buildMarkdownFromSaved(answers: SavedAnswerExport[]): string {
 
 function buildPlainTextFromSaved(answers: SavedAnswerExport[]): string {
   const lines: string[] = [
-    'Waking Up Q\u0026A — Saved Answers',
+    'Convergence Q\u0026A — Saved Answers',
     `Exported ${formatDate(new Date())}`,
     '',
   ];
